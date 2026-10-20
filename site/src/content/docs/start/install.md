@@ -11,6 +11,13 @@ description: Prerequisites, installing the binary, running the daemon as a servi
 - **Claude Code** (`claude` on PATH) — the default agent runtime launched in each session (other backends are opt-in via `--aicli` — see [Agent backends](/warden/concepts/agent-backends/))
 - **`gh`** (GitHub CLI) — required for `pr-review` sessions to check out the PR branch
 
+### Windows and WSL
+
+warden supports Linux and macOS releases. On Windows, use a supported Linux
+distribution under **WSL** and follow the Linux instructions below; systemd user
+services must be available in that WSL distribution. Native Windows installation
+and service management are not supported.
+
 :::tip
 Once you have the `warden` binary, run **`warden doctor`** to check these
 dependencies and **`warden setup`** to install whatever is missing (Homebrew on
@@ -77,6 +84,9 @@ warden update --plan
 
 ### Rollback & Data Maintenance
 
+For the full decision tree, backups, offline repairs, reset scopes, and
+backup-gated legacy cleanup, see the [Operator guide: updates and data safety](/warden/guides/updates-and-data-safety/).
+
 To roll back an update, run:
 
 ```sh
@@ -85,14 +95,10 @@ warden rollback        # or: wd rollback (-y to skip confirmation)
 
 `warden rollback` restores the previous binary. If no schema changed, it swaps binaries directly. If the schema advanced, it restores data from `<data>/backups/pre-<ver>-<ts>/` with confirmation.
 
-For offline data migrations and whole-store repairs:
-
-```sh
-warden migrate --check       # inspect data store schema status
-warden migrate --apply       # apply pending schema migrations
-warden repair all --resolve-history=live-wins  # repair conflicting keys across all stores
-warden init                  # initialize fresh data dir or verify baseline migrations
-```
+`warden init` initializes a fresh data directory (or brings an existing one to
+the current schema). For an offline migration, start with `warden migrate --check`
+or `warden migrate --plan`; schema-1 repairs use `warden repair all`, while schema-2
+verification uses `warden repair warden-db --dry-run`.
 
 ### In-cockpit update & hot-reload
 

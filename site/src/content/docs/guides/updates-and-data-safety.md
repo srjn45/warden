@@ -1,0 +1,160 @@
+---
+title: "Operator guide: updates and data safety"
+description: Plan upgrades, recover safely, migrate data offline, and retire legacy stores without losing evidence.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Use this guide when you operate an existing warden installation. Start with the
+read-only commands, keep a backup you control, and stop at a refusal rather than
+trying to remove locks or directories by hand.
+
+For the usual release upgrade, see [Install & setup](/warden/start/install/).
+For the schema-1 to schema-2 cutover in particular, see [Schema 2 upgrade](/warden/guides/schema-2-upgrade/).
+
+## Plan an update before changing anything
+
+Preview the target release, its migrations, downtime, breaking changes, and disk
+requirements:
+
+```sh
+warden update --plan
+```
+
+The plan is read-only. If it looks right, `warden update` performs the verified
+download, binary replacement, any required migration, daemon restart, and health
+check as one transaction. `warden update --check` only reports whether an update
+is available.
+
+<Aside type="tip">
+When an update needs the schema-2 cutover, the updater stops the daemon, makes a
+data snapshot, and has the new binary run the migration. A failed migration or
+health check restores the earlier binary and data; a promoted `warden-db` is kept
+under `backups/`, not deleted.
+</Aside>
+
+## Roll back an update
+
+```sh
+warden rollback
+```
+
+Without a schema change this restores the previous binary. If the update changed
+the schema, rollback also restores the pre-update data snapshot and warns that
+data written since the update will be lost. Review that warning before confirming;
+use `--yes` only in an automation that deliberately accepts that loss.
+
+## Initialize or migrate data
+
+`warden init` is the normal initialization command. On a new data directory it
+creates the schema ledger and runs the migration chain from schema 0. On an older
+installation it can stamp a missing baseline ledger and applies pending
+migrations. It needs exclusive ownership when it must migrate, so do not run it
+against a data directory owned by the daemon.
+
+```sh
+warden init
+```
+
+For an existing schema-1 installation, inspect before an offline cutover:
+
+```sh
+warden migrate --check  # read-only preflight
+warden migrate --plan   # read-only cutover inventory, backup path, and blockers
+```
+
+When the plan is clean, stop the daemon and run the explicit migration:
+
+```sh
+warden migrate --apply
+```
+
+The migration takes an ownership lock, verifies the sources, makes an immutable
+checksummed backup, stages and verifies the new store, then promotes it atomically.
+It preserves the schema-1 directories. If a migration was interrupted, choose one
+explicit recovery path after the daemon is stopped:
+
+```sh
+warden migrate --resume
+# or
+warden migrate --restore
+```
+
+## Repair data safely
+
+Repairs are offline and backup-first. Stop the daemon, take your own private copy
+of the data directory, and start with the read-only form of the relevant command.
+Do not delete an ownership lock to bypass a refusal.
+
+On **schema 1**, `warden repair all` rebuilds all ScrivaDB stores using the
+`live-wins` history policy. Preview first, then review the report and confirm the
+repair only if appropriate:
+
+```sh
+warden repair all --resolve-history=live-wins --dry-run
+warden repair all --resolve-history=live-wins
+```
+
+On **schema 2**, the schema-1 repair commands, including `repair all`, refuse
+because those directories are retained evidence rather than live data. Verify the
+unified store instead:
+
+```sh
+warden repair warden-db --dry-run
+```
+
+If verification finds a repairable issue, use the command's required backup
+directory outside `warden-db`; it refuses ambiguous history rather than guessing.
+
+## Factory reset is a last resort
+
+`warden factory-reset` is destructive. It can drain live agents, pipelines,
+autopilot runs, and schedules, then wipes the selected offline scope. The data
+phase requires the daemon to be stopped. Make a backup to a new path and choose a
+scope deliberately:
+
+```sh
+warden factory-reset --scope data --backup ~/.warden.bak --yes
+```
+
+`runtime` clears live fleet and coordination state while retaining archived
+history, projects, backends, metrics, and config. `data` (the default) clears all
+daemon stores while retaining config, presets, prompt templates, and the token.
+`full` also resets those local settings unless you pass `--keep-config`; use
+`--keep-backends` to retain the backend registry for `data` or `full`.
+
+<Aside type="caution">
+`--yes` confirms a destructive reset without prompting. `--skip-drain` is only
+for a daemon that is already down; it does not make it safe to wipe a live data
+directory. A reset is not an upgrade-recovery tool—use `warden rollback` or the
+migration recovery commands first.
+</Aside>
+
+## Retire legacy stores only after the gate passes
+
+After a schema-2 cutover, legacy stores and the pre-cutover backup remain for at
+least 90 days. They are not a runtime fallback. First inspect the retirement
+criteria:
+
+```sh
+warden migrate --retirement
+```
+
+Only when it reports eligibility, preview the exact paths that would move:
+
+```sh
+warden migrate --cleanup-legacy --dry-run
+```
+
+The confirmed operation re-runs the retirement gate, verifies `warden-db` and the
+checksummed cutover backup, then moves eligible legacy paths to
+`backups/legacy-quarantine-<timestamp>/`. It never deletes them, preserves external
+content that is not in `warden-db`, records an audit event, and is a no-op when
+there is nothing left to move.
+
+```sh
+warden migrate --cleanup-legacy --yes
+```
+
+If the gate fails, keep the stores and backup in place. To recover from cleanup,
+move a quarantined path back or restore the pre-schema-2 backup.
