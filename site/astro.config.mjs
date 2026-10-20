@@ -9,7 +9,7 @@ export default defineConfig({
   integrations: [
     starlight({
       title: 'warden',
-      description: 'Run a fleet of Claude Code agents from one cockpit.',
+      description: 'Run a fleet of AI coding CLIs (Claude Code, Codex, Cursor and more) from one cockpit.',
       plugins: [
         starlightBlog({
           title: 'Blog',
