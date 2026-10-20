@@ -9,7 +9,7 @@ each console coding agent is normalized behind a neutral `Backend` interface
 binary directly. You pick the backend **per agent at spawn time**.
 
 :::caution[Backend maturity]
-**Claude Code**, **Codex CLI**, **Cursor CLI**, and **Antigravity CLI** are all **stable** — live-verified state, approval, and transcript fidelity. The remaining backends (Aider, OpenCode, Crush, Goose) are **experimental / work-in-progress** — functionality may be reduced or unverified.
+Only **Claude Code** is **stable** — fully tested, the reference backend. **Codex CLI** and **Antigravity CLI** are **beta** — live-verified state, approval, and transcript fidelity, still maturing. The rest (Aider, OpenCode, Crush, Goose, Cursor CLI) are **experimental / work-in-progress** — functionality may be reduced or unverified.
 :::
 
 :::tip[The backend registry]
@@ -53,28 +53,33 @@ runs on Fast-Brain, independent of the registry.)
   .wbm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
   .wbm-card { background: var(--d-surface); border: 1px solid var(--d-border); border-radius: 10px; padding: 14px 14px 13px; box-shadow: var(--d-shadow); display: flex; flex-direction: column; gap: 7px; }
   .wbm-card.stable { border-left: 3px solid var(--d-good); }
+  .wbm-card.beta   { border-left: 3px solid #4f8fd6; }
   .wbm-card.exp    { border-left: 3px solid var(--d-warn); }
   .wbm-name { font-family: ui-monospace, "Cascadia Code", monospace; font-size: 16px; font-weight: 600; color: var(--d-ink); }
   .wbm-desc { font-size: 13px; color: var(--d-muted); line-height: 1.5; }
   .wbm-pill { align-self: flex-start; font-family: ui-monospace, monospace; font-size: 11px; font-weight: 500; letter-spacing: .04em; padding: 3px 8px; border-radius: 999px; text-transform: uppercase; }
   .wbm-pill.stable { background: var(--d-good-soft); color: var(--d-good-ink); }
+  .wbm-pill.beta   { background: rgba(79,143,214,.16); color: #4f8fd6; }
   .wbm-pill.exp    { background: var(--d-warn-soft); color: var(--d-warn-ink); }
 `}</style>
 
 <div class="wbmdiag">
-  <div class="wbm-tier"><span class="wbm-pill stable">Stable</span><span>4 backends</span></div>
+  <div class="wbm-tier"><span class="wbm-pill stable">Stable</span><span>1 backend</span></div>
   <div class="wbm-grid">
     <div class="wbm-card stable"><span class="wbm-name">claude</span><span class="wbm-pill stable">Stable</span><span class="wbm-desc">Full-capability reference backend — structured transcript, resume, approvals, priced spend, system-prompt injection.</span></div>
-    <div class="wbm-card stable"><span class="wbm-name">codex</span><span class="wbm-pill stable">Stable</span><span class="wbm-desc">OpenAI Codex CLI. JSONL rollout transcript, session fork (<code>wd agent fork</code>), review command, dir-scoped resume with discover-then-pin.</span></div>
-    <div class="wbm-card stable"><span class="wbm-name">cursor</span><span class="wbm-pill stable">Stable</span><span class="wbm-desc">Cursor CLI agent — live state, approval &amp; trust detection, triple-bucket subscription usage. No digest (Tier-C transcript).</span></div>
-    <div class="wbm-card stable"><span class="wbm-name">antigravity</span><span class="wbm-pill stable">Stable</span><span class="wbm-desc">Google Antigravity (<code>agy</code>) — trajectory JSONL transcript, dual-bucket usage, multi-vendor model menu via OAuth.</span></div>
   </div>
-  <div class="wbm-tier"><span class="wbm-pill exp">Experimental</span><span>4 backends</span></div>
+  <div class="wbm-tier"><span class="wbm-pill beta">Beta</span><span>2 backends</span></div>
+  <div class="wbm-grid">
+    <div class="wbm-card beta"><span class="wbm-name">codex</span><span class="wbm-pill beta">Beta</span><span class="wbm-desc">OpenAI Codex CLI. JSONL rollout transcript, session fork (<code>wd agent fork</code>), review command, dir-scoped resume with discover-then-pin.</span></div>
+    <div class="wbm-card beta"><span class="wbm-name">antigravity</span><span class="wbm-pill beta">Beta</span><span class="wbm-desc">Google Antigravity (<code>agy</code>) — trajectory JSONL transcript, dual-bucket usage, multi-vendor model menu via OAuth.</span></div>
+  </div>
+  <div class="wbm-tier"><span class="wbm-pill exp">Experimental</span><span>5 backends</span></div>
   <div class="wbm-grid">
     <div class="wbm-card exp"><span class="wbm-name">aider</span><span class="wbm-pill exp">Experimental</span><span class="wbm-desc">Bring-your-own-model; autonomous one-shot task that exits when done. Structured Tier-A transcript; no resume.</span></div>
     <div class="wbm-card exp"><span class="wbm-name">opencode</span><span class="wbm-pill exp">Experimental</span><span class="wbm-desc">Structured Tier-A transcript (via <code>opencode export</code>) and dir-scoped resume; bring-your-own-model including local Ollama.</span></div>
     <div class="wbm-card exp"><span class="wbm-name">crush</span><span class="wbm-pill exp">Experimental</span><span class="wbm-desc">SQLite-backed Bubble Tea TUI; transcript via <code>crush session show --json</code>; dir-scoped resume; prompt auto-typed post-launch.</span></div>
     <div class="wbm-card exp"><span class="wbm-name">goose</span><span class="wbm-pill exp">Experimental</span><span class="wbm-desc">Interactive REPL agent; name-deterministic resume; transcript via <code>goose session export</code>; BYO provider via env vars.</span></div>
+    <div class="wbm-card exp"><span class="wbm-name">cursor</span><span class="wbm-pill exp">Experimental</span><span class="wbm-desc">Cursor CLI agent — live state, approval &amp; trust detection, triple-bucket subscription usage. No digest (Tier-C transcript).</span></div>
   </div>
 </div>
 
@@ -85,11 +90,11 @@ runs on Fast-Brain, independent of the registry.)
 | **Claude Code** (default) | `claude` | A | Full fidelity — digests, savings, priced spend, resume, all permission modes |
 | **Aider** | `aider` | A | 🧪 Experimental. Bring-your-own-model; structured markdown transcript ⇒ real digests; no resume, no priced spend |
 | **OpenCode** | `opencode` | A | 🧪 Experimental. Bring-your-own-model; structured JSON transcript (via `opencode export`) ⇒ real digests; **resumes** the worktree's last session; no priced spend (BYO model) |
-| **Codex CLI** | `codex` | A | ✅ Stable. BYO provider (Codex config / `-m`); structured JSONL transcript (rollout files) ⇒ real digests; **resumes** dir-scoped, upgraded to exact-id via discover-then-pin; live state + approval detection; context injection (AGENTS.md); no priced spend |
+| **Codex CLI** | `codex` | A | β Beta. BYO provider (Codex config / `-m`); structured JSONL transcript (rollout files) ⇒ real digests; **resumes** dir-scoped, upgraded to exact-id via discover-then-pin; live state + approval detection; context injection (AGENTS.md); no priced spend |
 | **Crush** | `crush` | A | 🧪 Experimental. BYO model (config-driven TUI); structured JSON transcript (via `crush session show --json`) ⇒ real digests; **resumes** dir-scoped; initial prompt auto-typed post-launch via `PromptSeeder` (see [Typed-prompt seeding](#typed-prompt-seeding-aider-crush-goose-cursor)); no priced spend |
 | **Goose** | `goose` | A | 🧪 Experimental. BYO provider (`GOOSE_PROVIDER`/`GOOSE_MODEL` env); structured JSON transcript (via `goose session export`) ⇒ real digests; **resumes** name-deterministic; no model flag on session launch; initial prompt seeded via `PromptSeeder`; no priced spend |
-| **Cursor CLI** | `cursor` | C | ✅ Stable. Hosted plan (`cursor-agent`, billed to your Cursor subscription); rich native permission modes (`plan`/`ask`/`auto-review`/`force`); **resumes** dir-scoped; live state + approval/trust detection; initial prompt seeded via `PromptSeeder`; **no structured transcript yet** ⇒ no digests; no priced spend |
-| **Antigravity CLI** | `antigravity` | A | ✅ Stable. Google-hosted free tier (`agy`, multi-vendor model menu); structured trajectory JSONL (incl. tool calls / files changed) ⇒ real digests; **resumes** dir-scoped; live state + approval/trust detection; no priced spend |
+| **Cursor CLI** | `cursor` | C | 🧪 Experimental. Hosted plan (`cursor-agent`, billed to your Cursor subscription); rich native permission modes (`plan`/`ask`/`auto-review`/`force`); **resumes** dir-scoped; live state + approval/trust detection; initial prompt seeded via `PromptSeeder`; **no structured transcript yet** ⇒ no digests; no priced spend |
+| **Antigravity CLI** | `antigravity` | A | β Beta. Google-hosted free tier (`agy`, multi-vendor model menu); structured trajectory JSONL (incl. tool calls / files changed) ⇒ real digests; **resumes** dir-scoped; live state + approval/trust detection; no priced spend |
 
 > A plain **terminal** is not an AI CLI choice — it's a first-class session kind
 > (`kind=terminal`): a managed `$SHELL` seat beside the fleet with warden's normal
