@@ -62,6 +62,7 @@ export default defineConfig({
           { label: 'Web mission control', slug: 'guides/web-mission-control' },
           { label: 'PTY runtime (event journal)', slug: 'guides/pty-runtime' },
           { label: 'Approvals & supervised mode', slug: 'guides/approvals-supervised' },
+          { label: 'Fast-Brain decisions', slug: 'guides/fast-brain' },
           { label: 'Lifecycle commands & rails', slug: 'guides/lifecycle-and-rails' },
           { label: 'Backend superpowers (review & models)', slug: 'guides/backend-superpowers' },
 	          { label: 'AI CLI model-catalog rollout', slug: 'guides/model-catalog-rollout' },
