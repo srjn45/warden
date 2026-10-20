@@ -88,6 +88,24 @@ wd plan task rm <plan-id> t2
 rejected). Optimistic concurrency uses the plan's current revision on update/edit;
 task subcommands accept optional `--expected-revision`.
 
+## Archiving and restoring safely
+
+Archive is reversible housekeeping, not deletion:
+
+```sh
+wd plan stop <plan-id>       # required first if an in-progress executor is live
+wd plan archive <plan-id>
+wd plan unarchive <plan-id>
+```
+
+For a pending or completed Plan, archive changes lifecycle state. For an
+in-progress Plan whose executor has stopped, it also tears down leftover
+plan-bound agents and worktrees. It does **not** delete branches with commits
+not on the default branch or close their PRs; the command reports what it kept.
+Unarchive restores the recorded prior state and preserves task progress. An
+in-progress Plan comes back with no live executor, so continue it with
+`wd plan restart <plan-id>` rather than `wd plan resume`.
+
 ## Optional Hub sync and remote discovery
 
 Hub sync is an opt-in transport for revision envelopes, not a replacement for
