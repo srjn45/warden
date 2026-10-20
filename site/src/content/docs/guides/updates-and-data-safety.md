@@ -1,5 +1,5 @@
 ---
-title: Operator guide: updates and data safety
+title: "Operator guide: updates and data safety"
 description: Plan upgrades, recover safely, migrate data offline, and retire legacy stores without losing evidence.
 ---
 
