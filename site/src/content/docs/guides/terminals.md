@@ -57,7 +57,7 @@ job control, full-screen programs, resizing, and UTF-8/ANSI behave like a local
 shell. **Ctrl-]**, then **.**, detaches while leaving the shell running. There can
 be several viewers but only one controller; taking control gives human input
 precedence. Set `WARDEN_ATTACH=observe` to watch read-only. See the
-[PTY runtime guide](./pty-runtime/) for the journal, controller lease, and other
+[PTY runtime guide](/warden/guides/pty-runtime/) for the journal, controller lease, and other
 attach controls.
 
 ## Restoration and lifecycle
@@ -87,5 +87,5 @@ shell. It is useful *beside* the fleet—not as a substitute for an agent—and 
 gets project ownership, a live attach surface, and the terminal-specific recovery
 rules above.
 
-For the cockpit layout and shortcuts, see [The TUI cockpit](./tui-cockpit/). For
-the browser view, see [Web mission control](./web-mission-control/).
+For the cockpit layout and shortcuts, see [The TUI cockpit](/warden/guides/tui-cockpit/). For
+the browser view, see [Web mission control](/warden/guides/web-mission-control/).
