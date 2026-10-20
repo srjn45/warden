@@ -45,12 +45,12 @@ Pass `--role` on `warden start`:
 
 ```sh
 # The role's persona is injected and its default flags fill anything you leave unset
-warden start "review PR 1234 for correctness" --role worker
+warden start --role worker "review PR 1234 for correctness"
 
-# Managed worktree via role+repo (no --type needed)
+# Managed worktree via role+repo
 warden start PROJ-9 --role worker --repo .
-# Optional legacy --type still accepted as a deprecated alias
-warden start PROJ-9 --role worker --type spike
+# Throwaway scratch worktree for a spike
+warden start --role worker --repo . --worktree "spike: try the new parser"
 ```
 
 **Precedence** for each default: an explicit request value beats the role default

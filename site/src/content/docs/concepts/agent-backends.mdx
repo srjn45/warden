@@ -100,32 +100,32 @@ runs on Fast-Brain, independent of the registry.)
 
 ```sh
 # Claude (default)
-warden start "review the auth module"
+warden start --role general "review the auth module"
 
 # Aider against a local Ollama model (free, offline)
 export OLLAMA_API_BASE=http://127.0.0.1:11434
-warden start "implement the add function" \
-  --backend aider --model ollama_chat/qwen2.5-coder:3b --dir .
+warden start --role general "implement the add function" \
+  --aicli aider --model ollama_chat/qwen2.5-coder:3b --dir .
 
 # OpenCode against a local Ollama model (free, offline)
-warden start "implement the add function" \
-  --backend opencode --model ollama/qwen2.5-coder:3b --dir .
+warden start --role general "implement the add function" \
+  --aicli opencode --model ollama/qwen2.5-coder:3b --dir .
 
 # Codex — configure provider in ~/.codex/config.toml first
-warden start "implement the add function" --aicli codex --dir .
+warden start --role general "implement the add function" --aicli codex --dir .
 
 # Crush — configure provider in ~/.config/crush/crush.json first
-warden start "implement the add function" --aicli crush --dir .
+warden start --role general "implement the add function" --aicli crush --dir .
 
 # Goose against a local Ollama model ($0)
 GOOSE_PROVIDER=ollama GOOSE_MODEL=qwen2.5-coder:3b \
-warden start "implement the add function" --aicli goose --dir .
+warden start --role general "implement the add function" --aicli goose --dir .
 
 # Cursor — log in once with `cursor-agent login` (hosted, billed to your Cursor plan)
-warden start "implement the add function" --aicli cursor --dir .
+warden start --role general "implement the add function" --aicli cursor --dir .
 
 # Antigravity — Google-hosted free tier; `agy` resolves its model from config
-warden start "implement the add function" --aicli antigravity --dir .
+warden start --role general "implement the add function" --aicli antigravity --dir .
 
 # Terminal — a plain shell in the directory, no AI (prompt is ignored)
 # terminal is a session kind, not a backend (back-compat: --backend terminal still works as a hidden alias)

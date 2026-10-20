@@ -11,6 +11,10 @@ tags:
   - go
 ---
 
+:::caution[Outdated commands]
+This post is from June 2026. `warden start` now requires `--role` (for example `warden start --role general "<prompt>"`), and `--type` is deprecated in favour of `--role worker --repo`. See the [quickstart](/warden/start/quickstart/) for current syntax.
+:::
+
 A few months ago I hit a wall that I suspect a lot of people are about to hit.
 
 I'd gotten good at running coding agents (Claude Code, in my case). So good that
