@@ -597,6 +597,25 @@ func (l *Lifecycle) promptArg(b agentbackend.Backend, promptFile string) string 
 	return b.LaunchPromptArg(promptFile)
 }
 
+// launchPromptArg is promptArg except for a backend in the prompt-withheld seam
+// (withholdPrompt): its task prompt stays OFF the launch line and is delivered by
+// superviseStartup only after a positive input-ready. Identical to promptArg for
+// every backend without a registered rejection detector (all of them today).
+func (l *Lifecycle) launchPromptArg(b agentbackend.Backend, promptFile string) string {
+	if withholdPrompt(b) {
+		return ""
+	}
+	return l.promptArg(b, promptFile)
+}
+
+// withheldPrompt returns prompt when b is in the prompt-withheld seam, else "".
+func withheldPrompt(b agentbackend.Backend, prompt string) string {
+	if withholdPrompt(b) {
+		return prompt
+	}
+	return ""
+}
+
 // stampSpawnExecutionProfile returns the profile stamped onto a newly spawned
 // agent: Network=full unless the request already pinned none, full, or loopback.
 func stampSpawnExecutionProfile(pinned store.ExecutionProfile) store.ExecutionProfile {
@@ -2141,14 +2160,14 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, agent *
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: agent.AICLISessionID, Name: agent.ID, Model: l.launchModel(b, req.Model), Mode: mode, Network: launchNetwork(agent),
 		LogFile: l.sessionLogFile(b, agent.ID),
-	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(agent.ID)
+	}) + hints + l.launchPromptArg(b, promptFile) + l.exitSuffix(agent.ID)
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", agent.ID, launch, "Enter"); err != nil {
 		// The session exists but launch failed — don't orphan it. No worktree here.
 		l.cleanupFailedSpawn(agent, true, false)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
 	if err := l.superviseStartup(ctx, startupRun{
-		Agent: agent, B: b, Pinned: req.startupPinned, PromptOnLaunchLine: l.promptArg(b, promptFile) != "", Role: req.Role, Task: req.Task, Tier: req.Tier,
+		Agent: agent, B: b, Pinned: req.startupPinned, PromptOnLaunchLine: l.launchPromptArg(b, promptFile) != "", WithheldPrompt: withheldPrompt(b, req.Prompt), Role: req.Role, Task: req.Task, Tier: req.Tier,
 		Relaunch: func(rctx context.Context, model string) error {
 			if err := l.newAgentSession(rctx, "", agent.ID, req.Cwd); err != nil {
 				return err
@@ -2156,7 +2175,7 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, agent *
 			cmd := b.LaunchCmd(agentbackend.LaunchOpts{
 				SessionID: agent.AICLISessionID, Name: agent.ID, Model: l.launchModel(b, model), Mode: mode, Network: launchNetwork(agent),
 				LogFile: l.sessionLogFile(b, agent.ID),
-			}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(agent.ID)
+			}) + hints + l.launchPromptArg(b, promptFile) + l.exitSuffix(agent.ID)
 			if out, err := l.run.Run(rctx, "", "tmux", "send-keys", "-t", agent.ID, cmd, "Enter"); err != nil {
 				return fmt.Errorf("tmux send-keys relaunch: %w: %s", err, out)
 			}
@@ -2266,13 +2285,13 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, agent *age
 		hintSpec{l.config().GetGitConventions(), gitConventionsGuidance},
 		hintSpec{l.config().GetMemoryInject(), mem},
 		hintSpec{peers != "", peers})
-	launch := base + hints + l.guardSettings(b, agent.ID) + l.promptArg(b, promptFile) + l.exitSuffix(agent.ID)
+	launch := base + hints + l.guardSettings(b, agent.ID) + l.launchPromptArg(b, promptFile) + l.exitSuffix(agent.ID)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", agent.ID, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(agent, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
 	if err := l.superviseStartup(ctx, startupRun{
-		Agent: agent, B: b, Pinned: req.startupPinned, PromptOnLaunchLine: l.promptArg(b, promptFile) != "", Role: req.Role, Task: req.Task, Tier: req.Tier,
+		Agent: agent, B: b, Pinned: req.startupPinned, PromptOnLaunchLine: l.launchPromptArg(b, promptFile) != "", WithheldPrompt: withheldPrompt(b, req.Prompt), Role: req.Role, Task: req.Task, Tier: req.Tier,
 		Relaunch: func(rctx context.Context, model string) error {
 			if err := l.newAgentSession(rctx, req.Repo, agent.ID, workdir); err != nil {
 				return err
@@ -2283,7 +2302,7 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, agent *age
 			if err != nil {
 				return err
 			}
-			cmd := rbase + hints + l.guardSettings(b, agent.ID) + l.promptArg(b, promptFile) + l.exitSuffix(agent.ID)
+			cmd := rbase + hints + l.guardSettings(b, agent.ID) + l.launchPromptArg(b, promptFile) + l.exitSuffix(agent.ID)
 			if out, err := l.run.Run(rctx, req.Repo, "tmux", "send-keys", "-t", agent.ID, cmd, "Enter"); err != nil {
 				return fmt.Errorf("tmux send-keys relaunch: %w: %s", err, out)
 			}
@@ -2502,7 +2521,7 @@ func (l *Lifecycle) Restore(ctx context.Context, agent *agentstore.Agent) error 
 	if err := l.resumeInTmux(ctx, b, agent.ID, agent.Workdir, agent.AICLISessionID, agent.Model, mode, launchNetwork(agent)); err != nil {
 		return err
 	}
-	if err := l.superviseRecorded(ctx, agent, b, agent.Model, false); err != nil {
+	if err := l.superviseRecorded(ctx, agent, b, agent.Model, false, ""); err != nil {
 		return err
 	}
 	l.commitRelaunchMode(ctx, agent, agent.PermissionMode, mode, rat, "restore")
@@ -2571,7 +2590,7 @@ func (l *Lifecycle) SwitchRole(ctx context.Context, agent *agentstore.Agent) err
 	if err := l.resumeInTmuxWithHints(ctx, b, agent.ID, agent.Workdir, agent.AICLISessionID, agent.Model, mode, launchNetwork(agent), hints); err != nil {
 		return err
 	}
-	if err := l.superviseRecorded(ctx, agent, b, agent.Model, false); err != nil {
+	if err := l.superviseRecorded(ctx, agent, b, agent.Model, false, ""); err != nil {
 		return err
 	}
 	l.commitRelaunchMode(ctx, agent, agent.PermissionMode, mode, rat, "switch-role")
@@ -2640,6 +2659,11 @@ func (l *Lifecycle) Adopt(ctx context.Context, req AdoptRequest) (*agentstore.Ag
 			return nil, rerr
 		}
 		if err := l.resumeInTmux(ctx, l.backend, id, req.Cwd, aicliSessionID, req.Model, mode, launchNetwork(agent)); err != nil {
+			return nil, err
+		}
+		// Adopt resumes a recorded model: a detector-capable backend that rejects it
+		// is reported typed (attention needed), never substituted.
+		if err := l.superviseRecorded(ctx, agent, l.backend, req.Model, false, ""); err != nil {
 			return nil, err
 		}
 		return agent, nil
@@ -3347,13 +3371,13 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: agent.AICLISessionID, Name: id, Model: l.launchModel(b, req.Model), Mode: mode, Network: launchNetwork(agent),
 		LogFile: l.sessionLogFile(b, id),
-	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(id)
+	}) + hints + l.launchPromptArg(b, promptFile) + l.exitSuffix(id)
 	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
 		l.cleanupFailedSpawn(agent, true, worktreeCreated)
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
 	if err := l.superviseStartup(ctx, startupRun{
-		Agent: agent, B: b, Pinned: jobPinned, PromptOnLaunchLine: l.promptArg(b, promptFile) != "", Role: req.Role, Task: req.Task, Tier: req.Tier,
+		Agent: agent, B: b, Pinned: jobPinned, PromptOnLaunchLine: l.launchPromptArg(b, promptFile) != "", WithheldPrompt: withheldPrompt(b, req.Prompt), Role: req.Role, Task: req.Task, Tier: req.Tier,
 		Relaunch: func(rctx context.Context, model string) error {
 			if err := l.newAgentSession(rctx, req.Repo, id, workdir,
 				"WARDEN_PIPELINE_ID="+req.PipelineID, "WARDEN_JOB_ID="+req.JobID,
@@ -3363,7 +3387,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 			cmd := b.LaunchCmd(agentbackend.LaunchOpts{
 				SessionID: agent.AICLISessionID, Name: id, Model: l.launchModel(b, model), Mode: mode, Network: launchNetwork(agent),
 				LogFile: l.sessionLogFile(b, id),
-			}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(id)
+			}) + hints + l.launchPromptArg(b, promptFile) + l.exitSuffix(id)
 			if out, err := l.run.Run(rctx, req.Repo, "tmux", "send-keys", "-t", id, cmd, "Enter"); err != nil {
 				return fmt.Errorf("tmux send-keys relaunch: %w: %s", err, out)
 			}

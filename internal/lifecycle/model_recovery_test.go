@@ -51,6 +51,10 @@ type paneRunner struct {
 	sends  int
 	// noSession makes `tmux has-session` fail (the session is gone), as Restore needs.
 	noSession bool
+	failPaste bool
+	events    []string // ordered "launch:<model>" / "paste"
+	lines     []string // every codex launch line, in order
+	pastes    int
 }
 
 type paneScript struct {
@@ -83,6 +87,8 @@ func (p *paneRunner) Run(_ context.Context, _ string, name string, args ...strin
 			model = m[1]
 		}
 		p.launch[sess] = append(p.launch[sess], model)
+		p.events = append(p.events, "launch:"+model)
+		p.lines = append(p.lines, line)
 		sc := p.script[model]
 		p.panes[sess] = sc.pane
 		if sc.exit > 0 {
@@ -92,6 +98,12 @@ func (p *paneRunner) Run(_ context.Context, _ string, name string, args ...strin
 		}
 	case "capture-pane":
 		return p.panes[args[len(args)-1]], nil
+	case "paste-buffer":
+		if p.failPaste {
+			return "", errors.New("paste failed")
+		}
+		p.pastes++
+		p.events = append(p.events, "paste")
 	case "has-session":
 		if p.noSession {
 			return "", errors.New("no session")

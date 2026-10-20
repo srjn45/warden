@@ -505,12 +505,12 @@ func (l *Lifecycle) launchSuccessor(ctx context.Context, agent *agentstore.Agent
 		hintSpec{persona != "", persona},
 		hintSpec{true, handoffGuidance(handoffPath, h)},
 	)
-	launch := base + hints + l.guardSettings(b, agent.ID) + l.promptArg(b, promptFile) + l.exitSuffix(agent.ID)
+	launch := base + hints + l.guardSettings(b, agent.ID) + l.launchPromptArg(b, promptFile) + l.exitSuffix(agent.ID)
 	if out, err := l.run.Run(ctx, agent.Workdir, "tmux", "send-keys", "-t", agent.ID, launch, "Enter"); err != nil {
 		l.killSession(agent.ID)
 		return fmt.Errorf("tmux send-keys: %w: %s", err, out)
 	}
-	if err := l.superviseRecorded(ctx, agent, b, model, l.promptArg(b, promptFile) != ""); err != nil {
+	if err := l.superviseRecorded(ctx, agent, b, model, l.launchPromptArg(b, promptFile) != "", withheldPrompt(b, continuationPrompt(handoffPath, h, req))); err != nil {
 		return err
 	}
 	l.seedInteractivePrompt(b, agent, continuationPrompt(handoffPath, h, req))

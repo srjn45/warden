@@ -467,11 +467,15 @@ Per launch surface:
 | Spawn / SpawnJob, no pin | Retries another model of the same aicli and tier (max 3 distinct attempts). Exhaustion returns `model_recovery_exhausted`. |
 | Spawn / SpawnJob with exact backend+model pin, or fork | `model_rejected` with same-tier suggestions; never substituted. |
 | Restore, SwitchRole, hot-swap successor | The recorded/target model is treated as an exact pin: evidence recorded, child and tmux session reaped, typed `model_rejected` (attention needed). No retry, no substitution. The resume command carries no prompt, so no pre-prompt attestation is needed. |
-| Adopt, terminal restore, cross-aicli recovery | Not supervised; unchanged behaviour. |
+| Adopt (resume mode) | The supplied model is treated as an exact pin, same as Restore: typed `model_rejected`, no retry, no substitution. |
+| Terminal restore | Not applicable: `RestoreTerminal` relaunches a plain shell, which has no model to reject. |
+| Cross-aicli recovery | Not supervised and not built: recovery never crosses aicli. |
 
-A backend that withholds the prompt from the launch line (a `PromptSeeder` such as Cursor, `LaunchPromptArg == ""`) is supervised before the prompt is typed, because `seedInteractivePrompt` runs after supervision. That makes the prompt-withheld contract structural for such backends. The prompt-withheld launch for backends that currently put the prompt on the launch line (Codex) is not built.
+A backend that withholds the prompt from the launch line (a `PromptSeeder` such as Cursor, `LaunchPromptArg == ""`) is supervised before the prompt is typed, because `seedInteractivePrompt` runs after supervision.
 
-Known gaps: no production detector (needs an operator-captured TUI fixture with CLI version, exit code and pane text; public forum reports are ACP/print mode and do not qualify); `model_recovery.*` config keys are not exposed (defaults 3 / 3m / 60s / 24h are compiled in); Adopt and cross-aicli recovery are unwired. A stale gpt-5.5 id is excluded by the catalog refresh/observation path, not by launch recovery.
+**Prompt-withheld seam (backends that put the prompt on the launch line, e.g. Codex).** A backend engages the seam only when it implements both `LaunchRejectionDetector` and `InputReadiness` and is not a `PromptSeeder` (`withholdPrompt`). Then the task prompt is kept off the launch line (`launchPromptArg` returns `""`) and the supervisor waits for either an exact-model rejection (non-zero exit, no transcript, anchored signature naming the model) or a positive `InputReady`. Only after `InputReady` is the prompt delivered, exactly once, through `Input`; a rejected attempt never receives it. A timeout, cancellation, an exit with no rejection signature, or a failed delivery returns the typed `StartupAmbiguousError` (`startup_ambiguous`): the child and tmux shell are reaped, no negative model evidence is recorded, and there is no retry or substitution. Because no production adapter implements the detector, the seam is inert and Codex launches are byte-for-byte unchanged today; it is exercised only by test-only fakes combined with Codex's real `InputReady`.
+
+Known gaps: no production detector (needs an operator-captured TUI fixture with CLI version, exit code and pane text; public forum reports are ACP/print mode and do not qualify); `model_recovery.*` config keys are not exposed (defaults 3 / 3m / 60s / 24h are compiled in; exposing them needs the config schema, getters and daemon hot-reload wiring, deferred until a detector exists to tune). A stale gpt-5.5 id is excluded by the catalog refresh/observation path, not by launch recovery.
 
 ## 10. Startup readiness and pickers
 

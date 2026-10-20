@@ -97,11 +97,25 @@ func (e *ModelRejectedError) Error() string {
 	return fmt.Sprintf("model_rejected: %s/%s: %s", e.AiCli, e.Model, e.Reason)
 }
 
+// StartupAmbiguousError: a prompt-withheld launch neither showed a definitive
+// model rejection nor a positive input-ready state (timeout, cancel, unexplained
+// exit, or a failed delivery). The task prompt is NOT retried and the model is
+// NOT substituted: an operator must look at it.
+type StartupAmbiguousError struct {
+	AiCli, Model, Reason string
+	PromptDelivered      bool // true only if delivery was attempted (it may have partially landed)
+}
+
+func (e *StartupAmbiguousError) Error() string {
+	return fmt.Sprintf("startup_ambiguous: %s/%s: %s", e.AiCli, e.Model, e.Reason)
+}
+
 // IsModelRecoveryError reports whether err is one of the typed recovery errors.
 func IsModelRecoveryError(err error) bool {
 	var a *ModelRecoveryExhaustedError
 	var r *ModelRejectedError
-	return errors.As(err, &a) || errors.As(err, &r)
+	var m *StartupAmbiguousError
+	return errors.As(err, &a) || errors.As(err, &r) || errors.As(err, &m)
 }
 
 // startupRun describes one launched agent whose startup is to be supervised.
@@ -113,42 +127,93 @@ type startupRun struct {
 	// (positional arg). The prompt-withheld path (Cursor-style PromptSeeder, resume
 	// commands) is false and needs no pre-prompt attestation.
 	PromptOnLaunchLine bool
-	Role               string
-	Task               string
-	Tier               string
+	// WithheldPrompt, when non-empty, is the task prompt held OUT of the launch
+	// line. The supervisor delivers it exactly once, only after the adapter's
+	// positive InputReady, and never to an attempt that was rejected. Requires the
+	// backend to implement both LaunchRejectionDetector and InputReadiness.
+	WithheldPrompt string
+	Role           string
+	Task           string
+	Tier           string
 	// Relaunch starts the same agent again (fresh pane, same worktree) on model.
 	Relaunch func(ctx context.Context, model string) error
 }
 
+type startupOutcome int
+
+const (
+	outcomeStarted startupOutcome = iota
+	outcomeRejected
+	outcomeAmbiguous
+)
+
 // awaitStartup watches the pane until the attempt resolves. It reports a
 // rejection only for an exited, non-zero CLI whose pane carries an anchored
-// signature and never showed the ready marker.
-func (l *Lifecycle) awaitStartup(ctx context.Context, agent *agentstore.Agent, id string, det agentbackend.LaunchRejectionDetector, ready string) (string, bool) {
+// signature and never showed the ready marker. With ir != nil (prompt-withheld
+// launch) it additionally requires a POSITIVE InputReady to report started;
+// a timeout, cancel or unexplained exit is outcomeAmbiguous, never "started".
+func (l *Lifecycle) awaitStartup(ctx context.Context, agent *agentstore.Agent, id string, det agentbackend.LaunchRejectionDetector, ready string, ir agentbackend.InputReadiness) (startupOutcome, string) {
 	poll := l.recoveryPoll
 	if poll <= 0 {
 		poll = 500 * time.Millisecond
 	}
 	tick := time.NewTicker(poll)
 	defer tick.Stop()
+	withheld := ir != nil
 	for {
 		pane, err := l.run.Run(ctx, "", "tmux", "capture-pane", "-p", "-t", id)
 		if err == nil {
-			if ready != "" && strings.Contains(pane, ready) {
-				return "", false
-			}
-			if code, exited := l.ReadExit(id); exited {
-				if code == 0 || l.transcriptPath(agent) != "" {
-					return "", false
+			if withheld {
+				if code, exited := l.ReadExit(id); exited {
+					if code != 0 && l.transcriptPath(agent) == "" {
+						if reason, ok := det.DetectModelRejection(pane, agent.Model); ok {
+							return outcomeRejected, reason
+						}
+					}
+					return outcomeAmbiguous, fmt.Sprintf("CLI exited (code %d) before input-ready with no model-rejection signature", code)
 				}
-				return det.DetectModelRejection(pane, agent.Model)
+				if ir.InputReady(pane) {
+					return outcomeStarted, ""
+				}
+			} else {
+				if ready != "" && strings.Contains(pane, ready) {
+					return outcomeStarted, ""
+				}
+				if code, exited := l.ReadExit(id); exited {
+					if code == 0 || l.transcriptPath(agent) != "" {
+						return outcomeStarted, ""
+					}
+					if reason, ok := det.DetectModelRejection(pane, agent.Model); ok {
+						return outcomeRejected, reason
+					}
+					return outcomeStarted, ""
+				}
 			}
 		}
 		select {
 		case <-tick.C:
 		case <-ctx.Done():
-			return "", false
+			if withheld {
+				return outcomeAmbiguous, "no input-ready or model-rejection observed before the attempt window closed"
+			}
+			return outcomeStarted, ""
 		}
 	}
+}
+
+// withholdPrompt reports whether b takes part in the prompt-withheld startup seam:
+// it puts the task prompt on the launch line today (no PromptSeeder) AND exposes
+// both a fixture-backed rejection detector and a positive input-ready check. With
+// no detector registered (production today) it is false and launch is unchanged.
+func withholdPrompt(b agentbackend.Backend) bool {
+	if _, ok := b.(agentbackend.PromptSeeder); ok {
+		return false
+	}
+	if _, ok := b.(agentbackend.LaunchRejectionDetector); !ok {
+		return false
+	}
+	_, ok := b.(agentbackend.InputReadiness)
+	return ok
 }
 
 func (l *Lifecycle) attemptEvent(agent *agentstore.Agent, n int, outcome, reason string) {
@@ -177,6 +242,13 @@ func (l *Lifecycle) superviseStartup(ctx context.Context, s startupRun) error {
 	if ps, ok := s.B.(agentbackend.PromptSeeder); ok {
 		ready = ps.ReadyMarker()
 	}
+	var ir agentbackend.InputReadiness
+	if s.WithheldPrompt != "" {
+		var ok bool
+		if ir, ok = s.B.(agentbackend.InputReadiness); !ok {
+			return &StartupAmbiguousError{AiCli: s.Agent.AiCli, Model: s.Agent.Model, Reason: "prompt withheld but backend has no positive input-ready check"}
+		}
+	}
 	var tried []router.Route
 	var attempts []ModelAttempt
 	for n := 1; ; n++ {
@@ -184,9 +256,22 @@ func (l *Lifecycle) superviseStartup(ctx context.Context, s startupRun) error {
 		cur := router.Route{BackendID: a.AiCli, ModelID: a.Model}
 		tried = append(tried, cur)
 		actx, acancel := context.WithTimeout(dctx, cfg.AttemptTimeout)
-		reason, rejected := l.awaitStartup(actx, a, a.ID, det, ready)
+		outcome, reason := l.awaitStartup(actx, a, a.ID, det, ready, ir)
 		acancel()
-		if !rejected {
+		if outcome == outcomeAmbiguous {
+			l.attemptEvent(a, n, "ambiguous", reason)
+			l.killSession(a.ID)
+			return &StartupAmbiguousError{AiCli: a.AiCli, Model: a.Model, Reason: reason}
+		}
+		if outcome == outcomeStarted {
+			if s.WithheldPrompt != "" {
+				// Exactly once, only after a positive input-ready; never retried.
+				if err := l.Input(dctx, a.ID, s.WithheldPrompt); err != nil {
+					l.attemptEvent(a, n, "ambiguous", "prompt delivery failed: "+err.Error())
+					l.killSession(a.ID)
+					return &StartupAmbiguousError{AiCli: a.AiCli, Model: a.Model, Reason: "prompt delivery failed: " + err.Error(), PromptDelivered: true}
+				}
+			}
 			l.attemptEvent(a, n, "started", "")
 			return nil
 		}
@@ -266,10 +351,10 @@ func (l *Lifecycle) suggestions(a *agentstore.Agent, tier string) []string {
 // The attempt is judged against model (the one actually launched), which for a
 // hot-swap is the successor's, not yet the record's: supervision runs on a copy so
 // the record is only mutated by the caller, once the successor is confirmed.
-func (l *Lifecycle) superviseRecorded(ctx context.Context, agent *agentstore.Agent, b agentbackend.Backend, model string, promptOnLaunchLine bool) error {
+func (l *Lifecycle) superviseRecorded(ctx context.Context, agent *agentstore.Agent, b agentbackend.Backend, model string, promptOnLaunchLine bool, withheld string) error {
 	cp := *agent
 	cp.AiCli, cp.Model = b.ID(), model
-	err := l.superviseStartup(ctx, startupRun{Agent: &cp, B: b, Pinned: true, PromptOnLaunchLine: promptOnLaunchLine})
+	err := l.superviseStartup(ctx, startupRun{Agent: &cp, B: b, Pinned: true, PromptOnLaunchLine: promptOnLaunchLine, WithheldPrompt: withheld})
 	agent.Events = cp.Events
 	return err
 }
