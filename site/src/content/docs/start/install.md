@@ -156,7 +156,7 @@ Then grant access once: **System Settings → Privacy & Security → Full Disk A
 # or: make reinstall  /  make reinstall NO_BUILD=1
 ```
 
-**Uninstall** (stops and removes the service, binary, skill link, and MCP registration; **preserves** your session store at `~/.warden` and the logs):
+**Uninstall** (stops and removes the service, binary, skill link, and MCP registration; **preserves** your data at `~/.warden` (including `warden-db`) and the logs):
 
 ```sh
 ./scripts/uninstall.sh                 # or: make uninstall

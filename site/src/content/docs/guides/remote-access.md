@@ -62,6 +62,6 @@ WARDEN_TOKEN=$(openssl rand -hex 32) docker compose up -d
 ```
 
 - **Lean image** — the web dashboard is built and `go:embed`-ed into a static `CGO_ENABLED=0` binary; the runtime stage is `alpine` carrying only the binary plus `tmux`, `git`, and `ca-certificates`, running as an unprivileged user.
-- **Persistent state** — `~/.warden` (the session store + config) is a named volume, so records survive restarts. Imported records remember absent worktrees rather than recreating them.
+- **Persistent state** — `~/.warden` (`warden-db` + config) is a named volume, so records survive restarts. Imported records remember absent worktrees rather than recreating them.
 - **Remote-access defaults** — the entrypoint binds `0.0.0.0:8765`; compose maps the port and threads `WARDEN_TOKEN` from the host (required — the daemon refuses a non-loopback bind without it).
 - **tmux/claude boundary** — the image ships `tmux` + `git` and runs the daemon/API/dashboard out of the box. It deliberately omits the `claude` CLI to stay lean; driving live agents additionally needs `claude` + credentials layered in.

@@ -1,6 +1,6 @@
 ---
 title: Architecture & the daemon
-description: How warden is built — one binary, a local daemon, an embedded ScrivaDB session store, and Claude Code hooks.
+description: How warden is built — one binary, a local daemon, a single embedded ScrivaDB (warden-db), and Claude Code hooks.
 ---
 
 One self-contained Go binary that wears several faces, all sharing the same on-disk state:
@@ -8,8 +8,8 @@ One self-contained Go binary that wears several faces, all sharing the same on-d
 | Capability | Description |
 |---|---|
 | **Single-binary distribution** | `warden` bundles the daemon, CLI clients, MCP server, TUI, and (in release builds) the embedded web GUI. `wd` is an installed symlink. |
-| **Local daemon** | The single writer to the session store. Serves a loopback REST API (`127.0.0.1:8765`) and runs a background poller that keeps each agent's status and subject fresh. |
-| **Embedded ScrivaDB session store** | Sessions persist in an embedded ScrivaDB (`github.com/srjn45/scriva`, `SyncModeNone`) rooted at `~/.warden/sessions-db/` — an `active` collection for live sessions and a `closed` one for archived, each record keyed by session id. A mutation appends one record instead of rewriting a whole JSON file; still no database server to run. On first launch after upgrading, warden imports the legacy `sessions/`+`closed/` JSON once and keeps it as a read-only backup — see [Upgrading & storage migration](#upgrading--storage-migration). |
+| **Local daemon** | The single writer to `warden-db`. Serves a loopback REST API (`127.0.0.1:8765`) and runs a background poller that keeps each agent's status and subject fresh. |
+| **Single embedded `warden-db`** | Every durable store (agents/sessions, pipelines, plans, projects, schedules, backends, snapshot metadata, …) lives in **one** embedded ScrivaDB (`github.com/srjn45/scriva`, `SyncModeNone`) rooted at `<data_dir>/warden-db/` (default `~/.warden/warden-db/`) — *schema 2*, the v11 layout. A mutation appends one record instead of rewriting a whole JSON file; still no database server to run. Existing installs are cut over once by `warden update` — see [Upgrading & storage migration](#upgrading--storage-migration), the [Schema 2 upgrade](/warden/guides/schema-2-upgrade/) guide and [Agent store integrity](/warden/guides/agent-store-integrity/). |
 | **Claude Code lifecycle hooks** | A hook script posts `SessionStart`/`Notification`/`Stop`/`SubagentStop`/`SessionEnd` to the daemon so status updates in real time without polling. Fails soft (never blocks the agent). |
 | **launchd auto-start (macOS)** | Installs as an auto-starting, crash-restarting background service. |
 | **Stable code identity** | One-time self-signed code-signing cert keeps the macOS TCC (Full Disk Access) grant stable across rebuilds. |
@@ -132,29 +132,33 @@ When projects are organized into a **project group**, you run one `orch-<project
 
 ## Upgrading & storage migration
 
-The session store used to be one JSON file per session under `~/.warden/sessions/`
-and `~/.warden/closed/`. It now runs on an **embedded ScrivaDB** rooted at
-`~/.warden/sessions-db/` (`active` + `closed` collections, keyed by session id), so
-a mutation appends one record instead of rewriting a whole file. This is an
-**internal storage swap** — the daemon's REST API, the CLI/MCP clients, and
-`warden inspect export`/`import` are byte-for-byte unchanged.
+Through v10 (*schema 1*) warden kept a separate store per concern — `sessions-db/`
+(with `active` and `closed` collections, imported from the older `sessions/` and
+`closed/` JSON), `agents-db/`, `pipelines-db/`, `plans/plans-db/`, `projects/`,
+`backends/` and others. The v11 major (*schema 2*) moves all of them into **one**
+embedded ScrivaDB at `<data_dir>/warden-db/`. Agents are one collection there; the
+active/closed split is no longer a pair of stores. This is an internal storage
+change — the daemon's REST API and the CLI/MCP clients are unchanged.
 
-On the **first daemon launch after upgrading**, warden runs a one-time import:
+- **Fresh install:** stamped at schema 2 on first boot; only `warden-db/` is created.
+- **Existing install:** `warden update` runs a one-time, offline, journaled cutover
+  for you: it stops the daemon, takes an immutable checksummed backup under
+  `backups/pre-schema2-<timestamp>/`, exports to a staging store, proves it equal to
+  the legacy data (record counts, canonical hashes, relationships), atomically
+  promotes it, and only then moves the schema ledger (`<data_dir>/schema.json`) to 2.
+  On any failure the previous binary and data are restored. Preview with
+  `warden update --plan`; the manual path is `warden migrate --plan` /
+  `warden migrate --apply`.
+- **Nothing is deleted.** The schema-1 directories are kept as inert copies and are
+  never read at runtime; the daemon runs on `warden-db` only (no dual-write, no
+  fallback). Compare them with `warden-db` using `warden inspect legacy`.
+- **Integrity and repair:** verify the store offline with
+  `warden repair warden-db --dry-run`. Ownership, health checks and the repair
+  procedure are in [Agent store integrity](/warden/guides/agent-store-integrity/).
 
-- Every legacy `sessions/*.json` and `closed/*.json` is decoded individually into
-  the new collections (a corrupt or unsafe-id file is skipped with a warning, never
-  blocking the upgrade), folding in the former provenance backfill.
-- A `~/.warden/.sessions-filedb-imported` sentinel is written **last**, only after
-  both collections load. If the import dies partway the sentinel is absent, so the
-  next boot wipes the half-built `sessions-db/` and re-imports from the intact
-  legacy JSON — nothing is lost.
-
-The legacy `sessions/`/`closed/` directories are **read-only from now on and kept
-as a cold backup**; this release never deletes them.
-
-:::caution[Downgrade caveat]
-Downgrading to a pre-migration binary still reads your **pre-upgrade** history from
-the intact legacy JSON — nothing from before the upgrade is lost. But sessions
-**created or mutated after** the upgrade live only in `sessions-db/`, and a
-downgrade cannot see them. This is inherent to any forward migration.
+:::caution[No automatic downgrade]
+A schema-1 binary refuses a schema-2 data dir. To go back, use `warden rollback`
+(restores the pre-update binary and snapshot; changes made since the update are
+lost) or `warden migrate --restore` after an interrupted cutover. Full guard table
+and recovery steps: [Schema 2 upgrade](/warden/guides/schema-2-upgrade/).
 :::

@@ -5,13 +5,13 @@ description: A single Go binary that spawns, monitors, and tears down coding-age
 
 `warden` (aliased as `wd`) lets you run many **coding-agent sessions** in parallel and watch them from one place. Each agent is a real agent process (Claude Code by default — warden drives [multiple backends](/warden/concepts/agent-backends/)) running inside its own detached **tmux** window. You spawn agents, watch what they're doing, talk to them, and tear them down — without juggling terminals by hand.
 
-It is a single Go binary (`warden`, aliased as `wd`) that spawns, monitors, and tears down coding-agent sessions of different task types — creating a git worktree only for the types that need one — backed by a local daemon and an embedded ScrivaDB session store (no database server to run).
+It is a single Go binary (`warden`, aliased as `wd`) that spawns, monitors, and tears down coding-agent sessions of different task types — creating a git worktree only for the types that need one — backed by a local daemon and a single embedded ScrivaDB, `warden-db` (no database server to run; see [architecture](/warden/concepts/architecture/#upgrading--storage-migration)).
 
-One binary, multiple faces: `warden daemon` is the single writer to the on-disk session store, serving a loopback REST API and running a background poller. `warden ls|status|start|done|attach|send|tail` are thin HTTP clients to the daemon. `warden daemon mcp` is a stdio MCP server that bridges MCP tool calls to the same REST API, enabling an orchestrator agent session to query agents and talk to a specific running agent. A short alias `wd` (a symlink to `warden`) is installed alongside it.
+One binary, multiple faces: `warden daemon` is the single writer to `warden-db`, the on-disk store, serving a loopback REST API and running a background poller. `warden ls|status|start|done|attach|send|tail` are thin HTTP clients to the daemon. `warden daemon mcp` is a stdio MCP server that bridges MCP tool calls to the same REST API, enabling an orchestrator agent session to query agents and talk to a specific running agent. A short alias `wd` (a symlink to `warden`) is installed alongside it.
 
 | Face | What it is | You run it… |
 |---|---|---|
-| **daemon** | The single long-running process. Owns the on-disk session store, serves a REST API (loopback by default; [token-gated remote access](/warden/guides/remote-access/) optional), and runs a background poller that keeps each agent's status and subject fresh. | Once, in the background (a service). |
+| **daemon** | The single long-running process. Owns the on-disk `warden-db` store, serves a REST API (loopback by default; [token-gated remote access](/warden/guides/remote-access/) optional), and runs a background poller that keeps each agent's status and subject fresh. | Once, in the background (a service). |
 | **CLI client** | `ls`, `status`, `start`, `done`, `attach`, `send`, `tail`, the [git/check lifecycle verbs](/warden/guides/lifecycle-and-rails/) (`commit`/`push`/`sync`/`check`), and more — thin HTTP clients that talk to the daemon. | Whenever you want to act on agents. |
 | **TUI cockpit** | `warden tui` (or bare `warden`) — a live tmux-based terminal dashboard of the whole fleet. | When you want a terminal cockpit. |
 | **Web GUI** | A React dashboard the daemon embeds and serves alongside the API — tabbed mission control with live SSE, interactive terminals, and an attention queue. | Open the daemon's address in a browser. |
@@ -88,7 +88,7 @@ One binary, multiple faces: `warden daemon` is the single writer to the on-disk 
         <line class="edge" x1="373" y1="80" x2="392" y2="138" marker-end="url(#wab)"/>
         <line class="edge" x1="556" y1="80" x2="540" y2="138" marker-end="url(#wab)"/>
         <line class="edge" x1="739" y1="80" x2="624" y2="138" marker-end="url(#wab)"/>
-        <g class="n mgr"><rect x="220" y="138" width="460" height="70" rx="10"/><text class="t" x="450" y="164" text-anchor="middle">warden daemon</text><text class="s" x="450" y="182" text-anchor="middle">ScrivaDB session store · REST API (:8765 loopback) · background poller</text><text class="s" x="450" y="197" text-anchor="middle">live SSE event stream · config file · embedded web server</text></g>
+        <g class="n mgr"><rect x="220" y="138" width="460" height="70" rx="10"/><text class="t" x="450" y="164" text-anchor="middle">warden daemon</text><text class="s" x="450" y="182" text-anchor="middle">ScrivaDB warden-db · REST API (:8765 loopback) · background poller</text><text class="s" x="450" y="197" text-anchor="middle">live SSE event stream · config file · embedded web server</text></g>
         <text class="elabel on" x="450" y="240" text-anchor="middle">spawn · monitor · tmux</text>
         <line class="edge spine" x1="340" y1="208" x2="258" y2="268" marker-end="url(#wab-acc)"/>
         <line class="edge spine" x1="560" y1="208" x2="642" y2="268" marker-end="url(#wab-acc)"/>
@@ -100,7 +100,7 @@ One binary, multiple faces: `warden daemon` is the single writer to the on-disk 
       <span><svg viewBox="0 0 34 12"><line x1="2" y1="6" x2="30" y2="6" stroke="var(--d-muted)" stroke-width="1.6"/></svg>HTTP client → daemon</span>
       <span><svg viewBox="0 0 34 12"><line x1="2" y1="6" x2="30" y2="6" stroke="var(--d-accent)" stroke-width="2"/></svg>spawn / lifecycle</span>
     </div>
-    <figcaption><b>Key claim:</b> every CLI verb, the TUI, the web dashboard, and the MCP tool bridge are thin HTTP clients to the same daemon REST API. The daemon is the single writer; the embedded ScrivaDB session store is the single source of truth. An orchestrator agent with the MCP server wired in gets exactly the same operations as a human at the terminal, through the same API surface.</figcaption>
+    <figcaption><b>Key claim:</b> every CLI verb, the TUI, the web dashboard, and the MCP tool bridge are thin HTTP clients to the same daemon REST API. The daemon is the single writer; the embedded ScrivaDB `warden-db` is the single source of truth. An orchestrator agent with the MCP server wired in gets exactly the same operations as a human at the terminal, through the same API surface.</figcaption>
   </figure>
 </div>
 
