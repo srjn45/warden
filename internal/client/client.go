@@ -2149,6 +2149,7 @@ func (c *Client) PreviewModelCatalog(ctx context.Context, refresh backendstore.C
 	body := map[string]any{
 		"aicli": refresh.Scope.AiCli, "auth_mode": refresh.Scope.AuthMode,
 		"plan_label": refresh.Scope.PlanLabel, "cli_version": refresh.Scope.CLIVersion,
+		"scope_fp":    refresh.Scope.ScopeFP(),
 		"observed_at": refresh.ObservedAt, "snapshot_id": refresh.SnapshotID,
 		"observation": refresh.Observation,
 	}

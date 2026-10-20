@@ -166,19 +166,6 @@ type ActivityConfig struct {
 	Interval string `yaml:"interval"`
 }
 
-// ModelRecoveryConfig bounds the startup model-recovery coordinator (spec
-// docs/specs/2026-10-19-aicli-model-catalog-refresh.md §9.2). It only bounds how
-// long and how many times a rejected pre-task launch is retried within the same
-// aicli and tier; it never widens the tier, permission or billing boundary.
-// Invalid or non-positive values fall back to the defaults; MaxAttempts is
-// clamped to the hard cap of 3 (4 and 5 are never honoured).
-type ModelRecoveryConfig struct {
-	MaxAttempts    int    `yaml:"max_attempts"`
-	Deadline       string `yaml:"deadline"`
-	AttemptTimeout string `yaml:"attempt_timeout"`
-	RejectionTTL   string `yaml:"rejection_ttl"`
-}
-
 // FastBrainConfig bounds Warden's own short model consultations. It applies to
 // the daemon's internal decisions only; it does not alter any agent's model or
 // permission authority.
@@ -469,31 +456,30 @@ type Config struct {
 	// running checks). These are backstops against a wedged handler, not pacing
 	// devices — keep them generous, especially in large monorepos where git
 	// operations are slow.
-	Rails         RailsConfig         `yaml:"rails"`
-	Git           GitConfig           `yaml:"git"`
-	Tokens        TokensConfig        `yaml:"tokens"`
-	Notify        NotifyConfig        `yaml:"notify"`
-	Worktree      WorktreeConfig      `yaml:"worktree"`
-	LocalLLM      LocalLLMConfig      `yaml:"local_llm"` // Deprecated: parsed, ignored
-	Pipeline      PipelineConfig      `yaml:"pipeline"`
-	AutoRestart   AutoRestartConfig   `yaml:"auto_restart"`
-	Collab        CollabConfig        `yaml:"collab"`
-	Memory        MemoryConfig        `yaml:"memory"`
-	BranchTrack   BranchTrackConfig   `yaml:"branch_track"`
-	Activity      ActivityConfig      `yaml:"activity"`
-	FastBrain     FastBrainConfig     `yaml:"fast_brain"`
-	ModelRecovery ModelRecoveryConfig `yaml:"model_recovery"`
-	Relay         RelayConfig         `yaml:"relay"`
-	PlanSync      PlanSyncConfig      `yaml:"plan_sync"`
-	RateLimit     RateLimitConfig     `yaml:"rate_limit"`
-	HTTP          HTTPConfig          `yaml:"http"`
-	Log           LogConfig           `yaml:"log"`
-	Plugins       PluginsConfig       `yaml:"plugins"`
-	Autopilot     AutopilotConfig     `yaml:"autopilot"`
-	Backends      BackendsConfig      `yaml:"backends"`
-	BrainConsult  BrainConsultConfig  `yaml:"brain_consult"`
-	Router        RouterConfig        `yaml:"router"`
-	Runtime       RuntimeConfig       `yaml:"runtime"`
+	Rails        RailsConfig        `yaml:"rails"`
+	Git          GitConfig          `yaml:"git"`
+	Tokens       TokensConfig       `yaml:"tokens"`
+	Notify       NotifyConfig       `yaml:"notify"`
+	Worktree     WorktreeConfig     `yaml:"worktree"`
+	LocalLLM     LocalLLMConfig     `yaml:"local_llm"` // Deprecated: parsed, ignored
+	Pipeline     PipelineConfig     `yaml:"pipeline"`
+	AutoRestart  AutoRestartConfig  `yaml:"auto_restart"`
+	Collab       CollabConfig       `yaml:"collab"`
+	Memory       MemoryConfig       `yaml:"memory"`
+	BranchTrack  BranchTrackConfig  `yaml:"branch_track"`
+	Activity     ActivityConfig     `yaml:"activity"`
+	FastBrain    FastBrainConfig    `yaml:"fast_brain"`
+	Relay        RelayConfig        `yaml:"relay"`
+	PlanSync     PlanSyncConfig     `yaml:"plan_sync"`
+	RateLimit    RateLimitConfig    `yaml:"rate_limit"`
+	HTTP         HTTPConfig         `yaml:"http"`
+	Log          LogConfig          `yaml:"log"`
+	Plugins      PluginsConfig      `yaml:"plugins"`
+	Autopilot    AutopilotConfig    `yaml:"autopilot"`
+	Backends     BackendsConfig     `yaml:"backends"`
+	BrainConsult BrainConsultConfig `yaml:"brain_consult"`
+	Router       RouterConfig       `yaml:"router"`
+	Runtime      RuntimeConfig      `yaml:"runtime"`
 }
 
 // setting describes one config key for file generation/migration: its YAML key
@@ -545,7 +531,6 @@ var schema = []setting{
 	{"branch_track", "Branch/CI tracker settings (previously flat keys: branch_track_enabled, branch_track_interval). Sub-keys: enabled (monitor each agent's branch for CI failures and drift from main, delivering informational inbox/desktop alerts), interval (Go duration, e.g. 2m — scan interval). Flat keys still load as deprecated aliases."},
 	{"activity", "Live activity-badge settings: the 3-5 word status badge shown next to each agent in the TUI. Sub-keys: enabled (default false; set true to make cosmetic activity-summary model calls), interval (Go duration, e.g. 15s — minimum gap between badge refreshes per agent; refreshed only while the agent's pane is changing, so idle agents cost no calls)."},
 	{"fast_brain", "Bounds Warden's internal short model consultations; it never changes an agent's provider, model, permission authority, or Autopilot policy. Sub-keys: fast_timeout (default 10s), thinking_timeout (default 20s), max_concurrent (default 2). Identical in-flight decisions are coalesced; cosmetic activity summaries yield capacity to operational decisions."},
-	{"model_recovery", "Bounds startup model recovery: when a launch is rejected before any task prompt (invalid or not-entitled model, recognised by an adapter's fixture-backed signature), Warden may retry another model of the SAME aicli and tier. It never crosses aicli, tier, permission or billing boundaries, and exact pins and recorded-model relaunches are never substituted. Dormant until an adapter ships a detector. Sub-keys: max_attempts (distinct attempts including the first; default and hard cap 3, values above 3 are clamped to 3), deadline (Go duration, shared from the first launch; default 3m), attempt_timeout (Go duration, per-attempt observation window; default 60s), rejection_ttl (Go duration a rejection suppresses a route; default 24h). Invalid or non-positive values fall back to the defaults. Hot-reloaded: applies from the next launch."},
 	{"relay", "Hub-relay accept-side settings. The daemon dials the warden-hub relay and the hub opens per-client streams to it. Sub-keys: allow_web_terminated (allow KindWebTerminated streams — a hub-TLS-terminated browser stream the daemon cannot cryptographically verify, so it trusts the hub-asserted {grantee, scope} outright; a read-only grant still cannot attach). OFF by default: the daemon rejects such streams with relay close code 4004 until an operator opts in. KindNativeE2E streams, which carry an inner client cert the daemon verifies itself, are unaffected. Values: true | false"},
 	{"plan_sync", "Plan Hub sync provider (docs/specs/2026-09-30-plan-hub-sync-boundary.md). Sub-keys: provider (local | hub — default local; hub dials the configured Hub for Push/Pull/Discover of plan revision envelopes), hub_url (warden-hub base URL; required when provider=hub), token (bearer credential; prefer env WARDEN_PLAN_SYNC_TOKEN which overrides this when set — shown as set/unset in `warden config`). Default install stays provider=local with no network calls. SyncedAt/RemoteID are stamped only after a successful Hub Push/Pull."},
 	{"rate_limit", "Rate-limit auto-resume scheduler settings (previously flat keys: rate_limit_retry_interval, rate_limit_spend_retry_interval, rate_limit_buffer, rate_limit_auto_resume, rate_limit_resume_prompt). Sub-keys: retry_interval (Go duration, e.g. 30m — fallback wait before retrying a session/weekly limit whose reset time could not be parsed), spend_retry_interval (Go duration, e.g. 6h — longer fallback for a monthly spend cap, which carries no reset time), buffer (Go duration, e.g. 1m — extra wait on top of a parsed reset time), auto_resume (true | false — auto-pick the wait-for-reset menu choice and resume agents after any limit clears), resume_prompt (text to type when a limit clears so the agent picks its work back up; default \"continue\", set to empty for a bare keypress with no injected user turn), recovery (reactive hard-limit recovery engine settings — sub-keys: enabled, stabilization_window, usage_reconciliation {enabled (default false), interval (default 60s), stale_after (default 15m), max_parallel_swaps (default 3 — bounds concurrent backend-recovery candidate-selection/launch passes so a shared capacity-bucket loss affecting many agents at once cannot stampede every one of them onto the same limited alternative)}. Reconciliation records provider capacity snapshots, calculates bucket-to-agent impact, and advances every affected agent through the existing backend recovery coordinator — it never performs a second, direct hot-swap path). Flat keys still load as deprecated aliases."},
@@ -681,12 +666,6 @@ func defaults() Config {
 			FastTimeout:     "10s",
 			ThinkingTimeout: "20s",
 			MaxConcurrent:   2,
-		},
-		ModelRecovery: ModelRecoveryConfig{
-			MaxAttempts:    3,
-			Deadline:       "3m",
-			AttemptTimeout: "60s",
-			RejectionTTL:   "24h",
 		},
 		Relay: RelayConfig{
 			AllowWebTerminated: false, // opt-in: trusts hub-asserted scope for un-verifiable browser streams
@@ -1986,32 +1965,6 @@ func (c Config) UsageReconciliationMaxParallelSwaps() int {
 		return n
 	}
 	return 3
-}
-
-// ModelRecoveryMaxAttempts returns the distinct pre-task launch attempts
-// (including the first), clamped to the hard cap of 3. Zero, negative or
-// over-cap values yield 3.
-func (c Config) ModelRecoveryMaxAttempts() int {
-	if n := c.ModelRecovery.MaxAttempts; n >= 1 && n <= 3 {
-		return n
-	}
-	return 3
-}
-
-// ModelRecoveryDeadline returns the shared deadline from the first launch.
-func (c Config) ModelRecoveryDeadline() time.Duration {
-	return durOr(c.ModelRecovery.Deadline, 3*time.Minute)
-}
-
-// ModelRecoveryAttemptTimeout returns the per-attempt observation window.
-func (c Config) ModelRecoveryAttemptTimeout() time.Duration {
-	return durOr(c.ModelRecovery.AttemptTimeout, 60*time.Second)
-}
-
-// ModelRecoveryRejectionTTL returns how long a rejection observation suppresses
-// a route.
-func (c Config) ModelRecoveryRejectionTTL() time.Duration {
-	return durOr(c.ModelRecovery.RejectionTTL, 24*time.Hour)
 }
 
 func durOr(s string, def time.Duration) time.Duration {

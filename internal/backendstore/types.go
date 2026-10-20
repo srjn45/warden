@@ -3,6 +3,7 @@ package backendstore
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"regexp"
 	"time"
 )
 
@@ -82,9 +83,21 @@ type CatalogScope struct {
 	Profile    string `json:"-"`
 	PlanLabel  string `json:"plan_label,omitempty"`
 	CLIVersion string `json:"cli_version,omitempty"`
+	// Fingerprint is an opaque identity hash computed client-side from the raw
+	// account and profile, which never leave the caller. When set it replaces the
+	// locally derived value.
+	Fingerprint string `json:"-"`
 }
 
+var scopeFPPattern = regexp.MustCompile(`^sha256:[0-9a-f]{24}$`)
+
+// ValidScopeFP reports whether fp has the exact shape ScopeFP produces.
+func ValidScopeFP(fp string) bool { return scopeFPPattern.MatchString(fp) }
+
 func (s CatalogScope) ScopeFP() string {
+	if s.Fingerprint != "" {
+		return s.Fingerprint
+	}
 	h := sha256.Sum256([]byte("warden-model-scope-v1:" + s.AiCli + ":" + s.AuthMode + ":" + s.AccountRef + ":" + s.Profile))
 	return "sha256:" + hex.EncodeToString(h[:12])
 }

@@ -8,7 +8,7 @@ billing permissions remain unchanged.
 
 After upgrading, no action is required. Nothing discovers or reconciles models
 at upgrade, startup, normal daemon ticks, or on a schedule. When you are ready,
-follow the [rollout runbook](RUNBOOK-aicli-model-catalog.md): preview, inspect
+follow the [rollout runbook](RUNBOOK-aicli-model-catalog.md): `warden models refresh`, inspect
 unknown/blocked recommendations, apply the exact proposal id, and verify one
 new disposable session. Do not treat seeds or a public provider catalog as
 current entitlement. Offline, stale, partial, unsupported, or failed evidence

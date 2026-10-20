@@ -7519,10 +7519,17 @@ components:
       type: object
       description: >
         Structured discovery evidence. No executable, file path, raw subprocess output,
-        credential, account reference, or profile may be supplied here.
+        credential, account reference, or profile may be supplied here. Account
+        identity is conveyed only as the opaque scope_fp.
       required: [aicli, observation]
       properties:
         aicli: { type: string, description: Installed AI CLI identifier. }
+        scope_fp:
+          type: string
+          pattern: '^sha256:[0-9a-f]{24}$'
+          description: >
+            Opaque, non-reversible account/profile scope fingerprint computed by the
+            caller. When omitted the scope is derived from aicli and auth_mode only.
         auth_mode: { type: string, description: Non-secret authentication mode label. }
         plan_label: { type: string, description: Account-safe plan label. }
         cli_version: { type: string }

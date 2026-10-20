@@ -391,7 +391,6 @@ func newDaemonRunCmd() *cobra.Command {
 			impactFences := stores.ImpactFences
 			srv.SetImpactFences(impactFences)
 			lc.Resolver = router.NewResolver(backendStore)
-			lc.Evidence = backendStore
 			lc.CapacityResolver = capacity.NewResolver(backendStore, nil)
 
 			// First-class project store (docs/specs/2026-08-28-project-centric-ui.md
@@ -573,9 +572,6 @@ func newDaemonRunCmd() *cobra.Command {
 			// A relaunch that launched with a translated/defaulted permission mode
 			// persists the corrected mode and is audited, after the launch succeeded.
 			lc.OnModeNormalized = daemon.NewModeNormalizedHook(st, auditWriter)
-			// A recorded-model relaunch that fails with a typed recovery error keeps
-			// its attempt audit on the stored record.
-			lc.OnModelAttemptEvents = daemon.NewModelAttemptEventsHook(st)
 			restarter := daemon.NewRestarter(life, st, cfg.AutoRestart.Max, cfg.AutoRestartResetDuration())
 			srv.SetRestarter(restarter)
 			rateLimitSched := daemon.NewRateLimitScheduler(life, st, cfg.RateLimitRetryIntervalDuration(), cfg.RateLimitSpendRetryIntervalDuration(), cfg.RateLimitBufferDuration(), cfg.RateLimit.AutoResume, cfg.RateLimit.ResumePrompt)

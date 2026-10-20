@@ -327,7 +327,9 @@ func (l *Lifecycle) readTurns(agent *agentstore.Agent) []agentbackend.Turn {
 }
 
 // resolveSuccessor decides the backend+model to swap to. Precedence:
-//   - explicit Backend (with Model, or the backend's default when Model is empty);
+//   - explicit Backend (with Model; when Model is empty and a Resolver is wired,
+//     the model is reselected from the accepted catalog within that Backend,
+//     otherwise the backend's own default);
 //   - a Tier or Role, resolved through the quota-balanced router (Resolver);
 //   - only a Model set ⇒ the current backend with the new model (a same-backend
 //     model bump).
@@ -335,6 +337,24 @@ func (l *Lifecycle) readTurns(agent *agentstore.Agent) []agentbackend.Turn {
 // It returns resolverUsed=true only when the router actually chose the successor.
 func (l *Lifecycle) resolveSuccessor(ctx context.Context, agent *agentstore.Agent, req SwapRequest) (backendID, model string, resolverUsed bool, err error) {
 	if req.Backend != "" {
+		if req.Model == "" && l.Resolver != nil {
+			role := req.Role
+			if role == "" && req.Tier == "" {
+				role = agent.Role
+			}
+			res, rErr := l.Resolver.Resolve(ctx, router.ResolveOptions{
+				Role:             role,
+				Tier:             req.Tier,
+				PreferredBackend: req.Backend,
+			})
+			if rErr != nil || res == nil || res.BackendID != req.Backend || res.ModelID == "" {
+				if rErr == nil {
+					rErr = fmt.Errorf("no eligible catalog candidate")
+				}
+				return "", "", false, fmt.Errorf("hot-swap: select model for %s from the catalog: %w (refresh and apply the catalog, or pass an explicit model)", req.Backend, rErr)
+			}
+			return res.BackendID, res.ModelID, true, nil
+		}
 		return req.Backend, req.Model, false, nil
 	}
 	if req.Tier != "" || req.Role != "" {
@@ -505,13 +525,10 @@ func (l *Lifecycle) launchSuccessor(ctx context.Context, agent *agentstore.Agent
 		hintSpec{persona != "", persona},
 		hintSpec{true, handoffGuidance(handoffPath, h)},
 	)
-	launch := base + hints + l.guardSettings(b, agent.ID) + l.launchPromptArg(b, promptFile) + l.exitSuffix(agent.ID)
+	launch := base + hints + l.guardSettings(b, agent.ID) + l.promptArg(b, promptFile) + l.exitSuffix(agent.ID)
 	if out, err := l.run.Run(ctx, agent.Workdir, "tmux", "send-keys", "-t", agent.ID, launch, "Enter"); err != nil {
 		l.killSession(agent.ID)
 		return fmt.Errorf("tmux send-keys: %w: %s", err, out)
-	}
-	if err := l.superviseRecorded(ctx, agent, b, model, l.launchPromptArg(b, promptFile) != "", withheldPrompt(b, continuationPrompt(handoffPath, h, req))); err != nil {
-		return err
 	}
 	l.seedInteractivePrompt(b, agent, continuationPrompt(handoffPath, h, req))
 	return nil

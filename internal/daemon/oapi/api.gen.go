@@ -1321,7 +1321,7 @@ type CatalogProposal struct {
 // CatalogProposalState defines model for CatalogProposal.State.
 type CatalogProposalState string
 
-// CatalogRefreshRequest Structured discovery evidence. No executable, file path, raw subprocess output, credential, account reference, or profile may be supplied here.
+// CatalogRefreshRequest Structured discovery evidence. No executable, file path, raw subprocess output, credential, account reference, or profile may be supplied here. Account identity is conveyed only as the opaque scope_fp.
 type CatalogRefreshRequest struct {
 	// Aicli Installed AI CLI identifier.
 	Aicli string `json:"aicli"`
@@ -1341,6 +1341,9 @@ type CatalogRefreshRequest struct {
 
 	// PlanLabel Account-safe plan label.
 	PlanLabel string `json:"plan_label,omitempty"`
+
+	// ScopeFp Opaque, non-reversible account/profile scope fingerprint computed by the caller. When omitted the scope is derived from aicli and auth_mode only.
+	ScopeFp string `json:"scope_fp,omitempty"`
 
 	// SnapshotId Optional deterministic evidence id.
 	SnapshotId string `json:"snapshot_id,omitempty"`

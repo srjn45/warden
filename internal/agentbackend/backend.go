@@ -217,26 +217,6 @@ type PromptSeeder interface {
 	ReadyMarker() string
 }
 
-// LaunchRejectionDetector is an optional adapter extension for bounded startup
-// recovery (docs/specs/2026-10-19-aicli-model-catalog-refresh.md §9.1).
-// DetectModelRejection inspects the pane (or exit text) BEFORE the task prompt is
-// accepted. It is fail-closed: ok only on an anchored, version-fixtured signature
-// that names the model as invalid/unavailable/not permitted for the account.
-// An adapter without a recorded fixture MUST NOT implement it; then no recovery
-// happens and a rejected model is reported like any other launch failure.
-type LaunchRejectionDetector interface {
-	// model is the exact id of the attempt: ok only when the signature names THAT
-	// model, never any other model mentioned in the pane.
-	DetectModelRejection(pane, model string) (reason string, ok bool)
-
-	// RejectsBeforePrompt is the adapter's fixture-backed attestation that the
-	// signature above is only ever emitted before the CLI reads or acts on the
-	// task prompt (e.g. model validated at argument parsing). Lifecycle cannot
-	// prove that from the pane, so a launch that carries a prompt is retried only
-	// when this is true; otherwise recovery fails closed.
-	RejectsBeforePrompt() bool
-}
-
 // InputReadiness is an optional backend extension for TUIs that expose a
 // positive, backend-specific indication that their composer can accept input.
 // It is used by destructive control flows (currently force-compact) after an

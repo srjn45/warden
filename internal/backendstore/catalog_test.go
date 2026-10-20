@@ -109,3 +109,13 @@ func TestUnclassifiedTierPersistsButCannotBeTierFiltered(t *testing.T) {
 		}
 	}
 }
+
+func TestCatalogScopeOpaqueFingerprintOverridesDerivedValue(t *testing.T) {
+	derived := CatalogScope{AiCli: "codex", AccountRef: "acct", Profile: "p"}.ScopeFP()
+	require.True(t, ValidScopeFP(derived))
+	require.Equal(t, derived, CatalogScope{AiCli: "codex", Fingerprint: derived}.ScopeFP())
+	require.NotEqual(t, derived, CatalogScope{AiCli: "codex"}.ScopeFP())
+	for _, bad := range []string{"", "acct", "sha256:", "sha256:ABCDEF0123456789ABCDEF01", derived + "0"} {
+		require.False(t, ValidScopeFP(bad), bad)
+	}
+}

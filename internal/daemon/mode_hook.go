@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 
 	"github.com/srjn45/warden/internal/agentstore"
@@ -14,24 +13,6 @@ import (
 // EventRelaunchPermissionMode is the agent event type recorded when a relaunch
 // launched with a translated, stepped-down or defaulted permission mode.
 const EventRelaunchPermissionMode = "relaunch-permission-mode"
-
-// NewModelAttemptEventsHook returns the lifecycle OnModelAttemptEvents hook: the
-// attempt audit of a failed recorded-model relaunch (typed model_rejected or
-// startup_ambiguous) is appended to the stored record, which the failing caller
-// would otherwise discard. A missing record (an Adopt that never persisted) is
-// skipped.
-func NewModelAttemptEventsHook(st *agentstore.Store) func(context.Context, string, []store.Event) {
-	return func(ctx context.Context, agentID string, events []store.Event) {
-		for _, ev := range events {
-			if err := st.AppendEvent(ctx, agentID, ev); err != nil {
-				if !errors.Is(err, agentstore.ErrNotFound) {
-					slog.Warn("relaunch: could not persist model attempt event", "agent", agentID, "err", err)
-				}
-				return
-			}
-		}
-	}
-}
 
 // NewModeNormalizedHook returns the lifecycle OnModeNormalized hook: after a
 // relaunch has successfully launched it persists the corrected mode (when the

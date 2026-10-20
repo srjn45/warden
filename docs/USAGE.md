@@ -1074,12 +1074,12 @@ warden backend model --backend antigravity # e.g. Gemini 3.5 Flash (Low), Claude
 warden backend model --backend cursor --json
 ```
 
-### `warden backend model list|tier|add|discover|history|rollback` (model catalog)
+### `warden backend model list|tier|add|discover|refresh|history|rollback` (model catalog)
 
 Inspect and extend warden's **tiered model catalog** (ScrivaDB `models` collection) —
 the seed list used by quota-balanced routing (`--task` / `--tier`). Distinct from the
 bare `warden backend model` live menu above: these subcommands read/write the local
-catalog store (CLI-only, no daemon round-trip).
+catalog (`list`/`tier`/`add`/`discover` read or write the local store when no daemon owns it; `refresh`, `history` and `rollback` always use the daemon).
 
 ```sh
 warden backend model list [--by-tier] [--tier tier-2] [--backend cursor]
@@ -1088,8 +1088,10 @@ warden backend model add cursor my-model --tier tier-2 --display "My Model" --au
 warden backend model discover                              # probe installed AI CLIs
 warden backend model discover --backend opencode --json
 warden backend model discover --import --tier tier-2       # register missing ids as custom
-warden backend model history --aicli codex --json
-warden backend model rollback 42 --yes                      # policy only; live sessions unchanged
+warden backend model refresh --aicli codex                 # preview only; routing unchanged
+warden backend model refresh --aicli codex --apply --yes    # apply exactly the proposals just created
+warden backend model history --aicli codex --json           # via the daemon
+warden backend model rollback 42 --yes                      # via the daemon; policy only, live sessions unchanged
 ```
 
 `add` inserts a custom row (`IsCustom=true`) so seed pruning never removes it.
@@ -1097,11 +1099,27 @@ warden backend model rollback 42 --yes                      # policy only; live 
 `agy models`, `opencode models`, `crush models`, and the top-level `model = "…"`
 from `~/.codex/config.toml`.
 
-For the safe reconciliation workflow — structured evidence preview, inspection,
-explicit apply, new-session verification, and revision-safe rollback — see the
-[AI CLI model-catalog rollout runbook](RUNBOOK-aicli-model-catalog.md). It is
-deliberately API/MCP-first in this release; `discover` is not evidence of
-account entitlement and does not automatically reconcile routing policy.
+`refresh` (alias `warden models refresh`) runs each installed AI CLI's own
+non-generating model discovery, submits the evidence to the daemon and prints a
+proposal per AI CLI; `--apply --yes` applies it. `--apply` without `--yes` is
+refused, failed or partial discovery is reported per AI CLI and never retires a
+model, and account identity is sent only as an opaque `scope_fp`. Catalog
+mutation (`refresh --apply`, `rollback`) always goes through the daemon.
+
+Applying never moves a live agent. Reselect one afterwards with `warden switch`:
+
+```sh
+warden switch AGENT --aicli codex                  # catalog pick in codex at the agent's own role tier
+warden switch AGENT --aicli codex --tier tier-1    # catalog pick in codex at tier-1
+warden switch AGENT --tier tier-2                  # router pick across AI CLIs
+warden switch AGENT --aicli codex --model MODEL    # explicit pin; catalog not consulted
+```
+
+Automatic recovery from an invalid model at launch is deferred (see
+`docs/FUTURE_ENHANCEMENTS.md`); this manual workflow is the supported path. See the
+[AI CLI model-catalog rollout runbook](RUNBOOK-aicli-model-catalog.md) for the full
+procedure. `discover` is not evidence of account entitlement and does not reconcile
+routing policy.
 
 ### `warden backend list|rescan|tier|default|enable|disable` (backend registry)
 
@@ -2293,10 +2311,6 @@ restart list; everything else takes effect on save.
 | `fast_brain.fast_timeout` | `10s` | Ceiling for ordinary Fast-Brain native-CLI decisions. |
 | `fast_brain.thinking_timeout` | `20s` | Ceiling for Fast-Brain reasoning and prompt-recognition decisions. |
 | `fast_brain.max_concurrent` | `2` | Process-wide cap on concurrent internal model calls. Identical in-flight decisions are coalesced, and cosmetic activity work yields capacity to operational decisions. |
-| `model_recovery.max_attempts` | `3` | Distinct pre-task launch attempts (including the first) when a launch is rejected for an invalid/not-entitled model. Hard cap 3: `4`/`5` and non-positive values are clamped/defaulted to 3. Same aicli and tier only; exact pins and recorded-model relaunches are never substituted. Dormant until an adapter ships a rejection detector. Hot-reloaded. |
-| `model_recovery.deadline` | `3m` | Shared deadline from the first launch for the whole recovery. Invalid/non-positive → default. Hot-reloaded. |
-| `model_recovery.attempt_timeout` | `60s` | Per-attempt observation window. Invalid/non-positive → default. Hot-reloaded. |
-| `model_recovery.rejection_ttl` | `24h` | How long a rejection observation suppresses a (aicli, model) route. Invalid/non-positive → default. Hot-reloaded. |
 | `router.use_fast_brain` | `false` | Opt-in Fast-Brain prompt-complexity tier routing for unpinned spawns (lowest precedence; confidence ≥ 0.8; see §5.3) |
 | `snapshots` | `true` | Enable the worktree+transcript checkpoint store (`warden workspace snapshot`) and its `snapshot_*` MCP tools |
 | `insights` | `true` | Enable history-mined insights (`warden usage insights` + the `insights` MCP tool) |

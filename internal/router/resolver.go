@@ -54,15 +54,6 @@ type ResolveOptions struct {
 	AllowPaid        bool                   // allow pay_per_use backends (default: false, subscription/free only)
 	AllowFallback    bool                   // fallback to adjacent tier if target tier is exhausted
 	ThresholdPercent int                    // deprecated; ignored (hard-limit recovery is reactive)
-	// ExcludeRoutes lists (backend, model) pairs already tried by bounded startup
-	// recovery; they are never candidates again in this resolution.
-	ExcludeRoutes []Route
-}
-
-// Route is a (backend, model) pair.
-type Route struct {
-	BackendID string `json:"backend_id"`
-	ModelID   string `json:"model_id"`
 }
 
 // CandidateEvaluation represents the status and scoring of a candidate model during resolution.
@@ -199,7 +190,6 @@ func (r *Resolver) EvaluateCandidates(ctx context.Context, targetTier backendsto
 
 	evals := make([]CandidateEvaluation, 0, len(models))
 
-candidates:
 	for _, m := range models {
 		eval := CandidateEvaluation{
 			BackendID:   m.BackendID,
@@ -231,15 +221,6 @@ candidates:
 		// Default to backend-row LimitedUntil; overwritten below when a scoped
 		// quota record exists (D6).
 		eval.LimitedUntil = b.LimitedUntil
-
-		for _, ex := range opts.ExcludeRoutes {
-			if ex.BackendID == m.BackendID && ex.ModelID == m.ModelID {
-				eval.Eligible = false
-				eval.RejectReason = "already attempted at launch"
-				evals = append(evals, eval)
-				continue candidates
-			}
-		}
 
 		// Only an exact pair is an operator override. A backend preference still
 		// goes through safe catalog eligibility for the model selected within it.

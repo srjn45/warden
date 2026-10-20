@@ -8,20 +8,27 @@ upgrade, daemon startup, ordinary ticks, or schedules; it does not log in,
 update an AI CLI, send a prompt, make a paid probe, restart an agent, or change
 an existing session.
 
-The shipping workflow is API/MCP-first:
+The operator workflow is manual and daemon-backed:
 
-1. Submit redacted, structured, operator-reviewed discovery evidence to `POST
-   /api/v1/model-catalog/proposals` or MCP `preview_model_catalog`.
-2. Inspect the proposal's operations, blocked entries, scope fingerprint, and
-   expiry. A preview changes no routing policy.
-3. Explicitly apply its exact id with `POST
-   /api/v1/model-catalog/proposals/{proposal_id}/apply` or MCP
-   `apply_model_catalog_proposal`.
-4. Verify a newly-created disposable session routes as expected. Existing,
-   pinned, restored, and live sessions are unchanged.
-5. Inspect history and, if needed, roll back the exact revision with the API or
-   MCP `rollback_model_catalog_revision`. Rollback is compare-and-swap policy
-   history, not a live-session restart.
+1. Preview with `warden models refresh [--aicli ID]` (alias `warden backend model
+   refresh`). It runs each installed AI CLI's non-generating model discovery,
+   submits the evidence to the daemon and prints the proposal. A preview changes
+   no routing policy. Account identity is conveyed only as an opaque `scope_fp`.
+2. Inspect the operations and blocked entries, then apply with `warden models
+   refresh --apply --yes`. Automation can use `POST /api/v1/model-catalog/proposals`,
+   `POST /api/v1/model-catalog/proposals/{proposal_id}/apply`, or MCP
+   `preview_model_catalog` / `apply_model_catalog_proposal`.
+3. Reselect a running agent with `warden switch AGENT --aicli ID` (catalog pick at
+   the agent's own role tier), `--aicli ID --tier tier-N`, `--tier tier-N`, or an
+   explicit `--aicli ID --model MODEL` pin. Existing, pinned, restored and live
+   sessions are otherwise unchanged.
+4. Inspect history with `warden models history` and, if needed, roll back the
+   exact revision with `warden models rollback REV --yes`. Rollback is
+   compare-and-swap policy history, not a live-session restart.
+
+Automatic recovery from an invalid model at launch is deferred until the PTY
+migration and state/prompt/error detection redesign; nothing retries or
+substitutes a model for you.
 
 Partial, stale, offline, malformed, unsupported, or failed evidence cannot
 retire a model. Seed entries are bootstrap/unknown fallback only, not proof of
