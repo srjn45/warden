@@ -79,7 +79,7 @@ A run is a small fleet with clearly separated jobs:
 
 <figure>
 <div class="wapdiag">
-<svg viewBox="0 0 980 440" role="img" aria-label="An autopilot manager driven by a plan file spawns one worker per task; workers run implement, self-review, PR and gate then land on the integration branch.">
+<svg viewBox="0 0 980 440" role="img" aria-label="An autopilot manager driven by a Plan record spawns one worker per task; workers run implement, self-review, PR and gate then land on the integration branch.">
   <defs>
     <marker id="waa" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path class="arrowhead" d="M0,0 L8,3 L0,6 Z"/></marker>
     <marker id="waa-acc" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto"><path class="arrowhead acc" d="M0,0 L8,3 L0,6 Z"/></marker>
@@ -90,7 +90,7 @@ A run is a small fleet with clearly separated jobs:
   <text class="elabel" x="452" y="78" text-anchor="end">nudge if idle</text>
   <path class="edge" d="M296,90 C296,58 384,58 384,90" marker-end="url(#waa)"/>
   <text class="elabel" x="340" y="50" text-anchor="middle">guardian · in-place hot-swap</text>
-  <g class="n"><rect x="24" y="96" width="150" height="70" rx="9"/><text class="t" x="99" y="120" text-anchor="middle" style="font-size:13px">plan file</text><text class="s" x="99" y="138" text-anchor="middle">goal · tasks</text><text class="s" x="99" y="153" text-anchor="middle">done_when</text></g>
+  <g class="n"><rect x="24" y="96" width="150" height="70" rx="9"/><text class="t" x="99" y="120" text-anchor="middle" style="font-size:13px">Plan record</text><text class="s" x="99" y="138" text-anchor="middle">goal · tasks</text><text class="s" x="99" y="153" text-anchor="middle">done_when</text></g>
   <g class="n mgr"><rect x="250" y="90" width="180" height="80" rx="10"/><text class="t" x="340" y="118" text-anchor="middle">manager</text><text class="s" x="340" y="136" text-anchor="middle">role: autopilot</text><text class="s" x="340" y="151" text-anchor="middle">&lt;scope&gt;-autopilot slot</text></g>
   <g class="n"><rect x="520" y="96" width="150" height="70" rx="9"/><text class="t" x="595" y="124" text-anchor="middle" style="font-size:13px">worker</text><text class="s" x="595" y="145" text-anchor="middle">role: worker · 1/task</text></g>
   <g class="n"><rect x="790" y="96" width="166" height="70" rx="9"/><text class="t" x="873" y="124" text-anchor="middle" style="font-size:12.5px">integration branch</text><text class="s" x="873" y="145" text-anchor="middle">autopilot/&lt;plan&gt;</text></g>
@@ -108,7 +108,7 @@ A run is a small fleet with clearly separated jobs:
   <g class="n"><rect x="360" y="224" width="180" height="52" rx="9"/><text class="t" x="450" y="249" text-anchor="middle" style="font-size:13px">resolver</text><text class="s" x="450" y="266" text-anchor="middle">role: brain</text></g>
   <line class="edge" x1="298" y1="170" x2="180" y2="224" marker-end="url(#waa)"/>
   <text class="elabel" x="196" y="200" text-anchor="middle">autopilot_complete</text>
-  <g class="n"><rect x="24" y="224" width="150" height="52" rx="9"/><text class="t" x="99" y="249" text-anchor="middle" style="font-size:12.5px">status: complete</text><text class="s" x="99" y="266" text-anchor="middle">→ plan file</text></g>
+  <g class="n"><rect x="24" y="224" width="150" height="52" rx="9"/><text class="t" x="99" y="249" text-anchor="middle" style="font-size:12.5px">status: completed</text><text class="s" x="99" y="266" text-anchor="middle">→ Plan record</text></g>
   <path class="edge dash" d="M292,170 L226,190 L226,388 L248,388" marker-end="url(#waa)"/>
   <text class="elabel" x="218" y="320" text-anchor="end">writes ledger</text>
   <line class="edge dash" x1="635" y1="272" x2="635" y2="358" marker-end="url(#waa)"/>
@@ -168,8 +168,8 @@ be patched (409).
 ### Run
 
 The daemon's execution of one plan: one manager + its workers + its ledger. The
-run id is a stable hash of the repo path and the plan file path, so running
-autopilot on the same repo + plan always continues the same logical run (the
+run is bound to the canonical Plan and continues as the same logical run when
+restarted (the
 ledger persists landed tasks across manager restarts).
 
 **Multiple named runs per repository.** Independent plans (e.g. `plans/release.yaml`
@@ -221,7 +221,7 @@ backend** (see Cost-tier backend selection below). Guardian heal-ladder rotation
 rotation and daemon restarts; context is handed off via
 `.warden/handoff-<slot-id>.md`. The manager:
 
-- Reads the plan file and decomposes the goal into tasks (if absent from the plan)
+- Reads the canonical Plan and decomposes the goal into tasks (if absent from the plan)
 - Spawns worker agents via warden's MCP tools — the daemon tags each spawn with
   `autopilot` and `run:<run_id>` automatically, inherited from the calling
   agent's identity, so the fleet roster never depends on the manager remembering
@@ -241,13 +241,16 @@ for back-compat.)*
 
 Agents (and pipelines) the manager spawns to do the actual coding work. By
 default a task gets one `worker`-role agent that owns it end-to-end — implement →
-self-review → open a PR on the integration branch → drive CI green → merge — and
+self-review → open a PR on the integration branch → drive CI green → report done — and
 reports status back to the manager; a large task may instead get a pipeline of
 `implementer`/`reviewer`/`auto-merger` agents. Every worker is tagged `autopilot`
 + `run:<run_id>`. Workers operate exactly like normal warden agents: they have
 their own isolated worktrees, run the project's checks, commit via
-`warden commit`, push, and open a PR. When a worker finishes, its branch is
-landed into the integration branch via `warden autopilot land`.
+`warden commit`, push, and open a PR. When a worker finishes, it ends with
+`wd job done`; the daemon owns landing. It waits for the worker PR's gate, uses
+the bounded CI fix loop for a red gate or conflict, and lands a green worker PR
+into the integration branch. `warden autopilot land` is the idempotent manual
+fallback, not the normal worker path.
 
 **Manual agents are invisible to autopilot's destructive paths** — autopilot
 never terminates or modifies an agent that doesn't carry the `run:<run_id>` tag.
@@ -315,8 +318,9 @@ re-derives a stored branch.
 `autopilot/integration` does not cover `autopilot/<plan>`; when no workflow
 matches, `gate: auto` downgrades to `local` and preflight emits a warning.
 
-The integration branch is **never** merged into `main` automatically — the
-operator reviews it and fast-forwards `main` when satisfied.
+The integration branch is **never** merged into `main` automatically. Once all
+tasks are complete, the daemon opens one final integration → default-branch PR;
+the operator reviews and merges that PR.
 
 **Boundary invariant:** workers never commit to `main` directly. The integration
 branch is a staging area for owner review.
@@ -383,8 +387,26 @@ Each nudge names the needy workers and asks the manager to answer/steer anything
 `waiting_for_input` and clean up finished/idle workers before pulling the next
 task. The cadences are fixed, generous constants — the overwatch is a **backstop,
 not a pacer** (see warden's frictionless-safeguards philosophy). It complements
-the guardian, which watches manager liveness; the overwatch **only ever messages
-the manager** — it never touches a worker itself.
+the guardian, which watches manager liveness. With Fast-Brain triage enabled,
+overwatch can resolve a recognized prompt, resume a rate-limited worker, or
+redeliver its brief; otherwise it includes a targeted finding in the manager's
+nudge. It never restarts, terminates, or removes a worker.
+
+## CI, landing, and usage-limit recovery
+
+Worker PRs target the integration branch. The daemon watches their gate: a green
+PR is auto-landed, while a red gate or conflict enters a bounded fix loop. It
+collects failing-job evidence, may rerun a failure classified as flaky or
+infrastructure, and otherwise sends the evidence to the owning worker for a fix.
+If the bounds are exhausted, the task remains visible for resolver or operator
+triage rather than being silently landed.
+
+Usage-limit and rate-limit signals are recovery inputs, not successful work. The
+guardian and overwatch triage can resume an eligible rate-limited session; when a
+manager cannot be resumed, the guardian's cost-tier ladder can hot-swap it or
+back off and retry. Status reports the backoff kind and error, so an operator can
+distinguish a temporary `backend_unavailable` from a definition or repeated spawn
+failure.
 
 ---
 
@@ -508,21 +530,27 @@ changing the plan in ScrivaDB, running `wd plan resume` (or `pause` then
 `resume`), or restarting the daemon; each resets the counter and retries the
 heal ladder from the top.
 
-### Completion marker
+### Completion phase and the final PR
 
-When the manager has verified the plan's `done_when` criteria it declares the run
-complete (MCP `autopilot_complete` / `POST /api/v1/autopilot/complete`; the run is
-inferred from the manager's own identity, and only a run's own manager may
-complete it). The daemon then opens and gates the final PR, waits for you to merge it
-(state `awaiting_merge`, polled every `autopilot.completion.merge_poll_interval`), and on
-merge writes an **in-place marker** into the plan file —
-`status: complete` and `completed_at: <RFC3339>` — round-tripping the YAML so
-your other keys, ordering, and inline comments survive, and retains the ledger. The
-plan then finishes and the integration branch is deleted. See the
-[plan-finish-flow spec](https://github.com/srjn45/warden/blob/main/docs/specs/2026-10-05-plan-finish-flow.md). **Preflight skips a
-plan carrying `status: complete`**, so a finished run is never executed again by
-mistake on a future plan run or daemon restart. Completion is idempotent. To re-run
-a completed plan, remove the `status: complete` line.
+When the manager has verified `done_when`, it calls `autopilot_complete`. The
+daemon—not the manager—then opens and gates **one** final PR from the integration
+branch to the default branch. A green final PR moves the reported run state to
+`awaiting_merge`; the canonical Plan remains `in_progress` until the PR is
+observed merged.
+
+No run agent stays alive just to wait. The daemon polls the recorded final PR at
+`autopilot.completion.merge_poll_interval` (default `2m`, minimum `30s`) and does
+not merge, approve, or close it. A merged PR completes the Plan and removes the
+integration branch only when its tip is the merged tip. A closed-unmerged PR parks
+the run as `final_pr_closed`; reopening it, `wd plan resume`, or `wd plan stop` are
+the operator paths forward. The final PR, its gate, and the integration-branch fate
+are retained in the Plan execution summary—not written into an optional YAML export.
+
+If the final PR head changes or becomes conflicting, dirty, or protection-blocked,
+the daemon leaves `awaiting_merge`, brings the integration branch current when
+needed, and gates it again. A red gate uses the bounded final-fix loop; it does not
+create a second final PR. See the
+[plan-finish-flow spec](https://github.com/srjn45/warden/blob/main/docs/specs/2026-10-05-plan-finish-flow.md).
 
 The final PR carries a conventional-commit title derived from the landed commits
 (type by priority `feat`, `fix`, `perf`, `revert`, `refactor`, `docs`, `test`,
