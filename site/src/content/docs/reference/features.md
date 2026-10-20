@@ -333,7 +333,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 | **Whole-store repair** (`warden repair all --resolve-history=live-wins`: offline check and repair for all ScrivaDB stores, quarantine backup, resolving duplicate live keys and revision-regression conflicts) | `repair all` | offline whole-data repair; daemon must be stopped | [install](https://srjn45.github.io/warden/start/install/#rollback--data-maintenance) |
 | **Data directory init & install parity** (`warden init`: stamps schema ledger, ensures all store directories, runs baseline migrations; shared code path with `scripts/install.sh`) | `init` | idempotent host data setup | [install](https://srjn45.github.io/warden/start/install/) |
 | Health / environment doctor | `doctor` (`--reconcile-membership` offline membership repair) | host diagnostics | [troubleshooting](https://srjn45.github.io/warden/reference/troubleshooting/) |
-| Install missing dependencies | `setup` | installs host packages (brew/apt/dnf/pacman + official installers) | [install](https://srjn45.github.io/warden/start/install/) |
+| Install missing dependencies | `setup` | installs missing host dependencies such as tmux, git, gh (via the OS package manager + official installers) | [install](https://srjn45.github.io/warden/start/install/) |
 | First-run tutorial | `tutorial` | interactive walkthrough | [quickstart](https://srjn45.github.io/warden/start/quickstart/) |
 | Shell completion | `completion` | shell integration | [install](https://srjn45.github.io/warden/start/install/) |
 | Hook entry points (guards) | `hook` / `*-guard` | invoked by Claude Code hooks | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) |
@@ -344,7 +344,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 
 ### MCP parity summary
 
-Every fleet/data feature is reachable over MCP (**83 tools**, including the
+Every fleet/data feature is reachable over MCP (including the
 umbrella `stop_agent`). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
 §16 (plus interactive `attach`/`repl`, the local-config `preset` /

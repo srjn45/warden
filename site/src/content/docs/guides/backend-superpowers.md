@@ -150,7 +150,7 @@ A few things worth knowing:
   **tracked** uncommitted changes into the fork; **untracked / `.gitignore`'d build
   artifacts are not** seeded.
 - **Inherits repo + backend** (resolved daemon-side), so neither is restated. The
-  fork's `--type` defaults to `development` (it needs its own worktree).
+  fork runs as a managed `worker` in its own worktree.
 - **MCP + CLI parity.** Because fork is a managed spawn (not a worktree-local exec),
   the `fork_agent` MCP tool is the orchestrator twin — a thin wrapper over
   `spawn_agent` with `fork_from` set (no new daemon endpoint).

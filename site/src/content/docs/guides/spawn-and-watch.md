@@ -7,11 +7,11 @@ description: The two ways to spawn an agent and the commands to observe and inte
 
 ### Prompt mode (default — no worktree, auto-typed)
 
-Just pass a quoted prompt. The agent launches in your current directory (or the `--dir` you pass) and **assumes no worktree** — it operates directly on whatever is in that directory. Use `--dir` to point it elsewhere.
+`--role` is required (`general` is the plain choice for prompt mode; see `warden agent role list`). Pass a quoted prompt. The agent launches in your current directory (or the `--dir` you pass) and **assumes no worktree** — it operates directly on whatever is in that directory. Use `--dir` to point it elsewhere.
 
 ```sh
-warden start "investigate why the nightly build is flaky"
-warden start "summarize the changes in /path/to/repo since last Friday"
+warden start --role general "investigate why the nightly build is flaky"
+warden start --role general "summarize the changes in /path/to/repo since last Friday"
 # spawned agent-a1b2 (flaky-nightly) — name auto-resolved from the prompt
 ```
 
@@ -20,27 +20,27 @@ warden start "summarize the changes in /path/to/repo since last Friday"
 - **Type is auto-assigned** shortly after spawn (the daemon asks `claude -p` to classify the prompt; falls back to `other` if `claude` isn't available).
 - **Subject is auto-generated** — a ≤8-word phrase summarizing current work, seeded from the prompt and refreshed by the poller.
 
-In the web GUI, **+ New agent** opens a single prompt textarea — no type or repo fields.
+In the web GUI, **+ New agent** opens a single prompt textarea — no role or repo fields.
 
-### Managed worktree mode (`--type`)
+### Managed worktree mode (`--role worker --repo`)
 
-When the work belongs to a real repo — especially a development branch tied to a ticket — pass `--type`. This is what creates and manages a git worktree.
+When the work belongs to a real repo — especially a development branch tied to a ticket — pass `--role worker --repo <path>`. This is what creates and manages an isolated git worktree. (`--type` is deprecated; roles replaced it.)
 
 ```sh
 # Development branch for a Jira ticket (new worktree + new branch):
-warden start PROJ-350 --type development
+warden start --role worker --repo . PROJ-350
 
 # PR review (fresh worktree, runs `gh pr checkout`):
-warden start --type pr-review --pr 1234
+warden start --role worker --repo . --pr 1234
 
-# Spike/analysis with an opt-in scratch worktree:
-warden start --type spike --worktree
+# Spike/analysis in a throwaway scratch worktree:
+warden start --role worker --repo . --worktree "spike: try the new parser"
 
-# Debug CI — no worktree, runs in the current repo:
-warden start --type debug-ci
+# Debug CI — run in the shared checkout instead of a worktree:
+warden start --role worker --repo . --in-repo "debug the failing CI job"
 
 # Be explicit about repo and branch:
-warden start PROJ-350 --type development --repo /path/to/repo --branch my-branch
+warden start --role worker --repo /path/to/repo --branch my-branch PROJ-350
 ```
 
 ## Observation & interaction
