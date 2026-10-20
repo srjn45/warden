@@ -456,7 +456,7 @@ Every attempt emits an agent event `model_launch_attempt {n, aicli, model, outco
 
 ### 9.4 Implementation status (follow-up)
 
-**Status: NOT complete. Recovery is dormant in production: no production adapter implements `LaunchRejectionDetector`.** No captured, versioned rejection fixture exists and live/paid probing is forbidden, so no real launch is retried today. The mechanism below is exercised only by test-only fake detectors.
+**Status: NOT complete. Recovery is dormant in production: no production adapter implements `LaunchRejectionDetector`.** No captured, versioned rejection fixture exists, so no real launch is retried today. §9.1 permits one deliberately-invalid-model capture (it is not a generation probe), but the single no-prompt Cursor TUI capture attempted for this task was blocked by the harness permission review (Real-World Transactions) and not retried, so no fixture was recorded. The mechanism below is exercised only by test-only fake detectors.
 
 Implemented: `agentbackend.LaunchRejectionDetector`, `router.ResolveOptions.ExcludeRoutes`, and `internal/lifecycle/model_recovery.go`. Evidence is written through `backendstore.RecordLaunchEvidence` (daemon wires `lc.Evidence`). A rejection counts only when the CLI exited non-zero, no ready marker or transcript exists, the adapter's anchored signature names the attempted model, and, when the task prompt rides the launch line (`startupRun.PromptOnLaunchLine`), the adapter attests `RejectsBeforePrompt()`; otherwise recovery fails closed. Attempts are hard-capped at 3 including the initial (the 1–5 range in the config table is clamped to 3), under one shared deadline, with no pair repeated.
 
