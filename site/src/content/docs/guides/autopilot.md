@@ -48,7 +48,7 @@ manager to tend workers that fall idle or wait on input. It is **fully automatic
 no user action needed** — and its cadences are generous (a backstop, not a pacer).
 
 For the underlying design — manager/worker/resolver topology, overwatch, ledger,
-guardian, cost-tier ladder — see [Autopilot concepts](../concepts/autopilot).
+guardian, cost-tier ladder — see [Autopilot concepts](/warden/concepts/autopilot/).
 
 ---
 
