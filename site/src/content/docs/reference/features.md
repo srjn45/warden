@@ -323,7 +323,27 @@ first boot after upgrade, then ignored (edit tiers via the surfaces above).
 | Versioned daemon API shared by web and future clients | Shipped | [node API client contract](https://srjn45.github.io/warden/guides/node-api-client-contract/) |
 | Android app and Hub-routed mobile connection | Planned; use the mobile-responsive web dashboard today | [Android connectivity status](https://srjn45.github.io/warden/guides/android-connectivity/) |
 
-## 17. Admin / host (CLI-only by design)
+## 17. Plans & autopilot
+
+Plans are ScrivaDB-canonical records. Autopilot is the long-running execution
+mode that gives a Plan a manager, isolated workers, a daemon-owned landing loop,
+and one owner-merged final PR. See [Plans](/warden/concepts/plans/), [Using
+plans](/warden/guides/using-plans/), and [Autopilot](/warden/concepts/autopilot/)
+for the model and safety boundaries.
+
+| Feature | CLI | MCP | Skill | Web | TUI | Docs |
+|---|---|---|---|---|---|---|
+| Create, inspect, and list canonical Plans | `plan create\|show\|list` | `create_plan`, `get_plan`, `list_plans` | ✓ | ✓ | project tree | [using-plans](/warden/guides/using-plans/) |
+| Modify a pending Plan definition or task DAG (revision-checked; non-pending plans reject changes) | `plan update\|edit\|task add\|edit\|rm` | `update_plan` | ✓ | ✓ | — | [Plans](/warden/concepts/plans/) |
+| Run a Plan in autopilot, pipeline, orchestrator-worker, or manual mode | `plan run <id> --mode …` | `run_plan` | ✓ | ✓ | `r` | [using-plans](/warden/guides/using-plans/) |
+| Track task status and executor state | `plan task status`, `plan show --watch` | `update_task_status` | ✓ | ✓ | project tree | [using-plans](/warden/guides/using-plans/) |
+| Pause, resume, stop, or destructively restart an executor | `plan pause\|resume\|stop\|restart` | `control_plan`, `restart_plan` | ✓ | ✓ | — | [Autopilot guide](/warden/guides/autopilot/) |
+| Archive / unarchive a Plan (preserve unmerged branches and task progress) | `plan archive\|unarchive` | `archive_plan`, `unarchive_plan` | ✓ | ✓ | `a` | [using-plans](/warden/guides/using-plans/#archiving-and-restoring-safely) |
+| Autopilot manager / worker / resolver topology, guardian, overwatch, and usage-limit recovery | automatic; `autopilot status` | `autopilot_status`, `brain_consult` | ✓ | ✓ | project tree | [Autopilot concepts](/warden/concepts/autopilot/) |
+| Daemon-owned gate/CI fix loop and worker landing to the per-plan integration branch | automatic; `autopilot land` is an escape hatch | `land` | ✓ | ✓ | — | [Autopilot guide](/warden/guides/autopilot/#landing-a-worker-branch-manually) |
+| One final integration → default-branch PR; daemon gates and polls, owner merges | automatic; `autopilot status` | `autopilot_complete` (manager-only) | ✓ | ✓ | — | [Autopilot concepts](/warden/concepts/autopilot/#completion-phase-and-the-final-pr) |
+
+## 18. Admin / host (CLI-only by design)
 
 These operate on the host, the daemon process, the local shell, or the bearer
 secret — they are **intentionally not exposed over MCP or web**, because doing so
