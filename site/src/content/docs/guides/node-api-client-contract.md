@@ -48,4 +48,3 @@ SSE and WebSocket connections carry the token as `?token=` because browser
 upgrade/event-source APIs cannot reliably set the header. A future authenticated
 relay maps its verified scope into this same authorization model; it does not
 create a competing node API.
-

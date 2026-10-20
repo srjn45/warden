@@ -50,4 +50,3 @@ that includes a private-key field instead of silently accepting it.
 This flow provisions identity only. Today it does not by itself start a daemon
 relay connection, list remote nodes, or make the local dashboard reachable from
 the internet; those Hub-dependent capabilities remain planned.
-

@@ -51,4 +51,3 @@ dial-out connector, remote-node discovery, or a client command to connect to a
 remote node. Treat the wire package, `warden login`, and the accept-side policy
 as compatibility work for those planned pieces—not as instructions for exposing
 a daemon on the public internet.
-

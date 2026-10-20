@@ -35,4 +35,3 @@ actions or open an interactive attach session.
 Hub-routed Android connectivity is also planned, not shipped. When available,
 it is intended to use the same node API over a relay, with native end-to-end
 authentication; it will not require a parallel Android-only backend.
-
