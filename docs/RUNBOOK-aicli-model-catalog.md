@@ -87,7 +87,7 @@ provider command itself. Use the generated OpenAPI document at
    revision and post-apply policy record.
 
 For an MCP client, use `preview_model_catalog` to submit the same structured
-evidence. It deliberately cannot invoke provider commands. Then use
+evidence (including the optional opaque `scope_fp`; raw account or profile identifiers are never accepted). It deliberately cannot invoke provider commands. Then use
 `apply_model_catalog_proposal` with the exact returned `proposal_id`. Agents,
 autopilot, and background automation must not call the mutating apply tool
 without a separate operator instruction.

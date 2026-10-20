@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"github.com/srjn45/warden/internal/backendstore"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -453,4 +454,46 @@ func TestKnownPromptsTools(t *testing.T) {
 	require.Contains(t, call("forget_known_prompt", map[string]any{}), "error")
 	require.Contains(t, call("forget_known_prompt", map[string]any{"id": "x", "all": true}), "error")
 	require.Equal(t, []string{"GET /api/v1/known-prompts", "DELETE /api/v1/known-prompts/abc", "DELETE /api/v1/known-prompts"}, hits)
+}
+
+func TestPreviewModelCatalogToolForwardsOpaqueScopeFingerprint(t *testing.T) {
+	var body map[string]any
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		_, _ = w.Write([]byte(`{"id":"proposal-1"}`))
+	}))
+	defer daemon.Close()
+	session := connectTo(t, daemon.URL)
+	fp := backendstore.CatalogScope{AiCli: "codex", AccountRef: "acct", Profile: "p"}.ScopeFP()
+
+	result, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name: "preview_model_catalog",
+		Arguments: map[string]any{
+			"ai_cli": "codex", "scope_fp": fp,
+			"observation": map[string]any{"source": "cli_cache", "completeness": "partial"},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError, textOf(result))
+	require.Equal(t, fp, body["scope_fp"])
+}
+
+func TestPreviewModelCatalogToolRejectsMalformedScopeFingerprint(t *testing.T) {
+	hit := false
+	daemon := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hit = true }))
+	defer daemon.Close()
+	session := connectTo(t, daemon.URL)
+
+	for _, fp := range []string{"acct-a", "sha256:zz", "sha256:dd9208115a23db829577df2"} {
+		result, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
+			Name: "preview_model_catalog",
+			Arguments: map[string]any{
+				"ai_cli": "codex", "scope_fp": fp,
+				"observation": map[string]any{"source": "cli_cache", "completeness": "partial"},
+			},
+		})
+		require.NoError(t, err)
+		require.Contains(t, textOf(result), "scope_fp must be")
+	}
+	require.False(t, hit, "a malformed fingerprint never reaches the daemon")
 }

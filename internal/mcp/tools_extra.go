@@ -316,6 +316,7 @@ type catalogPreviewArgs struct {
 	CLIVersion  string                 `json:"cli_version,omitempty" jsonschema:"installed AI CLI version"`
 	ObservedAt  string                 `json:"observed_at,omitempty" jsonschema:"RFC3339 observation time; empty uses the daemon time"`
 	SnapshotID  string                 `json:"snapshot_id,omitempty" jsonschema:"optional deterministic evidence id"`
+	ScopeFP     string                 `json:"scope_fp,omitempty" jsonschema:"optional opaque account scope fingerprint (sha256: plus 24 hex digits) computed by the caller; raw account or profile identifiers are never accepted"`
 	Observation catalogObservationArgs `json:"observation" jsonschema:"REQUIRED — structured, non-secret discovery evidence; this tool never executes a provider command"`
 }
 type catalogRollbackArgs struct {
@@ -894,7 +895,10 @@ func (s *Server) registerExtraTools() {
 		for _, model := range a.Observation.Models {
 			observation.Models = append(observation.Models, backendstore.ObservedModel{ModelID: model.ModelID, DisplayName: model.DisplayName, Visibility: model.Visibility, ReasoningLevels: model.ReasoningLevels, DefaultReasoning: model.DefaultReasoning, ContextWindow: model.ContextWindow, UpgradeTo: model.UpgradeTo})
 		}
-		p, err := s.cl.PreviewModelCatalog(ctx, backendstore.CatalogRefresh{Scope: backendstore.CatalogScope{AiCli: a.AiCli, AuthMode: a.AuthMode, PlanLabel: a.PlanLabel, CLIVersion: a.CLIVersion}, Observation: observation, ObservedAt: observedAt, SnapshotID: a.SnapshotID})
+		if a.ScopeFP != "" && !backendstore.ValidScopeFP(a.ScopeFP) {
+			return textResult("error: scope_fp must be sha256: followed by 24 hex digits"), nil, nil
+		}
+		p, err := s.cl.PreviewModelCatalog(ctx, backendstore.CatalogRefresh{Scope: backendstore.CatalogScope{AiCli: a.AiCli, AuthMode: a.AuthMode, PlanLabel: a.PlanLabel, CLIVersion: a.CLIVersion, Fingerprint: a.ScopeFP}, Observation: observation, ObservedAt: observedAt, SnapshotID: a.SnapshotID})
 		if err != nil {
 			return textResult("error: " + err.Error()), nil, nil
 		}
