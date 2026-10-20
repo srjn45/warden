@@ -490,10 +490,14 @@ with no `TmuxSession` remains addressable by stable id in a mixed fleet, (b) a
 first status error creates no phantom selection, (c) a later status error
 retains the last complete mixed fleet and its selected session, and (d) a
 complete refresh dropping the selected session leaves no stale id.  The same
-test has a skipped, named unknown-runtime attach case: current
-`openInDetailCmd` still constructs `tmux attach`; making that case pass is the
-deliberate 02b-02 implementation work, not a failing test smuggled into this
-predecessor/audit task.
+test also executes an explicit characterization of the current direct and
+unknown-runtime gap:
+their stable IDs are selected correctly, but the resulting detail-pane command
+is still `env -u TMUX tmux attach -t <id>`.  A direct record deliberately has
+no tmux session, so this is an asserted current decision/command mismatch, not
+an empty skip.  02b-02 must reverse that characterization by using the shared
+`warden attach <id>` client and presenting `ErrUnknownRuntime` rather than
+falling through to a tmux command.
 
 **Limits and next-task acceptance.**  This task neither changes `runtime.pty`
 nor starts/restarts a daemon or agent, and it does not claim a production direct
