@@ -2100,6 +2100,7 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, agent *
 	if err := l.newAgentSession(ctx, "", agent.ID, req.Cwd); err != nil {
 		return nil, err
 	}
+	agent.Runtime = l.stampRuntime(l.Proc(), agent.ID, "tmux")
 	mode := req.PermissionMode
 	if mode == "" {
 		mode = l.config().GetDefaultPermissionMode()
@@ -2187,6 +2188,7 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, agent *age
 		l.cleanupFailedSpawn(agent, false, worktreeCreated)
 		return nil, err
 	}
+	agent.Runtime = l.stampRuntime(l.Proc(), agent.ID, "tmux")
 	// Seed the task prompt as claude's positional argument, file-backed via
 	// "$(cat …)" so a multi-line prompt types as a single physical line (same
 	// mechanism as spawnFreeForm/SpawnJob). Empty prompt = an interactive managed
@@ -3254,6 +3256,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 		l.cleanupFailedSpawn(agent, false, worktreeCreated)
 		return nil, err
 	}
+	agent.Runtime = l.stampRuntime(l.Proc(), id, "tmux")
 
 	promptFile, err := l.writePromptFile(ctx, id, req.Prompt)
 	if err != nil {
@@ -3324,5 +3327,34 @@ func (l *Lifecycle) SpawnTerminal(ctx context.Context, req SpawnRequest) (*termi
 		return nil, err
 	}
 	now := l.nowUTC()
-	return &terminalstore.Terminal{ID: id, Name: req.Name, TmuxSession: id, ProjectID: req.ProjectID, Workdir: req.Cwd, Shell: os.Getenv("SHELL"), Status: terminalstore.StatusRunning, CreatedAt: now, UpdatedAt: now}, nil
+	rt := l.stampRuntime(l.terminalProc(), id, "tmux")
+	return &terminalstore.Terminal{ID: id, Name: req.Name, TmuxSession: id, ProjectID: req.ProjectID, Workdir: req.Cwd, Shell: os.Getenv("SHELL"), Status: terminalstore.StatusRunning, CreatedAt: now, UpdatedAt: now, Runtime: rt}, nil
+}
+
+func (l *Lifecycle) stampRuntime(proc any, id, defaultKind string) *store.SessionRuntime {
+	kind := defaultKind
+	if d, ok := proc.(interface{ HostedDirectly(string) bool }); ok && d.HostedDirectly(id) {
+		kind = "direct"
+	}
+	pinnedMode := ""
+	if p, ok := proc.(interface{ PinnedMode(string) string }); ok {
+		pinnedMode = p.PinnedMode(id)
+	}
+	var pid int
+	var start uint64
+	var proto int
+	if p, ok := proc.(interface {
+		HolderMeta(string) (int, uint64, int, bool)
+	}); ok {
+		pid, start, proto, _ = p.HolderMeta(id)
+	}
+	now := l.nowUTC()
+	return &store.SessionRuntime{
+		Kind:        kind,
+		PinnedMode:  pinnedMode,
+		LaunchedAt:  &now,
+		HolderPID:   pid,
+		HolderStart: start,
+		Proto:       proto,
+	}
 }

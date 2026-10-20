@@ -1,0 +1,10 @@
+{
+  "id": "terminal-legacy-001",
+  "name": "legacy-term",
+  "tmux_session": "terminal-legacy-001",
+  "workdir": "/tmp",
+  "shell": "/bin/bash",
+  "status": "running",
+  "created_at": "2026-10-19T10:00:00Z",
+  "updated_at": "2026-10-19T10:00:00Z"
+}

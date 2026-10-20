@@ -39,6 +39,7 @@ func sessionFromTerminal(t *terminalstore.Terminal) *store.Session {
 		ExitCode:    t.ExitCode,
 		CreatedAt:   t.CreatedAt,
 		UpdatedAt:   t.UpdatedAt,
+		Runtime:     t.Runtime,
 	}
 }
 

@@ -4,6 +4,7 @@
 - **Date:** 2026-10-19
 - **Consumers:** t2 PTY runtime · t3 state/prompt classifier · t4 decision router · t5 permission postures · t6 backend adapters (Antigravity first) · t7 UI/observability.
 - **Rule of change:** this document, `internal/ptyevent`, and the golden fixtures under `internal/ptyevent/testdata/` change **together**. A golden diff is a contract diff (`go test ./internal/ptyevent -run . -update`, then review it).
+- **Follow-on audit & contract:** [`2026-10-19-pty-02b-audit-and-runtime-contract.md`](2026-10-19-pty-02b-audit-and-runtime-contract.md) (acceptance audit of plans 01/02 and 02b runtime identity/attach contract).
 
 ---
 
@@ -194,6 +195,14 @@ Consumer ordering (`CheckNext`): apply `next`, **silently drop `duplicate`** (re
 ---
 
 ## 6. Reconnect / attach protocol
+
+**Shared-client compatibility.** The reusable client and runtime routing contract is
+defined by the follow-on [02b audit §6.6–§6.7](2026-10-19-pty-02b-audit-and-runtime-contract.md#66-snapshot-and-replay-fidelity-contract)
+and [§8.2](2026-10-19-pty-02b-audit-and-runtime-contract.md#82-task-shared-attach-client).
+It keeps this WebSocket protocol as the only new-client wire format: replay and
+snapshots are redacted text while exact bytes are live-only. The legacy `/attach`
+raw bridge remains wire-compatible; additive frame fields (including
+`plan.fidelity`) must be ignored by old clients.
 
 Transport (t2/t7): one WebSocket per attach, a superset of today's `GET /api/v1/sessions/{id}/attach`.
 

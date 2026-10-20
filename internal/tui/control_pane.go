@@ -672,12 +672,12 @@ func (m *controlPaneModel) reconcileAgentPaneCmd() tea.Cmd {
 	// Find the live session to get its current TmuxSession (may have changed after
 	// hot-swap recreated the session with the same agent ID).
 	for _, s := range m.sessions {
-		if s.ID == m.openedAgent && s.TmuxSession != "" {
+		if s.ID == m.openedAgent && s.RuntimeKey() != "" {
 			slog.Info("cockpit: reattaching agent pane after hot-swap",
 				"agent", m.openedAgent,
 				"attempt", m.agentPaneReattachAttempts,
 				"w", m.w, "h", m.h)
-			return openInDetailCmd(m.agentPane, s.TmuxSession, false)
+			return openInDetailCmd(m.agentPane, s.RuntimeKey(), false)
 		}
 	}
 	// Agent not in the live list yet (daemon still converging after hot-swap).
@@ -2879,8 +2879,8 @@ func cockpitDetailCmd(it item) (attach, jobPipe, jobID, agentDetail string) {
 		return it.pjJob.AgentRef(), "", "", ""
 	}
 	if it.session != nil {
-		if liveStatus(it.session.Status) && it.session.TmuxSession != "" {
-			return it.session.TmuxSession, "", "", ""
+		if liveStatus(it.session.Status) && it.session.RuntimeKey() != "" {
+			return it.session.RuntimeKey(), "", "", ""
 		}
 		return "", "", "", it.session.ID
 	}

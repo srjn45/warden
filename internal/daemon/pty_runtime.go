@@ -71,6 +71,27 @@ func (s *Server) SetPTYRuntime(m *ptyhost.Manager) {
 			t, err := s.terminals.Get(context.Background(), name)
 			return err == nil && t != nil
 		})
+		m.SetRecordResolver(func(ctx context.Context, name string) (*ptyhost.SessionRecord, bool) {
+			if s.terminals != nil {
+				if t, err := s.terminals.Get(ctx, name); err == nil && t != nil {
+					return &ptyhost.SessionRecord{
+						ID:          t.ID,
+						TmuxSession: t.TmuxSession,
+						Runtime:     t.Runtime,
+					}, true
+				}
+			}
+			if s.store != nil {
+				if a, err := s.store.Get(ctx, name); err == nil && a != nil {
+					return &ptyhost.SessionRecord{
+						ID:          a.ID,
+						TmuxSession: a.TmuxSession,
+						Runtime:     a.Runtime,
+					}, true
+				}
+			}
+			return nil, false
+		})
 		m.Observe(s.onPTYEvent)
 	}
 }
@@ -87,15 +108,18 @@ func (s *Server) Classifier() *stateclassifier.Classifier { return s.classifier 
 //     when it never ended, then spawned + reset + snapshot), so a client
 //     reconnecting with its old cursor is resynchronized from the snapshot.
 func (s *Server) recoverPTY(ctx context.Context) {
-	if s.pty == nil || s.pty.Mode() == ptyhost.ModeOff {
+	if s.pty == nil {
 		return
 	}
 	var names []string
 	if s.store != nil {
 		if agents, err := s.store.List(ctx); err == nil {
 			for _, a := range agents {
-				if liveStatus(a.Status) && a.TmuxSession != "" {
-					names = append(names, a.TmuxSession)
+				if a.Runtime != nil && a.Runtime.PinnedMode != "" {
+					s.pty.SetSessionRuntimePin(a.RuntimeKey(), ptyhost.ParseMode(a.Runtime.PinnedMode))
+				}
+				if liveStatus(a.Status) && a.RuntimeKey() != "" {
+					names = append(names, a.RuntimeKey())
 				}
 			}
 		}
@@ -107,21 +131,28 @@ func (s *Server) recoverPTY(ctx context.Context) {
 		}
 	}
 	for _, t := range terms {
-		if t.Status == terminalstore.StatusRunning && t.TmuxSession != "" {
-			names = append(names, t.TmuxSession)
+		if t.Runtime != nil && t.Runtime.PinnedMode != "" {
+			s.pty.SetSessionRuntimePin(t.RuntimeKey(), ptyhost.ParseMode(t.Runtime.PinnedMode))
+		}
+		if t.Status == terminalstore.StatusRunning && t.RuntimeKey() != "" {
+			names = append(names, t.RuntimeKey())
 		}
 	}
 	if n := s.pty.RecoverShadow(ctx, names); n > 0 {
 		slog.Info("ptyhost: re-adopted mirrored panes", "count", n)
 	}
-	if s.pty.Mode() != ptyhost.ModeOn || s.life == nil {
+	if s.life == nil {
 		return
 	}
 	for _, t := range terms {
-		if t.Status != terminalstore.StatusRunning || t.Workdir == "" || !s.pty.HasDirectJournal(t.TmuxSession) {
+		key := t.RuntimeKey()
+		if t.Status != terminalstore.StatusRunning || t.Workdir == "" || !s.pty.HasDirectJournal(key) {
 			continue
 		}
-		if s.pty.HolderHosted(t.TmuxSession) {
+		if s.pty.EffectiveMode(key) != ptyhost.ModeOn && !s.pty.HolderHosted(key) {
+			continue
+		}
+		if s.pty.HolderHosted(key) {
 			// The shell's PTY master belongs to an independent holder: adopt the
 			// SAME process. Never relaunch — a failed adoption is reported with its
 			// cause and the terminal is left restorable, not silently replaced.
@@ -144,7 +175,7 @@ func (s *Server) recoverPTY(ctx context.Context) {
 // adoptDirectTerminal re-attaches to a holder-hosted terminal's live process
 // after a daemon restart/update/crash.
 func (s *Server) adoptDirectTerminal(ctx context.Context, t *terminalstore.Terminal) {
-	name := t.TmuxSession
+	name := t.RuntimeKey()
 	if err := s.pty.AdoptDirect(ctx, name); err != nil {
 		detail := "cannot re-adopt the shell (" + err.Error() + "); its PTY holder is unavailable — " +
 			"run `warden agent restore " + t.ID + "` to start a fresh shell (the old process is not restarted automatically)"
@@ -242,7 +273,7 @@ func (s *Server) handlePTYStream(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "the PTY runtime is not enabled (runtime.pty: off); use /attach")
 		return
 	}
-	t, ok := s.pty.Lookup(sess.TmuxSession)
+	t, ok := s.pty.Lookup(sess.RuntimeKey())
 	if !ok {
 		writeErr(w, http.StatusConflict, "session has no PTY event journal (runtime.pty was off when it started); use /attach")
 		return

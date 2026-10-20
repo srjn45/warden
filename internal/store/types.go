@@ -450,6 +450,33 @@ type Session struct {
 	RateLimitRetryCount       int              `json:"rate_limit_retry_count,omitempty"`      // number of retry attempts
 	BackendRecoveryGeneration uint64           `json:"backend_recovery_generation,omitempty"` // monotonic stale-work fence
 	BackendRecovery           *BackendRecovery `json:"backend_recovery,omitempty"`            // reactive hard-limit recovery state
+
+	// Runtime is the additive runtime identity and launch metadata (§6.2).
+	Runtime *SessionRuntime `json:"runtime,omitempty"`
+}
+
+// SessionRuntime is the additive runtime identity and launch metadata (§6.2).
+type SessionRuntime struct {
+	Kind        string     `json:"kind,omitempty"`         // "direct" | "tmux" | "unknown" (actual, not requested)
+	PinnedMode  string     `json:"pinned_mode,omitempty"`  // "off" | "shadow" | "on"
+	LaunchID    string     `json:"launch_id,omitempty"`    // caller-generated idempotency token
+	HolderPID   int        `json:"holder_pid,omitempty"`   // PID of the PTY holder process
+	HolderStart uint64     `json:"holder_start,omitempty"` // holder process start time
+	Proto       int        `json:"proto,omitempty"`        // holder protocol version
+	LaunchedAt  *time.Time `json:"launched_at,omitempty"`  // launch timestamp
+}
+
+// RuntimeKey returns the name under which the runtime indexes this session
+// (journal, holder, mirror). For records with Runtime it equals ID; for
+// legacy records it falls back to TmuxSession, then ID (§6.1).
+func (s *Session) RuntimeKey() string {
+	if s == nil {
+		return ""
+	}
+	if s.TmuxSession != "" {
+		return s.TmuxSession
+	}
+	return s.ID
 }
 
 // IsTerminal reports whether this session is a plain terminal (a ${SHELL:-bash}

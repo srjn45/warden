@@ -56,7 +56,9 @@ of the API; `409` when the session has no journal). The client speaks first:
 ```
 
 The server answers with a `plan` (`tail`, `replay` or `snapshot`, plus `head`, the
-replay/live boundary), then one `{"type":"event","event":{…}}` frame per journaled
+replay/live boundary). Its additive `fidelity` is `redacted-text` for journal replay
+or snapshots and `exact-live` for a live tail; older clients safely ignore that field.
+It then sends one `{"type":"event","event":{…}}` frame per journaled
 event in `seq` order — the replay from your cursor, then live. Keep the last `seq` you
 saw: reconnecting with it resumes exactly where you left off. `{"type":"ack","seq":N}`
 stores that checkpoint server-side for your `client_id`, so a later `hello` without a
@@ -148,6 +150,12 @@ on every way out. **Ctrl-]** then **.** detaches (the shell keeps running), **Ct
 **t** takes control back, **Ctrl-] Ctrl-]** sends a literal Ctrl-]. `WARDEN_ATTACH=observe` watches
 read-only. Tmux-hosted sessions still attach with tmux.
 
+The shared `ptyattach.Client` is the single runtime-aware attach decision point:
+direct sessions use `/pty`; `kind=tmux` returns `tmux attach -t <key>`; and an
+unknown runtime returns `ErrUnknownRuntime` with the resolver's reason rather than
+guessing. `WARDEN_ATTACH_DETACH_KEY` accepts one byte or caret notation (for example
+`^]`); an explicit client option takes precedence.
+
 A session has any number of viewers and one **controller**. Attaching takes control
 (human precedence) and demotes the previous controller, which keeps watching; its
 keystrokes and resizes are rejected, never delivered. Input is tagged with the lease
@@ -156,11 +164,32 @@ it twice — also across a daemon restart. Raw bytes shown to you are the progra
 (faithful); the journal, snapshots, audit and anything remote-safe are redacted, and typed
 secrets are journaled as a length only.
 
+### §8.2 fixture map
+
+The following named fixtures are the acceptance evidence for the shared protocol;
+they intentionally exercise both a direct shell and the mirrored legacy-agent path.
+
+| Requirement | Fixture evidence |
+|---|---|
+| viewers, controller, takeover, handoff and stale/expired fencing | `TestF_FENCE_01_OneControllerTakeoverBumpsGeneration`, `TestF_FENCE_02_StaleGenerationRejected` |
+| reconnect dedupe, replay ordering and ack resume | `TestF_FENCE_03_ReconnectNeverDuplicatesInput`, `TestTransportInteractiveInputResizeAndReplay`, `TestReplayThenLiveOrderingMidStream` |
+| direct shell vs mirrored legacy agent observe-only; read-only bearer | `TestTransportShadowIsObserveOnly`, `TestF_ROLL_03_ShadowNeverMutatesAuthoritativeStatusOrSendsInput`, `TestF_SURV_04_AgentPaneAdoptionChecksIdentity`, `TestPTYStreamReadonlyTokenIsObserveOnly` |
+| malformed/partial and oversized frames; viewer close does not stop shell | `TestTransportClosesInvalidAndOversizedClientFrames` |
+| human precedence, cancellation and secret boundaries | `TestInputOwnership`, `TestFencedSecretInputNeverReachesTheJournal`, `TestF_PRIV_01_PlantedSecretsAbsentFromDurableAndRemoteViews` |
+| detach chord, reconnect, raw-terminal restoration and signals | `TestF_ATTACH_01_RawModeRestoredOnEveryExit`, `TestReconnectResumesWithoutDuplicatingInput`, `TestDetachKeyFromEnv` |
+| epoch/adoption, too-old/slow-viewer resync and snapshot fidelity | `TestTransportReconnectAcrossDaemonRestart`, `TestShadowReadoptsAcrossDaemonRestart`, `TestLaggedRawViewerResyncsAtAFreshCut`, `TestPlanFrameFidelityIsAdditiveForOlderClients`, `TestTransportReplayIsRedacted` |
+| legacy raw compatibility | `TestBridgeLegacyGoldenRawProtocol` (the `/attach` golden) |
+
+These tests pin that closing a viewer only closes its socket, and reconnect/adoption
+does not launch a replacement child. The legacy `/attach` test remains deliberately
+separate from the `/pty` protocol fixtures.
+
 ## Compatibility
 
 - `GET /api/v1/sessions/{id}/attach` keeps working for every session. For a direct
   terminal it bridges the same raw protocol to the runtime (current screen first, then
-  live bytes), so the web UI and the Android app need no change.
+  live bytes), so the web UI and the Android app need no change. This legacy bridge is
+  intentionally frozen; new attach/control clients use `/pty`.
 - `wd send`/session input and output also route to a direct terminal.
 - A direct terminal has **no tmux session**, so `tmux attach` does not apply to it. Use
   `wd attach <id>` (below) — the cockpit's terminal pane does exactly that — or the

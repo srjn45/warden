@@ -1909,6 +1909,8 @@ Redesigns `wd update` into a data-safe, planned upgrade process:
 The event-driven replacement for capture-pane polling
 ([`docs/specs/2026-10-19-pty-runtime-contract.md`](specs/2026-10-19-pty-runtime-contract.md)),
 rolled out behind `runtime.pty: off|shadow|on` (default `off` — no behavior change).
+The binding baseline audit and the follow-on identity/attach contract are in
+[`docs/specs/2026-10-19-pty-02b-audit-and-runtime-contract.md`](specs/2026-10-19-pty-02b-audit-and-runtime-contract.md).
 
 - **Journal.** Every runtime-backed session gets an append-only JSONL event log under
   `<data_dir>/pty/{direct,shadow}/<id>` (`internal/ptyruntime`): `output`, `input`,
@@ -1943,13 +1945,19 @@ rolled out behind `runtime.pty: off|shadow|on` (default `off` — no behavior ch
   `epoch<<32|n`), fenced input ids dedupe resends (restored from the journal after a
   restart), human > operator > warden unchanged; a demoted client's bytes are dropped. The
   screen model handles wide/combining characters, SGR (local view only) and scroll regions.
+  The reusable `ptyattach.Client` selects `/pty` for direct sessions, returns `tmux attach
+  -t <key>` only for `kind=tmux`, and returns `ErrUnknownRuntime` with the resolver reason
+  for unknown sessions. Ctrl-] then `.` detaches, `t` takes control, and doubled Ctrl-] is
+  literal; `WARDEN_ATTACH_DETACH_KEY` accepts a one-byte/caret-notation override.
   Spec: [`docs/specs/2026-10-19-plain-terminal-inventory-and-contract.md`](specs/2026-10-19-plain-terminal-inventory-and-contract.md) §5.2.
 - **Stream.** `GET /api/v1/sessions/{id}/pty` (WebSocket, §6 of the spec):
   `hello{cursor?, mode, cols, rows, client_id?}` → `plan{mode, head, …}` → redacted
   replay → live events; `ack{seq}` checkpoints, `resize`, `reject`/`resync`. Interactive
   clients of a direct terminal also receive the live raw bytes and type as `human`
   (input ownership: human always wins). Shadow sessions and read-only tokens are
-  observe-only.
+  observe-only. `plan.fidelity` is additive (`redacted-text` for journal material,
+  `exact-live` for a tail), so clients predating it remain wire-compatible; the legacy
+  `/attach` raw bridge remains frozen for existing clients.
 - **Consumers.** The daemon subscribes to every stream (`ptyhost.Manager.Observe`) and,
   for now, only refreshes SSE on lifecycle changes and moves an exited direct terminal
   to `orphaned` with the watcher's compare-and-swap; classification from the stream is

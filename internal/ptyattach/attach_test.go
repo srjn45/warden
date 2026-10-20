@@ -5,10 +5,12 @@ package ptyattach
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -217,8 +219,15 @@ func TestF_ATTACH_01_RawModeRestoredOnEveryExit(t *testing.T) {
 		})
 		eventually(t, "terminal to go raw", func() bool { return tm.isRaw(t) })
 		r.down.Store(true) // the daemon is gone: every re-dial is refused
+		eventually(t, "first connection established", func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			return first != nil
+		})
 		mu.Lock()
-		_ = first.CloseNow()
+		if first != nil {
+			_ = first.CloseNow()
+		}
 		mu.Unlock()
 		res := wait(t, done)
 		if res.err == nil {
@@ -228,6 +237,50 @@ func TestF_ATTACH_01_RawModeRestoredOnEveryExit(t *testing.T) {
 			t.Fatal("terminal left in raw mode after the daemon vanished")
 		}
 	})
+}
+
+func TestClientRuntimeRoutingAndFallback(t *testing.T) {
+	c := Open("http://127.0.0.1:8765", "token")
+	tmux := Target{SessionID: "agent-1", Info: ptyhost.RuntimeInfo{Kind: "tmux", Key: "legacy-pane"}}
+	if _, err := c.Attach(context.Background(), tmux, Options{}); !errors.Is(err, ErrNotDirect) {
+		t.Fatalf("tmux Attach error = %v, want ErrNotDirect", err)
+	}
+	if got, err := c.Fallback(tmux); err != nil || !reflect.DeepEqual(got, []string{"tmux", "attach", "-t", "legacy-pane"}) {
+		t.Fatalf("Fallback(tmux) = %q, %v", got, err)
+	}
+	unknown := Target{SessionID: "missing", Info: ptyhost.RuntimeInfo{Kind: "unknown", Reason: "session is no longer live"}}
+	if _, err := c.Attach(context.Background(), unknown, Options{}); !errors.Is(err, ErrUnknownRuntime) || !strings.Contains(err.Error(), unknown.Info.Reason) {
+		t.Fatalf("unknown Attach error = %v, want ErrUnknownRuntime with reason", err)
+	}
+	if got, err := c.Fallback(unknown); got != nil || !errors.Is(err, ErrUnknownRuntime) || !strings.Contains(err.Error(), unknown.Info.Reason) {
+		t.Fatalf("Fallback(unknown) = %q, %v, want ErrUnknownRuntime with reason", got, err)
+	}
+}
+
+func TestAttachURL(t *testing.T) {
+	got, err := attachURL("https://daemon.example/base", "term-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "wss://daemon.example/base/api/v1/sessions/term-1/pty"; got != want {
+		t.Fatalf("attachURL = %q, want %q", got, want)
+	}
+}
+
+func TestDetachKeyFromEnv(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  byte
+	}{
+		{"", DefaultDetachKey},
+		{"^]", DefaultDetachKey},
+		{"~", '~'},
+		{"too-long", DefaultDetachKey},
+	} {
+		if got := detachKeyFromEnv(tc.value); got != tc.want {
+			t.Errorf("detachKeyFromEnv(%q) = %#x, want %#x", tc.value, got, tc.want)
+		}
+	}
 }
 
 // Ctrl-C and Ctrl-D reach the REMOTE line discipline as bytes (the local tty is

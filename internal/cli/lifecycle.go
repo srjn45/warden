@@ -789,7 +789,9 @@ ordered without gaps, and you hold the session's controller lease. Press Ctrl-]
 then '.' to detach (the shell keeps running), Ctrl-] then 't' to take control
 back if another client took it, Ctrl-] Ctrl-] to send a literal Ctrl-].
 Set WARDEN_ATTACH=observe to watch read-only, or WARDEN_ATTACH=tmux to skip the
-native attach.
+native attach. Set WARDEN_ATTACH_DETACH_KEY to a single byte (for example
+"^]" is the default Ctrl-]) to change the detach chord. Replayed output and
+snapshots are redacted text; only a live interactive stream carries exact bytes.
 
 Every other session (agents, tmux-hosted terminals) attaches with tmux as before.`,
 		Args: cobra.ExactArgs(1),
@@ -815,10 +817,10 @@ Every other session (agents, tmux-hosted terminals) attaches with tmux as before
 			if err != nil {
 				return err
 			}
-			// Resolve name/id/ticket to the tmux session via the daemon; fall back
-			// to the raw argument (a tmux session name) if the daemon cannot.
-			if gerr == nil && sess.TmuxSession != "" {
-				target = sess.TmuxSession
+			// Resolve name/id/ticket to the session via the daemon; fall back
+			// to the raw argument if the daemon cannot.
+			if gerr == nil && sess.RuntimeKey() != "" {
+				target = sess.RuntimeKey()
 			}
 			c := exec.Command(tmux, "attach", "-t", target)
 			c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr

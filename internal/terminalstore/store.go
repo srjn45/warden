@@ -53,6 +53,21 @@ type Terminal struct {
 	ExitCode    *int      `json:"exit_code,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+
+	// Runtime is the additive runtime identity and launch metadata (§6.2).
+	Runtime *store.SessionRuntime `json:"runtime,omitempty"`
+}
+
+// RuntimeKey returns the name under which the runtime indexes this session
+// (journal, holder, mirror).
+func (t *Terminal) RuntimeKey() string {
+	if t == nil {
+		return ""
+	}
+	if t.TmuxSession != "" {
+		return t.TmuxSession
+	}
+	return t.ID
 }
 
 var (

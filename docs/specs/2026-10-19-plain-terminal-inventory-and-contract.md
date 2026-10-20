@@ -5,6 +5,7 @@
 - **Entry gate:** plan 01 (`01-pty-runtime-and-permission-decision-engine`) is merged — PR #979 is `dae3cbd4` on `origin/main`. Audited at that commit. Plan 01 is **frozen**: nothing here modifies, stops or restarts it; its shortfalls are recorded as gaps below and **owned by plan 02 tasks**.
 - **Consumers:** t2 lifecycle · t3 attach/recovery · t4 rollout/parity · t5 validation.
 - **Rule of change:** this document, `internal/terminalcontract` and the fixtures change together. Every path/gap/fixture/stage ID and every budget field is back-ticked here and the test fails if one is missing; every code anchor is re-checked, so moving code without updating the matrix fails CI.
+- **Follow-on audit & contract:** [`2026-10-19-pty-02b-audit-and-runtime-contract.md`](2026-10-19-pty-02b-audit-and-runtime-contract.md) (acceptance audit of plans 01/02 and 02b runtime identity/attach contract).
 
 ---
 
@@ -229,6 +230,8 @@ Values are generous round numbers — they fire on real regressions, not noise. 
 | | `ResizeToSIGWINCHP99` | ≤ 100 ms |
 | | `AdoptAfterRestoreP99` | ≤ 2 s |
 | | `LeaseTakeoverP99` | ≤ 200 ms |
+| | `RuntimeIdentityResolveP99` | ≤ 5 ms |
+| | `AgentLaunchToFirstByteP99` | ≤ 500 ms |
 | Resource (idle shell, steady) | `PerSessionRSSKiB` | ≤ 16 MiB |
 | | `PerSessionFDs` | ≤ 6 |
 | | `PerSessionGoroutines` | ≤ 6 |
@@ -236,6 +239,8 @@ Values are generous round numbers — they fire on real regressions, not noise. 
 | | `SoakSessions` | 50 concurrent |
 | | `SlowViewerMaxBytes` | ≤ 4 MiB pinned, then `ErrResync` |
 | | `SlowViewerPTYStall` | ≤ 10 ms PTY read delay |
+| | `ViewersPerSession` | ≤ 16 |
+| | `SnapshotMaxBytes` | ≤ 1 MiB |
 | Error / survival | `SurvivalLossPct` | 0 |
 | | `DuplicateProcesses` | 0 |
 | | `DuplicateInputBytes` | 0 |
@@ -243,6 +248,7 @@ Values are generous round numbers — they fire on real regressions, not noise. 
 | | `SecretLeaksInDurable` | 0 |
 | | `ActionableErrorPct` | 100 (cause + next step) |
 | | `RecoveryBound` | ≤ 30 s then fail loudly |
+| | `DaemonAbsentSpoolMaxBytes` | ≤ 8 MiB |
 | Rollout gates | `MinSessionsPerStage` | ≥ 20 |
 | | `MinSoakHoursPerStage` | ≥ 24 |
 | | `MaxStageErrorRatePct` | > 1 aborts the stage |

@@ -552,11 +552,12 @@ func (s *Server) SendInput(ctx context.Context, req oapi.SendInputRequestObject)
 	if req.Body != nil {
 		text = req.Body.Text
 	}
-	if d := s.directSession(sess.TmuxSession); d != nil {
+	key := sess.RuntimeKey()
+	if d := s.directSession(key); d != nil {
 		if err := directInput(ctx, d, text); err != nil {
 			return nil, err
 		}
-	} else if err := s.life.Input(ctx, sess.TmuxSession, text); err != nil {
+	} else if err := s.life.Input(ctx, key, text); err != nil {
 		return nil, err
 	}
 	s.notify()
@@ -577,10 +578,11 @@ func (s *Server) GetOutput(ctx context.Context, req oapi.GetOutputRequestObject)
 	if req.Params.Lines != 0 {
 		lines = req.Params.Lines
 	}
-	if d := s.directSession(sess.TmuxSession); d != nil {
+	key := sess.RuntimeKey()
+	if d := s.directSession(key); d != nil {
 		return oapi.GetOutput200JSONResponse{Output: directOutput(d, lines)}, nil
 	}
-	out, err := s.life.Output(ctx, sess.TmuxSession, lines)
+	out, err := s.life.Output(ctx, key, lines)
 	if err != nil {
 		out = ""
 	}

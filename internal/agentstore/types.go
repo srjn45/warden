@@ -103,6 +103,21 @@ type Agent struct {
 	RateLimitRetryCount       int                    `json:"rate_limit_retry_count,omitempty"`
 	BackendRecoveryGeneration uint64                 `json:"backend_recovery_generation,omitempty"`
 	BackendRecovery           *store.BackendRecovery `json:"backend_recovery,omitempty"`
+
+	// Runtime is the additive runtime identity and launch metadata (§6.2).
+	Runtime *store.SessionRuntime `json:"runtime,omitempty"`
+}
+
+// RuntimeKey returns the name under which the runtime indexes this session
+// (journal, holder, mirror).
+func (a *Agent) RuntimeKey() string {
+	if a == nil {
+		return ""
+	}
+	if a.TmuxSession != "" {
+		return a.TmuxSession
+	}
+	return a.ID
 }
 
 // MarshalJSON emits both the canonical (ai_cli, ai_cli_session_id) and the
@@ -249,6 +264,7 @@ func (a *Agent) ToSession() *store.Session {
 		RateLimitRetryCount:       a.RateLimitRetryCount,
 		BackendRecoveryGeneration: a.BackendRecoveryGeneration,
 		BackendRecovery:           a.BackendRecovery,
+		Runtime:                   a.Runtime,
 	}
 }
 
@@ -321,6 +337,7 @@ func FromSession(s *store.Session) *Agent {
 		RateLimitRetryCount:       s.RateLimitRetryCount,
 		BackendRecoveryGeneration: s.BackendRecoveryGeneration,
 		BackendRecovery:           s.BackendRecovery,
+		Runtime:                   s.Runtime,
 	}
 }
 

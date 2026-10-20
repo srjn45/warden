@@ -1261,7 +1261,7 @@ type CIStatusState string
 
 // CapabilitiesResponse The optional capability flags this daemon supports (feature detection).
 type CapabilitiesResponse struct {
-	// Capabilities Stable capability-flag strings. Known flags: "terminal-sessions" (session `kind` support — see GET /api/v1/capabilities), "store-health" (the GET /api/v1/store/health endpoint + complete-or-error active reads / 503 on degradation), "backend-recovery" (the session `backend_recovery` field is present and SSE fires on recovery phase changes — reactive hard-limit provider switching is active).
+	// Capabilities Stable capability-flag strings. Known flags: "terminal-sessions" (session `kind` support — see GET /api/v1/capabilities), "store-health" (the GET /api/v1/store/health endpoint + complete-or-error active reads / 503 on degradation), "backend-recovery" (the session `backend_recovery` field is present and SSE fires on recovery phase changes — reactive hard-limit provider switching is active), "runtime-identity" (session `runtime` identity and process ownership support — see §6.2).
 	Capabilities []string `json:"capabilities"`
 }
 
@@ -2360,6 +2360,9 @@ type SessionList struct {
 	// SkippedRecords Number of unreadable archive records omitted from this response.
 	SkippedRecords int `json:"skipped_records,omitempty"`
 }
+
+// SessionRuntime Additive runtime identity and process ownership metadata (§6.2).
+type SessionRuntime = store.SessionRuntime
 
 // Snapshot defines model for Snapshot.
 type Snapshot = snapshot.Snapshot
