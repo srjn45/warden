@@ -61,8 +61,25 @@ func TestRuntimeAttachContractCharacterization(t *testing.T) {
 		require.NotEqual(t, legacy.ID, m.selectedID(), "selection must not remain stale after a complete refresh")
 	})
 
-	t.Run("unknown runtime attach is an explicit 02b-02 gap", func(t *testing.T) {
-		_, _, _, _ = cockpitDetailCmd(item{session: unknown})
-		t.Skip("02b-02 must replace the current nested tmux attach with ptyattach.Client and show ErrUnknownRuntime")
+	t.Run("direct runtime currently selects a tmux-only viewer command", func(t *testing.T) {
+		attach, _, _, detail := cockpitDetailCmd(item{session: direct})
+		require.Equal(t, direct.ID, attach, "the decision layer keeps the direct record addressable by stable id")
+		require.Empty(t, detail)
+
+		// This is an executable characterization of the current gap, rather than
+		// a ceremonial skip: opening that stable id still renders a nested tmux
+		// attach command.  A direct record deliberately has no TmuxSession, so
+		// this command cannot attach it.  02b-02 must replace this with the shared
+		// `warden attach <id>` client and surface ErrUnknownRuntime explicitly.
+		args := respawnDetailArgs("%7", attach)
+		require.Equal(t, "env -u TMUX tmux attach -t agent-direct", args[len(args)-1])
+		require.NotContains(t, args[len(args)-1], "warden attach")
+	})
+
+	t.Run("unknown runtime is still routed to the tmux-only viewer", func(t *testing.T) {
+		attach, _, _, detail := cockpitDetailCmd(item{session: unknown})
+		require.Equal(t, unknown.ID, attach)
+		require.Empty(t, detail)
+		require.Equal(t, "env -u TMUX tmux attach -t agent-unknown", respawnDetailArgs("%7", attach)[4])
 	})
 }
