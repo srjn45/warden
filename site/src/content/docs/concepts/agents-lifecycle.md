@@ -7,10 +7,10 @@ description: How agents are spawned and auto-classified, and the commands that s
 
 | Feature | Description |
 |---|---|
-| **Prompt-spawn** | `warden start "<prompt>"` — no repo or type needed. Runs `claude` in the caller's directory (or `--dir`). |
-| **Auto-classification** | The daemon classifies a prompt-spawned agent's type with `claude -p` shortly after creation (falls back to `other`). |
+| **Prompt-spawn** | `warden start --role general "<prompt>"` — no repo needed. Runs `claude` in the caller's directory (or `--dir`). |
+| **Auto-classification** | The daemon labels a prompt-spawned agent's type with `claude -p` shortly after creation (falls back to `other`). The label is informational; the role decides behaviour. |
 | **Auto-generated subject** | Each agent gets a one-line ≤8-word summary of what it's doing, seeded from the prompt and refreshed by the poller from the transcript or tmux pane (throttled, change-gated). |
-| **Managed worktree spawn** | `--type` creates/adopts a git worktree where the type needs one. |
+| **Managed worktree spawn** | `--role worker --repo <path>` creates/adopts an isolated git worktree (`--worktree` for a scratch one, `--in-repo` to opt out). |
 | **Worktree adoption** | If a worktree for the ticket already exists, the spawn reattaches to it instead of erroring. |
 | **Supervised mode** | `--supervised` launches with `--permission-mode acceptEdits` (risky tools prompt → feed the approvals inbox) instead of the default `--dangerously-skip-permissions` bypass. Persisted and reused on restore. |
 

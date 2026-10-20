@@ -1,24 +1,20 @@
 ---
 title: Worktrees & task types
-description: How the --type flag controls whether a git worktree is created, and the supervised permission mode.
+description: How roles and spawn flags control whether a git worktree is created, and the supervised permission mode.
 ---
 
-The `--type` flag controls whether a git worktree is created and determines how the session is set up. **Write types** — types whose job is to change the codebase — get their own isolated worktree by default so concurrent agents never trip over each other in the shared checkout.
+Worktree policy is driven by the **role** and the spawn flags. `--type` is deprecated; use `--role` (required) and `--repo`.
 
-| Type | Worktree | Notes |
+| Spawn | Worktree | Notes |
 |---|---|---|
-| `development` | yes (new branch) | Creates `.worktrees/<ticket>` on a new branch named after the ticket |
-| `code` | yes (new branch) | Isolated in `.worktrees/<id>`; pass `--in-repo` to share the repo root |
-| `docs` | yes (new branch) | Isolated worktree by default; `--in-repo` to opt out |
-| `website` | yes (new branch) | Isolated worktree by default; `--in-repo` to opt out |
-| `debug-ci` | yes (new branch) | Isolated worktree by default; `--in-repo` to opt out |
-| `tests` | yes (new branch) | Isolated worktree by default; `--in-repo` to opt out |
-| `pr-review` | yes (PR branch) | Detached worktree; runs `gh pr checkout <PR>` inside it. Requires `--pr` or `--branch`. **Exempt from `--in-repo`** — a PR review always gets its own checkout |
-| `analysis` | opt-in (`--worktree`) | Read-only by intent; runs in the repo by default, pass `--worktree` for a scratch branch |
-| `spike` | opt-in (`--worktree`) | Same as analysis |
-| `other` | no | Catch-all; also used for unrecognized type strings |
+| `--role worker --repo <path> [TICKET]` | yes (new branch) | The default managed mode: isolated `.worktrees/<id>` on a fresh branch (named after the ticket if given). Pass `--branch` to choose the branch name |
+| `--role worker --repo <path> --pr <N>` | yes (PR branch) | Runs `gh pr checkout <N>` inside its own worktree. **Exempt from `--in-repo`** — a PR review always gets its own checkout |
+| `--role worker --repo <path> --worktree` | yes (scratch) | Throwaway scratch worktree for analysis/spike work |
+| `--role worker --repo <path> --in-repo` | no | Opt out of isolation and run in the shared checkout |
+| `--role general "<prompt>"` | no | Free-form: runs in the current directory (or `--dir`) |
+| `--kind terminal --dir <path>` | no | A plain shell, not an AI agent |
 
-The five write types (`code`, `docs`, `website`, `debug-ci`, `tests`) join `development` in getting an isolated `.worktrees/<id>` checkout on a fresh branch unless you pass `--in-repo`. `pr-review` always gets its own checkout and ignores `--in-repo`. The read-only types (`analysis`, `spike`, `other`) run in the repo root unless you ask for a scratch worktree with `--worktree`.
+Concurrent managed agents each get their own checkout, so they never trip over each other in the shared tree. The legacy `--type` values (`development`, `code`, `docs`, `website`, `debug-ci`, `tests`, `pr-review`, `analysis`, `spike`, `other`) are still accepted as a deprecated alias and map onto the same behaviour, but new commands should use roles.
 
 By default every agent runs fully autonomously with permission prompts suppressed (on the Claude backend, `claude --dangerously-skip-permissions`; each backend maps to its own bypass flag); the `Notification` hook still records them as events in the session doc.
 
@@ -26,11 +22,10 @@ Pick the permission posture with `--permission-mode` (`acceptEdits|auto|bypassPe
 
 If a worktree for the ticket already exists on disk, the spawn adopts it (reattaches claude to the existing branch) instead of erroring.
 
-:::note[`--type` is not `--task`]
-This `--type` flag decides **worktree and branch policy**. A separate `--task`
+:::note[Worktree policy is not `--task`]
+`--role worker --repo` decides **worktree and branch policy**. A separate `--task`
 flag (from the built-in *task registry*) decides the **model tier** the
 quota-balanced router targets — e.g. `--task architecture` → tier-1,
-`--task merge-pr` → tier-3. The two name-sets overlap (`development`, `docs`,
-`pr-review`, `analysis`, `spike`) but are independent flags. See
+`--task merge-pr` → tier-3. They are independent flags. See
 [Agent roles → Roles, tasks, and tiers](/warden/guides/agent-roles/#roles-tasks-and-tiers).
 :::

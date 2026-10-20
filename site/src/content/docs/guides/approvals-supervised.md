@@ -10,7 +10,7 @@ By default every agent runs fully autonomously with permission prompts suppresse
 Pass `--supervised` to opt into a lighter permission mode (`--permission-mode acceptEdits`): file edits and common filesystem commands auto-approve, but other tools (bash writes, network calls, etc.) surface the numbered permission prompt — which the approvals inbox captures and lets you answer without attaching. A restored agent keeps its supervised setting.
 
 ```sh
-warden start "refactor the auth module" --supervised
+warden start --role general "refactor the auth module" --supervised
 ```
 
 ## The approvals inbox

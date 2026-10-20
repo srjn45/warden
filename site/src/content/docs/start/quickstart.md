@@ -9,10 +9,10 @@ watch → commit → tear down). Until you've taken or skipped it, warden prints
 one-line nudge. `warden tutorial --skip` dismisses it; `--reset` brings it back.
 :::
 
-The fastest path is **prompt mode**: give a plain-English task and let warden handle the rest. No repo, no flags.
+The fastest path is **prompt mode**: give a plain-English task and a role (`--role` is required; `general` is the plain choice) and let warden handle the rest. No repo needed.
 
 ```sh
-warden start "review the auth module for security issues"
+warden start --role general "review the auth module for security issues"
 # spawned agent-a1b2 (classifying…) — attach with `warden agent attach agent-a1b2`
 ```
 
@@ -49,7 +49,7 @@ Status is driven by Claude Code lifecycle hooks plus the daemon's poller. You do
 **Ad-hoc investigation (prompt mode):**
 
 ```sh
-warden start "find and fix the flaky test in the payments suite"
+warden start --role general "find and fix the flaky test in the payments suite"
 warden ls
 warden agent tail <id>
 warden send <id> "skip the integration tests for now"
@@ -59,7 +59,7 @@ warden agent stop <id> --keep-worktree
 **Ticketed development (managed worktree):**
 
 ```sh
-warden start PROJ-350 --type development     # worktree + branch
+warden start --role worker --repo . PROJ-350     # worktree + branch
 warden status PROJ-350
 warden agent attach PROJ-350                       # jump in when needed
 warden agent stop PROJ-350 --keep-worktree                          # guarded teardown
@@ -68,7 +68,7 @@ warden agent stop PROJ-350 --keep-worktree                          # guarded te
 **Reviewing a PR:**
 
 ```sh
-warden start --type pr-review --pr 1234
+warden start --role worker --repo . --pr 1234
 warden agent tail prreview-...
 warden agent stop prreview-... --keep-worktree
 ```

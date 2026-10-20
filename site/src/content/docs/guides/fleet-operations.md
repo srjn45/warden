@@ -13,7 +13,7 @@ warden inspect search auth --closed          # include archived agents
 warden ls --tag backend --tag urgent # only agents carrying every tag
 ```
 
-`search` matches case-insensitively across each agent's id, name, ticket, type, subject, prompt, branch, tags, and last-pane excerpt. Tag agents at spawn with `warden start --tags backend,urgent` (normalized to lowercase, deduped). The web dashboard carries a live search box, and the Cockpit can group the grid by directory, type, status, or tag.
+`search` matches case-insensitively across each agent's id, name, ticket, type, subject, prompt, branch, tags, and last-pane excerpt. Tag agents at spawn with `warden start --role worker --tags backend,urgent` (normalized to lowercase, deduped). The web dashboard carries a live search box, and the Cockpit can group the grid by directory, type, status, or tag.
 
 ## History & archive
 
@@ -34,7 +34,7 @@ Save a spawn config once and replay it:
 ```sh
 warden project preset save backend-dev --type code --tags backend --model opus
 warden project preset list
-warden start --preset backend-dev "implement the rate limiter"   # explicit flags still override
+warden start --role worker --preset backend-dev "implement the rate limiter"   # explicit flags still override
 ```
 
 ## Prompt templates
@@ -44,7 +44,7 @@ Where a preset stores reusable *flags*, a prompt template stores a reusable *pro
 ```sh
 warden project prompt-template save bugfix --prompt "Fix the bug in {{FILE}} described by {{TICKET}}"
 warden project prompt-template list                       # each template + its variables
-warden start --prompt-template bugfix --set FILE=server.go --set TICKET=WARD-42
+warden start --role worker --prompt-template bugfix --set FILE=server.go --set TICKET=WARD-42
 ```
 
 Variables are auto-derived from the body. Every declared variable must be supplied (a typo'd `--set` is rejected), and an explicit positional prompt still wins. Templates live in `~/.warden/prompt-templates.yaml`, beside `presets.yaml`. `--prompt-template` is free-form only (no `--type`).
