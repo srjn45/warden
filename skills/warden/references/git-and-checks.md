@@ -71,6 +71,10 @@ round-trip, so there is **no MCP tool**; run them through the CLI (`wd git revie
   `wd backend model add <aicli> <model> --tier <tier>` (register a custom model),
   and `wd backend model discover` (probe installed CLIs; `--import --tier` to
   register missing ids).
+  Reconcile the catalog with `wd models refresh` (preview) then `wd models refresh --apply --yes`
+  (daemon-backed); it never moves a live agent, so follow with
+  `wd switch AGENT --aicli <id>` (catalog pick at the agent's role tier) or `--tier` / `--model`.
+  Automatic invalid-model launch recovery is deferred (FUTURE_ENHANCEMENTS #60).
 
 A **third** Codex superpower — **`wd agent fork`** (branch an agent's session into a new
 managed agent) — is a spawn-family verb, not a check-family one, and unlike these two

@@ -192,6 +192,47 @@ approval redesign must be derived from its actual event, capability, audit, and
 strategic-routing contracts rather than bolting more rules onto the current
 poller-era auto-approve interface.
 
+#### 60. Automatic invalid-model launch recovery — *deferred until the PTY migration and state/prompt/error detection redesign*
+**Effort:** 2–3 weeks after the PTY runtime exposes structured launch state
+
+Spec: [`specs/2026-10-19-aicli-model-catalog-refresh.md`](specs/2026-10-19-aicli-model-catalog-refresh.md) §9 (status: deferred, not delivered).
+
+**What was dropped.** A bounded relaunch loop that, when a CLI rejects an
+exact model (retired, unknown, or not entitled) before any task prompt is
+accepted, picks another eligible model of the *same AI CLI and tier* and
+relaunches, plus the adapter extension, prompt-withheld launch path, durable
+attempt audit and `model_recovery.*` hot-reloaded configuration that supported
+it. None of it is in the tree.
+
+**Why it waits for the PTY redesign.** Safety depends on proving the rejection
+happened *before* the CLI read or acted on the prompt, and on telling it apart
+from a post-prompt failure. Scraping a tmux pane cannot establish that ordering,
+and no adapter has a versioned, trustworthy pre-task signature. A wrong guess
+relaunches a started task, duplicates side effects, or records false negative
+evidence that suppresses a good model. The PTY runtime's structured state, prompt
+and error events are the right foundation.
+
+**Scope and safety criteria for revisiting.**
+
+- Detection comes from structured PTY state/error events, per adapter and CLI
+  version, with each signature proven pre-prompt by the adapter's own contract or
+  source and covered by labelled fixtures (never fabricated as captured output).
+- At most 3 distinct `(aicli, model)` attempts under one shared deadline; the same
+  pair is never retried.
+- Same AI CLI and same tier only. No cross-AI-CLI substitution, no permission-mode
+  or billing change, no paid route.
+- Explicit pins (spawn pin, pipeline/schedule model, fork, restore, recorded
+  model) are never substituted: they fail with a typed error naming the model.
+- Each attempt is audited and persisted on the agent record, including for
+  Restore, SwitchRole and hot-swap failures.
+- Fail closed: any ambiguity (timeout, cancel, exit, delivery failure) is
+  reported, never counted as negative evidence.
+
+**Current manual alternative.** `warden models refresh` (preview) →
+`warden models refresh --apply --yes` → `warden switch AGENT --aicli ID`
+(catalog pick at the agent's own role tier), or `--tier` / `--aicli ID --model`.
+See [`RUNBOOK-aicli-model-catalog.md`](RUNBOOK-aicli-model-catalog.md).
+
 ---
 
 ## 🚀 Planned products & active roadmaps

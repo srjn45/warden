@@ -573,11 +573,19 @@ The successor can be chosen by explicit --aicli and/or --model, or by --tier
 --model requires --aicli. --role only selects the tier to resolve from; it does not
 change the agent's role (see 'warden agent set <AGENT> role').
 
+With --aicli and no --model, the model is picked from the accepted model catalog
+within that AI CLI, at --tier, else --role's tier, else the agent's own role tier;
+it never keeps the old pin, widens the tier or uses a paid route, and the swap is
+refused (the running CLI is left alone) when no candidate is eligible. Refresh the
+catalog first with 'warden models refresh --apply --yes'. An explicit --aicli plus
+--model is launched exactly as given.
+
 The swap is performed by the warden daemon (the sole owner of the session store),
 so the daemon must be running.
 
 Examples:
   warden agent switch --aicli antigravity --model gemini-3.1-pro
+  warden agent switch --aicli codex            (catalog pick in codex at the agent's role tier)
   warden agent switch --tier tier-1
   warden agent switch abc123 --tier tier-3 --prompt 'Focus on unit test coverage'
 
@@ -4904,6 +4912,9 @@ Subcommands:
   tier      Set a model's tier classification (tier-1|tier-2|tier-3)
   add       Register a custom model in the catalog at runtime
   discover  Probe installed AI CLIs for live model menus
+  refresh   Preview/apply a catalog refresh through the daemon (--apply --yes)
+  history   Show catalog evidence and revisions
+  rollback  Roll back a catalog revision (--yes)
 
 When run without subcommands, `warden backend model` shows the live model menu of the
 current or specified backend.
@@ -4916,6 +4927,7 @@ Commands:
   discover             Probe installed AI CLIs for live model menus
   history              Show catalog evidence and revision history
   list                 List models in the catalog and their assigned tiers
+  refresh              Preview (and with --apply --yes, apply) a model-catalog refresh via the daemon
   rollback             Roll back a catalog policy revision
   tier                 Set a model's tier classification (tier-1|tier-2|tier-3)
 
@@ -5040,6 +5052,46 @@ Inherited flags:
 
 Aliases:
   ls
+```
+
+## warden backend model refresh
+
+```text
+Discover the models each installed AI CLI reports about itself (local files and
+non-generating metadata commands only: no prompt, no login, no token read),
+submit that evidence to the daemon as a catalog proposal, and print the diff.
+
+Without --apply this is a preview: it records evidence and a proposal but never
+changes routing policy. With --apply --yes it applies exactly the proposals it
+just created (blocked operations are reported, never applied). A stale or expired
+proposal is refused: re-run. Partial, empty, failed or offline discovery never
+retires a model.
+
+Applying changes catalog policy only. Pinned models (explicit --aicli + --model),
+running, restored, forked, scheduled and pipeline sessions are untouched. To move
+an existing agent onto the refreshed catalog, run an explicit hot-swap afterwards:
+  warden switch AGENT --aicli ID --tier tier-N     (catalog pick within that AI CLI)
+  warden switch AGENT --tier tier-N                (router pick across AI CLIs)
+  warden switch AGENT --aicli ID --model MODEL     (explicit pin)
+
+Examples:
+  warden backend model refresh --aicli cursor
+  warden backend model refresh --aicli cursor --aicli codex --json
+  warden backend model refresh --apply --yes
+
+Usage:
+  warden backend model refresh [flags]
+
+Flags:
+      --aicli stringArray   limit to this AI CLI (repeatable; default: every installed AI CLI that can discover models)
+      --apply               apply the proposals this command creates (requires --yes)
+  -h, --help                help for refresh
+      --json                emit structured per-aicli results
+      --yes                 confirm --apply
+
+Inherited flags:
+      --addr string     daemon address (overrides the addr config setting)
+      --config string   config file path (default ~/.warden/config.yaml)
 ```
 
 ## warden backend model rollback
@@ -6304,6 +6356,7 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden models history` | `warden backend model history` |
 | `warden models list` | `warden backend model list` |
 | `warden models ls` | `warden backend model list` |
+| `warden models refresh` | `warden backend model refresh` |
 | `warden models rollback` | `warden backend model rollback` |
 | `warden models tier` | `warden backend model tier` |
 | `warden msg` | `warden message` |

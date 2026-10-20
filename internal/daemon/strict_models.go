@@ -57,7 +57,14 @@ func (s *Server) PreviewModelCatalog(_ context.Context, req oapi.PreviewModelCat
 		}
 		obs.Models = append(obs.Models, backendstore.ObservedModel{ModelID: m.ModelId, DisplayName: m.DisplayName, Visibility: m.Visibility, ReasoningLevels: m.ReasoningLevels, DefaultReasoning: m.DefaultReasoning, ContextWindow: m.ContextWindow, UpgradeTo: m.UpgradeTo})
 	}
-	p, err := s.backends.Preview(backendstore.CatalogRefresh{Scope: backendstore.CatalogScope{AiCli: strings.TrimSpace(b.Aicli), AuthMode: b.AuthMode, PlanLabel: b.PlanLabel, CLIVersion: b.CliVersion}, Observation: obs, ObservedAt: b.ObservedAt, SnapshotID: b.SnapshotId}, time.Now().UTC())
+	if b.ScopeFp != "" && !backendstore.ValidScopeFP(b.ScopeFp) {
+		return nil, errStatus(http.StatusBadRequest, "scope_fp must be sha256: followed by 24 hex digits")
+	}
+	scope := backendstore.CatalogScope{AiCli: strings.TrimSpace(b.Aicli), AuthMode: b.AuthMode, PlanLabel: b.PlanLabel, CLIVersion: b.CliVersion}
+	if b.ScopeFp != "" {
+		scope.Fingerprint = b.ScopeFp
+	}
+	p, err := s.backends.Preview(backendstore.CatalogRefresh{Scope: scope, Observation: obs, ObservedAt: b.ObservedAt, SnapshotID: b.SnapshotId}, time.Now().UTC())
 	if err != nil {
 		return nil, errStatus(http.StatusBadRequest, err.Error())
 	}

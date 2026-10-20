@@ -20,13 +20,53 @@ background schedule.
 
 The legacy `warden backend model discover` command remains a compatibility
 surface for listing/importing known models. It is not proof of entitlement and
-is not the reconciliation workflow. The planned `warden aicli models ...`
-namespace is not required by this release; retain existing `backend model` and
-`models` automation until that separately-versioned rename lands.
+is not the reconciliation workflow. Use `warden models refresh` (alias
+`warden backend model refresh`) as described below. The planned
+`warden aicli models ...` namespace is not required by this release.
+
+## Manual workflow: refresh, apply, then reselect a running agent
+
+Automatic recovery from an invalid or retired model at launch is **deferred**
+(spec §9; `docs/FUTURE_ENHANCEMENTS.md`). Nothing retries or substitutes a model
+for you. The supported workflow is manual:
+
+1. **Preview.** `warden models refresh [--aicli ID]...` runs the installed AI
+   CLIs' own non-generating model discovery (local files and metadata commands;
+   no prompt, login or token read), submits the evidence to the daemon and prints
+   a per-AI-CLI proposal (`ops`, `blocked`). It never changes routing. `--json`
+   gives the same data structurally; a failed or partial discovery is reported per
+   AI CLI and never retires a model. Evidence is submitted through the daemon
+   catalog API with the AI CLI, auth mode, plan label, CLI version and an opaque
+   `scope_fp` hash of the account and profile. The raw account and profile never
+   leave the CLI, so two accounts of one AI CLI stay isolated. An AI CLI that
+   reports no account identity is scoped to the AI CLI and auth mode only, and
+   the command says so. After switching accounts run a fresh refresh and never
+   apply an older proposal.
+2. **Apply.** After reviewing the preview, `warden models refresh --apply --yes`
+   re-discovers and applies exactly the proposals it just created. `--apply`
+   without `--yes` is refused. A stale or expired proposal is reported and not
+   applied; re-run. Inspect with `warden models history` and undo policy with
+   `warden models rollback REV --yes`. All catalog mutation goes through the
+   daemon; the CLI never writes the registry directly.
+3. **Reselect the agent.** Applying never moves a live agent. Use
+   `warden switch AGENT` with one of these selectors (a plain `switch` with no
+   selector is refused):
+
+   | Command | Model chosen |
+   |---|---|
+   | `warden switch AGENT --aicli ID` | From the accepted catalog within `ID`, at the tier of the agent's own role (an orchestrator/autopilot tier-1 agent stays tier-1). Fails before the old CLI is stopped when no eligible model exists. |
+   | `warden switch AGENT --aicli ID --tier tier-N` | Catalog pick within `ID` at that tier. |
+   | `warden switch AGENT --aicli ID --role ROLE` | Catalog pick within `ID` at that role's tier (the agent's role is not changed). |
+   | `warden switch AGENT --tier tier-N` | Router pick across eligible AI CLIs at that tier. |
+   | `warden switch AGENT --aicli ID --model MODEL` | Exactly `MODEL`, as an operator pin; the catalog is not consulted. |
+
+   Catalog picks never widen the tier, use paid routes, or change the permission
+   mode beyond the normal hot-swap translation. An old pinned model is never
+   retained implicitly.
 
 ## Preview, inspect, apply
 
-The current deployable workflow is API/MCP-first. `POST
+The CLI above wraps the API; automation can call it directly. `POST
 /api/v1/model-catalog/proposals` accepts *structured evidence*; it never runs a
 provider command itself. Use the generated OpenAPI document at
 `/api/docs/openapi.yaml` for the complete request schema.
@@ -47,7 +87,7 @@ provider command itself. Use the generated OpenAPI document at
    revision and post-apply policy record.
 
 For an MCP client, use `preview_model_catalog` to submit the same structured
-evidence. It deliberately cannot invoke provider commands. Then use
+evidence (including the optional opaque `scope_fp`; raw account or profile identifiers are never accepted). It deliberately cannot invoke provider commands. Then use
 `apply_model_catalog_proposal` with the exact returned `proposal_id`. Agents,
 autopilot, and background automation must not call the mutating apply tool
 without a separate operator instruction.

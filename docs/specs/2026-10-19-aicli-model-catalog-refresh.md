@@ -14,7 +14,7 @@ Goal: replace stale hard-coded routing with:
 1. **Explicit, operator-triggered** model discovery that is account-aware. Nothing runs periodically or in the background.
 2. **Explainable** tier, capability and shared-quota-bucket **recommendations**. They are deterministic and rule-based. They are never LLM-classified and never guessed.
 3. A **transactional preview → apply → rollback** pipeline over the existing routing rows.
-4. **Bounded** recovery when a launch fails with an invalid model: at most 3 distinct pre-task attempts under one shared deadline.
+4. ~~Bounded automatic recovery when a launch fails with an invalid model~~ **Deferred** (§9): not delivered. The supported alternative is the manual refresh → apply → `warden switch` workflow.
 
 Non-goals (hard): periodic polling; background LLM classification; automatic paid or generation probes (warden never sends a prompt to "test" a model); guessing unknown provider metadata; collection renames or dual writes (§12); dependence on unmerged PTY02/PTY03 work.
 
@@ -44,7 +44,7 @@ Non-goals (hard): periodic polling; background LLM classification; automatic pai
 | TUI picker | `tui/cmds.go` `loadSpawnCandidatesCmd` | Builds candidates from `ListModels` + usage snapshot + backends. |
 | Web | `web/src` | No model picker today. Only free-text model fields (pipeline spec). |
 | API | `apidocs/openapi.yaml` `/api/v1/models` (GET list, POST add), `/models/{backend}/{model}/tier` (PUT), `/backends/rescan`, `/roles/tiers`, `/usage` | MCP `list_models`, `set_model_tier` (`mcp/tools_extra.go`). No discover/refresh endpoint exists. Discover is CLI-only and in-process. |
-| Launch failure | poller / lifecycle | **No invalid-model classification or recovery anywhere** (searched `invalid model`, `model not found/available/supported`, `does not have access`). |
+| Launch failure | poller / lifecycle | **No invalid-model classification or recovery; automatic recovery is deferred (§9)** (searched `invalid model`, `model not found/available/supported`, `does not have access`). |
 
 ### 1.2 Defects found (each downstream task cites these ids)
 
@@ -56,7 +56,7 @@ Non-goals (hard): periodic polling; background LLM classification; automatic pai
 | D4 | `seedDefaultsIfEmpty` resurrects operator-deleted seed rows on every open. It prunes by seed membership only, so a discovered `is_custom=false` row would be deleted by any binary. | `store.go:861-` | catalog-snapshots-and-policy |
 | D5 | Path (c) and (d) fallback `resolveDefaultModel()` returns the **Claude** default (`claude-sonnet-4-6`) even when the pinned aicli is codex/cursor/…, and `launchModel` passes it raw (e.g. `codex -m claude-sonnet-4-6`). Plausible from code; add a regression test before fixing. | `switch.go:412,426`; `lifecycle.go:584` | bounded-startup-failure-recovery |
 | D6 | No account scoping: `ProfileSource=nil` in production. | `cli/daemon.go:394` | catalog-snapshots-and-policy |
-| D7 | No invalid-model launch detection or recovery. | §1.1 | bounded-startup-failure-recovery |
+| D7 | No invalid-model launch detection or recovery. | §1.1 | **Deferred** (§9): not built; manual workflow only |
 | D8 | The crush `(not configured)` filter is dead on crush v0.80.0 (0 markers in 1813 rows), so `discover --import` would import the whole public provider registry. | live `crush models` | provider-discovery-adapters |
 | D9 | Discover errors are swallowed, so an operator cannot tell "no models" from "not signed in". | `discoverInstalledModels` | operator-api-cli-and-surfaces |
 
@@ -213,7 +213,7 @@ Retry limits: one retry per source, only on `network`/`timeout`, with 2s backoff
 
 ### 4.5 Explicit-pin semantics
 
-- **Spawn pin** (`--aicli X --model Y`, a pipeline job, a schedule, `fork_from` with a model): the pin is launched exactly as given. It is never re-routed, never substituted, and never blocked by catalog state. If the active-scope observation is `unavailable` or `launch_rejected`, the spawn proceeds and records an `model_catalog_warning` event, and the CLI prints a warning on stderr. A pinned launch that fails as invalid-model is reported, **not** recovered to another model (§9.3).
+- **Spawn pin** (`--aicli X --model Y`, a pipeline job, a schedule, `fork_from` with a model): the pin is launched exactly as given. It is never re-routed, never substituted, and never blocked by catalog state. If the active-scope observation is `unavailable` or `launch_rejected`, the spawn proceeds and records an `model_catalog_warning` event, and the CLI prints a warning on stderr. A pinned launch that fails as invalid-model is reported, **not** recovered to another model (automatic recovery is deferred, §9).
 - **Operator intent pin** (a field set via `models tier`, `models add`, `PUT /models/{b}/{m}/tier`, enable/disable, `refresh --apply` of a recommendation the operator accepted): the field name is appended to the row's `operator_set` (§5.2). Reconciliation **never proposes changing an `operator_set` field**. Retirement is the single exception (§6.2), and its effect is reversible: the prior value is recorded and restored on unretire.
 - `PreferredBackend` without a model (path c) never selects a `retired` row. It may select `unknown`/`stale` rows (§8).
 
@@ -261,7 +261,7 @@ New collection **`model_catalog_observations`**. Key `ai_cli|scope_fp|model_id`,
   "availability":"available|unavailable|unknown|stale|unsupported",
   "visibility":"listed|hidden",
   "last_seen_at":"…","last_checked_at":"…","evidence_snapshot":"snap-…",
-  "launch_rejected_until":"…","launch_rejection_reason":"…",   // §9
+  "launch_rejected_until":"…","launch_rejection_reason":"…",   // observation field; set only by launch evidence, never by automatic recovery
   "capabilities":{"reasoning_levels":["low","medium"],"default_reasoning":"medium","context_window":272000,"upgrade_to":""} }
 ```
 
@@ -331,7 +331,7 @@ Absence never retires when it comes from partial output, an empty result, auth, 
 
 | Scenario | Behaviour |
 |---|---|
-| Upgrade: existing store, no refresh ever run | No observations → every row is `unknown` → routing is identical to today, except that recovery (§9) is active. Seed changes in this release land through the D4-fixed seeder. |
+| Upgrade: existing store, no refresh ever run | No observations → every row is `unknown` → routing is identical to today. Seed changes in this release land through the D4-fixed seeder. |
 | Upgrade: new seeds drop stale ids (e.g. codex `gpt-5.5`) | Existing seed rows not in the new list are pruned per §6.3. Rows with `operator_set` survive. Release notes tell operators to run `wd aicli models refresh`. |
 | Downgrade to a pre-feature binary | Old code ignores the additive fields and the new collections. Discovered rows survive (`is_custom=true`). Retired rows stay non-auto-assigned (`auto_assign=false` in the row). Excluded tombstones are `enabled=false`. The old seeder may re-insert a seed key only if the row was hard-deleted, which this feature never does for seed rows. Old binaries can write `ModelEntry` without the additive fields, so `operator_set`/`lifecycle` may be lost on rows they rewrite. Acceptable: the fallbacks are conservative. |
 | Re-upgrade after a downgrade | A row lacking `lifecycle` reads as `active`. `catalog_rev` behind head means the row was edited out-of-band, which counts as drift for rollback (§7.3). |
@@ -413,44 +413,15 @@ The policy is deterministic and versioned. Every recommendation carries a rule i
 
 ---
 
-## 9. Bounded startup failure recovery
+## 9. Automatic startup failure recovery (DEFERRED)
 
-### 9.1 Classification
+**Status: deferred by operator decision; not implemented and not delivered.** There is no launch-rejection detector, no automatic relaunch, no prompt-withheld launch path and no `model_recovery.*` configuration. A launch that fails with an invalid, retired or not-entitled model is reported like any other launch failure and is never silently substituted.
 
-Optional adapter extension:
+**Why deferred.** Safe automatic recovery needs a trustworthy, versioned, adapter-level signal that a rejection happened before the CLI read or acted on the task prompt, plus a deterministic way to tell it from a post-prompt failure. That depends on the PTY runtime migration and the redesign of state, prompt and error detection. Reading pane text from tmux today cannot prove the ordering, and a wrong guess would relaunch a started task or poison routing evidence.
 
-```go
-type LaunchRejectionDetector interface {
-    // DetectModelRejection inspects the pane (or exit text) BEFORE the task prompt
-    // is accepted. Fail-closed: ok only on an anchored, version-fixtured signature
-    // that names the model as invalid/unavailable/not permitted for the account.
-    DetectModelRejection(pane string) (reason string, ok bool)
-}
-```
+**Criteria for revisiting** (tracked in `docs/FUTURE_ENHANCEMENTS.md`): detection comes from the PTY runtime's structured state/error events, not pane scraping; per-adapter, per-version signatures proven pre-prompt; at most 3 distinct same-aicli, same-tier attempts under one deadline; pins, restores and forks never substituted; no permission, billing or cross-aicli widening; every attempt audited and persisted.
 
-Each signature needs a recorded fixture under `testdata/modelcatalog/<aicli>/<version>/rejection-*.txt`, captured with a deliberately invalid model id. Every CLI rejects that id before any generation, so capturing it is not a generation probe. An adapter with no fixture does not implement the detector, and then no recovery happens: today's behaviour.
-
-### 9.2 Budget
-
-| Parameter | Default | Config key (`model_recovery.*`, hot-reloaded) |
-|---|---|---|
-| distinct pre-task launch attempts (the original attempt counts) | **3** | `max_attempts` (1–5) |
-| shared deadline from the first launch | **3m** | `deadline` |
-| per-attempt readiness wait | `min(60s, remaining)` | `attempt_timeout` |
-| route suppression after rejection | **24h** | `rejection_ttl` |
-
-"Distinct" means a different `(aicli, model)` pair. The same pair is never retried. "Pre-task" means before the initial prompt was delivered and accepted (InputReadiness + seeded prompt). After that point, failures belong to the existing crash and rate-limit handling, never this path.
-
-### 9.3 Flow per surface
-
-| Surface | Route origin | On classified rejection |
-|---|---|---|
-| Spawn / SpawnJob paths (c), (d); autopilot worker; brain; hot-swap / handoff successor | router | Record `launch_rejected_until` (observation, active scope; does **not** change `availability`, does not retire). Kill the pane. Re-resolve with the tried pairs excluded (`ResolveOptions.ExcludeRoutes`, additive). Relaunch in the same worktree. Stop on budget exhaustion, then fail the spawn with `model_recovery_exhausted {attempts:[{aicli,model,reason}]}`. |
-| Spawn path (a) exact pin; pipeline / schedule job with an explicit model; fork with a model; restore (resumes the recorded model) | operator / recorded | **No substitution.** Record the rejection and fail with `model_rejected {aicli, model, reason, suggestions[]}`. Suggestions are the active-scope `available` rows of the same tier. |
-| Restart of a running agent | recorded model | Same as pinned. |
-| D5 fallback | — | Path (c) with the resolver declining and a non-claude aicli: use **no model flag** (the aicli's own default) instead of the Claude default. Never put a foreign-aicli model id on a launch line. |
-
-Every attempt emits an agent event `model_launch_attempt {n, aicli, model, outcome, reason}`. The total is also exposed as a metric (§13 observability).
+**Manual alternative (supported today).** The operator refreshes and applies the catalog, then reselects the model of an affected agent with `warden switch`; see `docs/RUNBOOK-aicli-model-catalog.md`. The resolver still honours a recorded `launch_rejected_until` observation; nothing in this release writes one automatically.
 
 ---
 
@@ -472,7 +443,7 @@ Every attempt emits an agent event `model_launch_attempt {n, aicli, model, outco
   - New collections are named `model_catalog_*`, outside the rename mapping, and use the canonical `ai_cli` field.
   - The CLI adds only the `aicli models …` subtree with retained `backend model …` / `models …` aliases. It does not move the other `backend` commands.
   - Workers re-check plan-01's status before merging. If its `foundations-and-aliases` has landed, they reuse its alias-conflict helper instead of adding one.
-- **PTY02/PTY03:** no dependency. Recovery (§9) uses the existing tmux pane capture and InputReadiness seams.
+- **PTY02/PTY03:** automatic launch recovery (§9) is deferred until the PTY migration and state/prompt/error detection redesign land; nothing else here depends on them.
 - **Daemon API is spec-first:** `openapi.yaml`, then `make generate`. No handwritten DTOs. Run `make gendocs` after any cobra change (CI `gendocs-check`).
 - **Integrity contract** (`2026-10-09-backend-registry-integrity-contract.md`): the new collections join `Verify`/`Repair` coverage in catalog-snapshots-and-policy.
 
@@ -484,7 +455,7 @@ Every attempt emits an agent event `model_launch_attempt {n, aicli, model, outco
 | 2 | **provider-discovery-adapters** | §3 interface for codex, cursor, antigravity, opencode, crush; `unsupported` for claude, aider, goose; D1, D2, D8; `ModelLister` reimplemented as a projection | Fixture parsing per aicli and version. Codex `CODEX_HOME`, identity mismatch, stale cache, bundled excluded, config_hint separate. agy tab and legacy formats. Crush/opencode marked P. Timeout and 4 MiB cap. A test asserting no generation subcommand is ever exec'd (argv allowlist). |
 | 3 | **tier-and-quota-policy** | §8 R1–R5; resolver eligibility and ranking; seed refresh (D3) | The gpt-5.5 case end-to-end on fixtures: retire gpt-5.5, successor via R3 or unclassified. apikey blocker. Hidden → no auto-assign. Unknown → unclassified. Resolver rejects retired/unavailable/rejected but allows explicit pins. |
 | 4 | **preview-reconcile-apply-and-rollback** | §6.1/§6.2 transitions, §7 proposals and revisions, dbtx apply and rollback | Full transition table, table-driven. Every error class → no retirement. Mass-retire guard. CAS staleness on head and pre_hash. Expiry and supersede. Rollback drift conflict. Crash mid-commit (dbtx crashtest harness): all-or-nothing. MaxOps split. |
-| 5 | **bounded-startup-failure-recovery** | §9 detector, budget, per-surface flow; D5; D7 | Exactly ≤3 distinct attempts; shared deadline honoured; same pair never retried; pinned/restore/fork never substituted. Post-prompt failures not handled here. Rejection TTL. D5 regression test. |
+| 5 | **bounded-startup-failure-recovery** (DEFERRED, §9; not delivered, no detector, no retry) | §9 detector, budget, per-surface flow; D5; D7 | Exactly ≤3 distinct attempts; shared deadline honoured; same pair never retried; pinned/restore/fork never substituted. Post-prompt failures not handled here. Rejection TTL. D5 regression test. |
 | 6 | **operator-api-cli-and-surfaces** | §4 CLI/REST/MCP, aliases, discover compat, TUI badges, `make generate` + `make gendocs`, D9 | Alias conflict exit 2. `--json` == REST body. Exit codes. Direct vs daemon mode parity. OpenAPI codegen clean. MCP parity. |
 | 7 | **observability-and-adversarial-verification** | Events, metrics (`model_catalog_refresh_total{aicli,completeness,error}`, `model_launch_attempts_total{outcome}`), audit entries for apply/rollback, adversarial suite | Malicious or huge CLI output (ANSI, NUL, 10 MB, shell metachars in ids stay shell-quoted on the launch line). Account switch between refresh and spawn. Concurrent refresh/apply. Partial output disguised as complete. Secrets never in snapshots or logs (grep test on fixtures with planted tokens). |
 | 8 | **rollout-documentation-and-release-gates** | README, docs/FEATURES.md, USAGE.md, site guide + generated `reference/cli.md`, `skills/warden`, release notes (run refresh after upgrade), upgrade/downgrade matrix (§6.4) verification, tag (minor) after maintainer confirmation | Upgrade from the previous release's store fixture: routing unchanged without refresh. Downgrade fixture: no auto-routing of retired rows. Gendocs check. Docs checklist per CLAUDE.md. |

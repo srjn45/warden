@@ -957,6 +957,22 @@
     "json": true
   },
   {
+    "path": "backend model refresh",
+    "use": "refresh",
+    "runnable": true,
+    "local_flags": [
+      "aicli",
+      "apply",
+      "json",
+      "yes"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
     "path": "backend model rollback",
     "use": "rollback \u003crevision\u003e",
     "runnable": true,
@@ -2558,6 +2574,23 @@
       "by-tier",
       "json",
       "tier"
+    ],
+    "inherited_flags": [
+      "addr",
+      "config"
+    ],
+    "json": true
+  },
+  {
+    "path": "models refresh",
+    "use": "refresh",
+    "hidden": true,
+    "runnable": true,
+    "local_flags": [
+      "aicli",
+      "apply",
+      "json",
+      "yes"
     ],
     "inherited_flags": [
       "addr",

@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"github.com/srjn45/warden/internal/agentbackend"
 	"os"
 	"path/filepath"
@@ -418,4 +419,110 @@ func TestHotSwapSuccessorExitsImmediately(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "claude", sess.AiCli)
 	require.Equal(t, "bypassPermissions", sess.PermissionMode)
+}
+
+// recordingResolver captures the options of each Resolve call.
+type recordingResolver struct {
+	stubResolver
+	got []router.ResolveOptions
+}
+
+func (r *recordingResolver) Resolve(ctx context.Context, o router.ResolveOptions) (*router.Resolution, error) {
+	r.got = append(r.got, o)
+	return r.stubResolver.Resolve(ctx, o)
+}
+
+func killed(fr *FakeRunner) bool {
+	for _, c := range fr.Calls {
+		if len(c.Argv) >= 2 && c.Argv[0] == "tmux" && c.Argv[1] == "kill-session" {
+			return true
+		}
+	}
+	return false
+}
+
+func catalogPick(model string) *recordingResolver {
+	return &recordingResolver{stubResolver: stubResolver{res: &router.Resolution{BackendID: "codex", ModelID: model, Tier: backendstore.Tier1}}}
+}
+
+func TestHotSwapAiCliWithoutModelUsesAgentRoleTier(t *testing.T) {
+	lc, _, sess := newSwapLC(t)
+	writeClaudeTranscript(t, lc, sess)
+	sess.Model = "obsolete-pin"
+	sess.Role = "orchestrator"
+	rr := catalogPick("accepted-model")
+	lc.Resolver = rr
+
+	res, err := lc.HotSwap(context.Background(), sess, SwapRequest{Backend: "codex"})
+	require.NoError(t, err)
+	require.True(t, res.ResolverUsed)
+	require.Equal(t, "accepted-model", res.ToModel)
+	require.Equal(t, "accepted-model", sess.Model)
+	require.Len(t, rr.got, 1)
+	require.Equal(t, "codex", rr.got[0].PreferredBackend)
+	require.Equal(t, "orchestrator", rr.got[0].Role)
+	require.Empty(t, string(rr.got[0].Tier))
+	require.False(t, rr.got[0].AllowFallback)
+	require.False(t, rr.got[0].AllowPaid)
+}
+
+func TestHotSwapAiCliWithExplicitTierOverridesAgentRole(t *testing.T) {
+	lc, _, sess := newSwapLC(t)
+	writeClaudeTranscript(t, lc, sess)
+	sess.Role = "orchestrator"
+	rr := catalogPick("m1")
+	lc.Resolver = rr
+
+	_, err := lc.HotSwap(context.Background(), sess, SwapRequest{Backend: "codex", Tier: backendstore.Tier3})
+	require.NoError(t, err)
+	require.Equal(t, backendstore.Tier3, rr.got[0].Tier)
+	require.Empty(t, rr.got[0].Role)
+}
+
+func TestHotSwapAiCliWithExplicitRoleOverridesAgentRole(t *testing.T) {
+	lc, _, sess := newSwapLC(t)
+	writeClaudeTranscript(t, lc, sess)
+	sess.Role = "orchestrator"
+	rr := catalogPick("m1")
+	lc.Resolver = rr
+
+	_, err := lc.HotSwap(context.Background(), sess, SwapRequest{Backend: "codex", Role: "reviewer"})
+	require.NoError(t, err)
+	require.Equal(t, "reviewer", rr.got[0].Role)
+}
+
+func TestHotSwapAiCliWithoutModelFailsClosedBeforeKill(t *testing.T) {
+	for name, res := range map[string]stubResolver{
+		"error":         {err: errors.New("all exhausted")},
+		"nil":           {},
+		"foreign aicli": {res: &router.Resolution{BackendID: "claude", ModelID: "m"}},
+		"empty model":   {res: &router.Resolution{BackendID: "codex"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			lc, fr, sess := newSwapLC(t)
+			writeClaudeTranscript(t, lc, sess)
+			beforeCLI, beforeModel := sess.AiCli, sess.Model
+			lc.Resolver = res
+
+			_, err := lc.HotSwap(context.Background(), sess, SwapRequest{Backend: "codex"})
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "select model for codex from the catalog")
+			require.False(t, killed(fr), "the running CLI must survive a refused swap")
+			require.Equal(t, beforeCLI, sess.AiCli)
+			require.Equal(t, beforeModel, sess.Model)
+		})
+	}
+}
+
+func TestHotSwapExplicitModelBypassesCatalogSelection(t *testing.T) {
+	lc, _, sess := newSwapLC(t)
+	writeClaudeTranscript(t, lc, sess)
+	rr := &recordingResolver{stubResolver: stubResolver{err: errors.New("must not be called")}}
+	lc.Resolver = rr
+
+	res, err := lc.HotSwap(context.Background(), sess, SwapRequest{Backend: "codex", Model: "gpt-5-codex"})
+	require.NoError(t, err)
+	require.False(t, res.ResolverUsed)
+	require.Equal(t, "gpt-5-codex", sess.Model)
+	require.Empty(t, rr.got)
 }
