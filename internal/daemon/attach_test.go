@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/srjn45/warden/internal/agentstore"
+	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -64,4 +65,15 @@ func TestAttachFoundSessionDoesNotFastReject(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.NotEqual(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestAttachUnknownRuntimeFailsExplicitlyInsteadOfFallingBackToTmux(t *testing.T) {
+	fs := newFakeStore()
+	_ = fs.Insert(context.Background(), &agentstore.Agent{ID: "unknown", Runtime: &store.SessionRuntime{Kind: "unknown"}})
+	ts := lifeServer(t, fs, &fakeLife{})
+	defer ts.Close()
+	resp, err := http.Get(ts.URL + "/api/v1/sessions/unknown/attach")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusConflict, resp.StatusCode)
 }

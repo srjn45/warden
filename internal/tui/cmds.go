@@ -136,7 +136,12 @@ func terminalInfoCmd(terminals []*store.Session) tea.Cmd {
 	type ent struct{ id, tmux string }
 	list := make([]ent, 0, len(terminals))
 	for _, s := range terminals {
-		list = append(list, ent{id: s.ID, tmux: s.TmuxSession})
+		// Direct/unknown runtimes have no trustworthy tmux pane. Omitting them is
+		// intentional: rows retain canonical membership and show stored metadata
+		// rather than fabricating a cwd, branch, or liveness signal.
+		if s.Runtime == nil || s.Runtime.Kind == "tmux" {
+			list = append(list, ent{id: s.ID, tmux: s.TmuxSession})
+		}
 	}
 	return func() tea.Msg {
 		info := make(map[string]terminalLiveInfo, len(list))

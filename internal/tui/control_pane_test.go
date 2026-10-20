@@ -539,8 +539,8 @@ func TestListPaneXOnAgentStillConfirms(t *testing.T) {
 
 func TestRespawnDetailArgs(t *testing.T) {
 	require.Equal(t,
-		[]string{"respawn-pane", "-k", "-t", "%9", "env -u TMUX tmux attach -t agent-4f98"},
-		respawnDetailArgs("%9", "agent-4f98"))
+		[]string{"respawn-pane", "-k", "-t", "%9", "env -u TMUX '/opt/warden' attach 'agent-4f98'"},
+		respawnDetailArgs("%9", "/opt/warden", "agent-4f98"))
 }
 
 func TestRespawnTerminalArgsAttachesThroughWarden(t *testing.T) {

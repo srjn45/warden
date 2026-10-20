@@ -1,0 +1,63 @@
+0 verbose cli /usr/bin/node /usr/bin/npm
+1 info using npm@9.2.0
+2 info using node@v22.22.1
+3 timing npm:load:whichnode Completed in 1ms
+4 timing config:load:defaults Completed in 4ms
+5 timing config:load:file:/usr/share/nodejs/npm/npmrc Completed in 27ms
+6 timing config:load:builtin Completed in 27ms
+7 timing config:load:cli Completed in 7ms
+8 timing config:load:env Completed in 2ms
+9 timing config:load:file:/home/srjn45/dev/warden/.worktrees/development-1a647872/web/.npmrc Completed in 1ms
+10 timing config:load:project Completed in 2ms
+11 timing config:load:file:/home/srjn45/.npmrc Completed in 1ms
+12 timing config:load:user Completed in 2ms
+13 timing config:load:file:/etc/npmrc Completed in 1ms
+14 timing config:load:global Completed in 1ms
+15 timing config:load:setEnvs Completed in 2ms
+16 timing config:load Completed in 47ms
+17 timing npm:load:configload Completed in 47ms
+18 timing npm:load:mkdirpcache Completed in 4ms
+19 timing npm:load:mkdirplogs Completed in 1ms
+20 verbose title npm ci
+21 verbose argv "--prefix" "web" "ci"
+22 timing npm:load:setTitle Completed in 2ms
+23 timing config:load:flatten Completed in 34ms
+24 timing npm:load:display Completed in 37ms
+25 verbose logfile logs-max:10 dir:/home/srjn45/dev/warden/.worktrees/development-1a647872/.task-cache/npm/_logs/2026-10-20T19_37_29_631Z-
+26 verbose logfile /home/srjn45/dev/warden/.worktrees/development-1a647872/.task-cache/npm/_logs/2026-10-20T19_37_29_631Z-debug-0.log
+27 timing npm:load:logFile Completed in 92ms
+28 timing npm:load:timers Completed in 0ms
+29 timing npm:load:configScope Completed in 0ms
+30 timing npm:load Completed in 186ms
+31 timing config:load:flatten Completed in 0ms
+32 timing arborist:ctor Completed in 2ms
+33 silly logfile done cleaning log files
+34 timing idealTree:init Completed in 5ms
+35 timing idealTree:userRequests Completed in 0ms
+36 silly idealTree buildDeps
+37 timing idealTree:#root Completed in 0ms
+38 timing idealTree:buildDeps Completed in 6ms
+39 timing idealTree:fixDepFlags Completed in 0ms
+40 warn EBADENGINE Unsupported engine {
+40 warn EBADENGINE   package: 'astro@7.0.0',
+40 warn EBADENGINE   required: { node: '>=22.12.0', npm: '>=9.6.5', pnpm: '>=7.1.0' },
+40 warn EBADENGINE   current: { node: 'v22.22.1', npm: '9.2.0' }
+40 warn EBADENGINE }
+41 timing idealTree Completed in 50ms
+42 timing npm-ci:rm Completed in 1321ms
+43 timing command:ci Completed in 2156ms
+44 verbose stack Error: ENOTEMPTY: directory not empty, rmdir '/home/srjn45/dev/warden/.worktrees/development-1a647872/web/node_modules/astro/dist/env'
+45 verbose cwd /home/srjn45/dev/warden/.worktrees/development-1a647872
+46 verbose Linux 7.0.0-38-generic
+47 verbose node v22.22.1
+48 verbose npm  v9.2.0
+49 error code ENOTEMPTY
+50 error syscall rmdir
+51 error path /home/srjn45/dev/warden/.worktrees/development-1a647872/web/node_modules/astro/dist/env
+52 error errno -39
+53 error ENOTEMPTY: directory not empty, rmdir '/home/srjn45/dev/warden/.worktrees/development-1a647872/web/node_modules/astro/dist/env'
+54 verbose exit -39
+55 timing npm Completed in 2403ms
+56 verbose code -39
+57 error A complete log of this run can be found in:
+57 error     /home/srjn45/dev/warden/.worktrees/development-1a647872/.task-cache/npm/_logs/2026-10-20T19_37_29_631Z-debug-0.log

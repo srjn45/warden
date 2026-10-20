@@ -1,0 +1,37 @@
+0 verbose cli /usr/bin/node /usr/bin/npm
+1 info using npm@9.2.0
+2 info using node@v22.22.1
+3 timing npm:load:whichnode Completed in 0ms
+4 timing config:load:defaults Completed in 20ms
+5 timing config:load:file:/usr/share/nodejs/npm/npmrc Completed in 69ms
+6 timing config:load:builtin Completed in 69ms
+7 timing config:load:cli Completed in 27ms
+8 timing config:load:env Completed in 4ms
+9 timing config:load:file:/home/srjn45/dev/warden/.worktrees/development-1a647872/web/.npmrc Completed in 25ms
+10 timing config:load:project Completed in 31ms
+11 timing config:load:file:/home/srjn45/.npmrc Completed in 10ms
+12 timing config:load:user Completed in 10ms
+13 timing config:load:file:/etc/npmrc Completed in 12ms
+14 timing config:load:global Completed in 12ms
+15 timing config:load:setEnvs Completed in 3ms
+16 timing config:load Completed in 190ms
+17 timing npm:load:configload Completed in 211ms
+18 timing npm:load:mkdirpcache Completed in 10ms
+19 timing npm:load:mkdirplogs Completed in 1ms
+20 verbose title npm run build
+21 verbose argv "--prefix" "web" "run" "build"
+22 timing npm:load:setTitle Completed in 2ms
+23 timing config:load:flatten Completed in 48ms
+24 timing npm:load:display Completed in 73ms
+25 verbose logfile logs-max:10 dir:/home/srjn45/dev/warden/.worktrees/development-1a647872/.task-cache/npm/_logs/2026-10-20T19_36_33_257Z-
+26 verbose logfile /home/srjn45/dev/warden/.worktrees/development-1a647872/.task-cache/npm/_logs/2026-10-20T19_36_33_257Z-debug-0.log
+27 timing npm:load:logFile Completed in 252ms
+28 timing npm:load:timers Completed in 0ms
+29 timing npm:load:configScope Completed in 0ms
+30 timing npm:load Completed in 551ms
+31 timing config:load:flatten Completed in 0ms
+32 silly logfile done cleaning log files
+33 timing command:run Completed in 296ms
+34 verbose exit 127
+35 timing npm Completed in 1065ms
+36 verbose code 127

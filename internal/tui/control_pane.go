@@ -520,7 +520,7 @@ func (m controlPaneModel) rotateTerminal(step int) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.status = ""
-	return m, openInTerminalCmd(m.terminalPane, next.TmuxSession, true)
+	return m, openInTerminalCmd(m.terminalPane, next.ID, true)
 }
 
 // rotateAgent advances the agent pane by step over the entities in set (§8
@@ -556,7 +556,7 @@ func (m controlPaneModel) rotateAgent(set []*store.Session, emptyMsg string, ste
 	m.status = ""
 	// Grab focus on the agent pane so the rotation drops you into the session, the
 	// same way rotateTerminal focuses the terminal pane (§8).
-	return m, openInDetailCmd(m.agentPane, next.TmuxSession, true)
+	return m, openInDetailCmd(m.agentPane, next.ID, true)
 }
 
 // liveTerminalByID returns the live terminal with id, or nil when it is absent or
@@ -599,7 +599,7 @@ func (m *controlPaneModel) reconcileTerminalPaneCmd() tea.Cmd {
 	if !m.defaultTerminalReady {
 		m.defaultTerminalReady = true
 		m.openedTerminal = live[0].ID
-		return openInTerminalCmd(m.terminalPane, live[0].TmuxSession, false)
+		return openInTerminalCmd(m.terminalPane, live[0].ID, false)
 	}
 
 	target := m.liveTerminalByID(m.openedTerminal)
@@ -609,7 +609,7 @@ func (m *controlPaneModel) reconcileTerminalPaneCmd() tea.Cmd {
 	}
 
 	if isTmuxPaneDead(m.terminalPane) {
-		return openInTerminalCmd(m.terminalPane, target.TmuxSession, false)
+		return openInTerminalCmd(m.terminalPane, target.ID, false)
 	}
 	return nil
 }
@@ -669,15 +669,15 @@ func (m *controlPaneModel) reconcileAgentPaneCmd() tea.Cmd {
 		}
 		m.agentPaneReattachBackoff = next
 	}
-	// Find the live session to get its current TmuxSession (may have changed after
-	// hot-swap recreated the session with the same agent ID).
+	// Re-open by stable record ID. The shared attach client resolves the current
+	// runtime, including a legacy tmux key after a hot-swap.
 	for _, s := range m.sessions {
-		if s.ID == m.openedAgent && s.RuntimeKey() != "" {
+		if s.ID == m.openedAgent {
 			slog.Info("cockpit: reattaching agent pane after hot-swap",
 				"agent", m.openedAgent,
 				"attempt", m.agentPaneReattachAttempts,
 				"w", m.w, "h", m.h)
-			return openInDetailCmd(m.agentPane, s.RuntimeKey(), false)
+			return openInDetailCmd(m.agentPane, s.ID, false)
 		}
 	}
 	// Agent not in the live list yet (daemon still converging after hot-swap).
@@ -2138,7 +2138,7 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			m.openedTerminal = it.session.ID
-			return m, openInTerminalCmd(m.terminalPane, it.session.TmuxSession, true)
+			return m, openInTerminalCmd(m.terminalPane, it.session.ID, true)
 		}
 		if m.agentPane != "" {
 			attach, jobPipe, jobID, agentDetail := cockpitDetailCmd(it)
@@ -2398,10 +2398,13 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, archivePlanCmd(m.api, it.plan.ProjectID, it.plan.ID)
 		}
 		if id := m.selectedID(); id != "" {
-			return m, switchClientCmd(id, m.killWindow)
+			// Full-screen attach must use the same resolver as a presentation pane.
+			// Bubble Tea restores this cockpit after the child detaches/exits; unlike
+			// switch-client it works for a direct record with no tmux session.
+			return m, fullscreenAttachCmd(id)
 		}
 		if it := itemAt(m.items(), m.cursor); it.pjJob != nil && it.pjJob.AgentRef() != "" {
-			return m, switchClientCmd(it.pjJob.AgentRef(), m.killWindow)
+			return m, fullscreenAttachCmd(it.pjJob.AgentRef())
 		}
 	case "A":
 		it := itemAt(m.items(), m.cursor)
@@ -2503,6 +2506,20 @@ func (m controlPaneModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeHelp
 	}
 	return m, nil
+}
+
+// fullscreenAttachCmd temporarily hands the TUI terminal to the shared attach
+// client. tea.ExecProcess restores the Bubble Tea renderer when attach returns,
+// so detach is a return to the same selected cockpit rather than a tmux-client
+// switch. The session remains owned by its runtime throughout.
+func fullscreenAttachCmd(sessionID string) tea.Cmd {
+	self, err := os.Executable()
+	if err != nil {
+		return func() tea.Msg { return attachDoneMsg{err: err} }
+	}
+	return tea.ExecProcess(exec.Command(self, "attach", sessionID), func(err error) tea.Msg {
+		return attachDoneMsg{err: err}
+	})
 }
 
 func (m controlPaneModel) View() string {
@@ -2803,13 +2820,12 @@ func switchClientCmd(id string, killWindow bool) tea.Cmd {
 	}
 }
 
-// respawnDetailArgs builds the tmux args that replace the agent pane's process
-// with a live (nested) attach to the given agent's tmux session. `env -u TMUX`
-// lets tmux attach from inside tmux; `respawn-pane -k` kills the placeholder
-// (or the previously-opened agent) first.
-func respawnDetailArgs(agentPane, agentSession string) []string {
-	return []string{"respawn-pane", "-k", "-t", agentPane,
-		"env -u TMUX tmux attach -t " + agentSession}
+// respawnDetailArgs runs the shared attach client in the presentation pane. It
+// deliberately receives a stable record ID, never a tmux name: the client uses
+// the daemon's runtime resolver and only falls back to tmux for a real legacy
+// runtime. Replacing this viewer detaches it; it never owns the child session.
+func respawnDetailArgs(agentPane, self, sessionID string) []string {
+	return respawnTerminalArgs(agentPane, self, sessionID)
 }
 
 // respawnTerminalArgs builds the tmux args that replace the terminal pane's
@@ -2830,9 +2846,13 @@ func shellSingleQuote(s string) string { return "'" + strings.ReplaceAll(s, "'",
 // rotation (§8) passes focus=true so cycling agents drops you straight into the
 // session, mirroring the terminal rotation. Enter-open passes focus=false to keep
 // the control pane focused for continued browsing (watch-mode, §6).
-func openInDetailCmd(agentPane, agentSession string, focus bool) tea.Cmd {
+func openInDetailCmd(agentPane, sessionID string, focus bool) tea.Cmd {
 	return func() tea.Msg {
-		if err := exec.Command("tmux", respawnDetailArgs(agentPane, agentSession)...).Run(); err != nil {
+		self, err := os.Executable()
+		if err != nil {
+			return attachDoneMsg{err: err}
+		}
+		if err := exec.Command("tmux", respawnDetailArgs(agentPane, self, sessionID)...).Run(); err != nil {
 			return attachDoneMsg{err: err}
 		}
 		if focus {
@@ -2847,11 +2867,13 @@ func openInDetailCmd(agentPane, agentSession string, focus bool) tea.Cmd {
 // selects the terminal pane so the user can type immediately — terminals are
 // interactive (§6). The default terminal opened at startup passes focus=false so
 // the control pane keeps focus.
-func openInTerminalCmd(terminalPane, tmuxSession string, focus bool) tea.Cmd {
+func openInTerminalCmd(terminalPane, sessionID string, focus bool) tea.Cmd {
 	return func() tea.Msg {
-		args := respawnDetailArgs(terminalPane, tmuxSession)
+		args := []string(nil)
 		if self, err := os.Executable(); err == nil {
-			args = respawnTerminalArgs(terminalPane, self, tmuxSession)
+			args = respawnTerminalArgs(terminalPane, self, sessionID)
+		} else {
+			return attachDoneMsg{err: err}
 		}
 		if err := exec.Command("tmux", args...).Run(); err != nil {
 			return attachDoneMsg{err: err}
@@ -2879,8 +2901,11 @@ func cockpitDetailCmd(it item) (attach, jobPipe, jobID, agentDetail string) {
 		return it.pjJob.AgentRef(), "", "", ""
 	}
 	if it.session != nil {
-		if liveStatus(it.session.Status) && it.session.RuntimeKey() != "" {
-			return it.session.RuntimeKey(), "", "", ""
+		if liveStatus(it.session.Status) && it.session.ID != "" {
+			// The presentation client resolves the runtime from this canonical
+			// record ID. A legacy tmux key is not itself an identity: it can differ
+			// from the record ID after restore or rotation.
+			return it.session.ID, "", "", ""
 		}
 		return "", "", "", it.session.ID
 	}
