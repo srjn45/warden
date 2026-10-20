@@ -85,6 +85,7 @@ export default defineConfig({
           { label: 'Plan backup and restore', slug: 'guides/plan-backup-restore' },
           { label: 'Agent store integrity', slug: 'guides/agent-store-integrity' },
           { label: 'Schema 2 upgrade', slug: 'guides/schema-2-upgrade' },
+          { label: 'Updates & data safety', slug: 'guides/updates-and-data-safety' },
         ]},
         { label: 'Multi-agent', items: [
           { label: 'Pipelines (DAG)', slug: 'multi-agent/pipelines' },
