@@ -74,7 +74,7 @@ default; each in its own tmux session, most in a git worktree).
 | In-repo opt-out (write-agent) | `start --in-repo` | `spawn_agent` (`in_repo`) | ✓ | ✓ | — | [worktrees-task-types](https://srjn45.github.io/warden/concepts/worktrees-task-types/) |
 | List worktrees | `worktree list` (alias `worktree ls`; bare `worktree`) | `list_worktrees` | ✓ | — | — | [worktrees-task-types](https://srjn45.github.io/warden/concepts/worktrees-task-types/) |
 | Prune orphaned worktrees | `worktree prune` (alias `prune`) | `prune_worktrees` | ✓ | — | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
-| Clean merged branches + stale worktrees | `workspace clean` (alias `clean`) | — | ✓ | — | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
+| Clean merged branches + stale worktrees | `workspace clean` (alias `clean`) | — | ✓ | — | — | [workspace-release-hygiene](https://srjn45.github.io/warden/guides/workspace-release-hygiene/) |
 | Remove one agent's worktree | `remove-worktree` (= `stop --keep-record`, worktree only) | `remove_worktree` | ✓ | ✓ | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
 
 ## 3. Git & check lifecycle (with rails)
@@ -87,6 +87,7 @@ default; each in its own tmux session, most in a git worktree).
 | Open / return the PR for the agent branch (agent keeps running) | `git pr` (`--base`, `--title`, `--body`/`--body-file`, `--json`) | `create_pr` | ✓ | — | — | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) |
 | Run project checks (compact failures; works from subdirectories) | `check` | `check` |
 | List configured checks without running them | `check list` | `list_checks` | ✓ | — | — | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) | ✓ | — | — | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) |
+| SemVer release recommendation and categorized changelog; tag only on explicit confirmation | `release` (alias `git release`) | — | ✓ | — | — | [workspace-release-hygiene](https://srjn45.github.io/warden/guides/workspace-release-hygiene/) |
 | Agent-native diff review (backend's own reviewer) | `review` (`--base`, `--prompt`, `--backend`) | **CLI-only** (agent-native; local worktree exec, no daemon round-trip) | ✓ | — | — | [backend-superpowers](https://srjn45.github.io/warden/guides/backend-superpowers/) |
 | Machine-readable review findings (neutral JSON) | `review --json` | **CLI-only** | ✓ | — | — | [backend-superpowers](https://srjn45.github.io/warden/guides/backend-superpowers/) |
 | git-guard hook (deny raw git mutations) | `git-guard` (hook) | enforced | ✓ | — | — | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) |
