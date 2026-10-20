@@ -34,9 +34,14 @@ only when that PR is observed merged.
 - **`pending`** — authored, not started; **definition is mutable** (`wd plan update` / `edit` / `task`, or the matching API)
 - **`in_progress`** — execution active (or was; stays until completed/archived); definition is **immutable** (409 Conflict)
 - **`completed`** — all tasks done, code merged (for autopilot: the final PR is merged and the integration branch deleted; `wd plan show` records how it ended); definition immutable
-- **`archived`** — de-prioritised or superseded; definition immutable. A plan whose executor is still live is refused (409; `wd plan stop` first); branches with unmerged commits are kept. `wd plan unarchive` restores the status it was archived from
+- **`archived`** — de-prioritised or superseded; definition immutable. A plan whose executor is still live is refused (409; `wd plan stop` first). Archiving tears down remaining executor agents and worktrees, but keeps branches with commits not on the default branch and leaves open PRs alone. `wd plan unarchive` restores the recorded prior status; an in-progress Plan returns with a stopped executor and needs `wd plan restart` to continue.
 
 Drive transitions with `wd plan run` / `wd plan complete` / `wd plan archive` / `wd plan unarchive` (or the matching MCP/API). `wd plan delete` removes a plan that is not `in_progress`. The old `plan scan` / `status` / `import` / `sync_to_repo` commands remain only as hidden aliases. See [Using plans](/warden/guides/using-plans/) for the full journey. See [Plan Modification API](https://github.com/srjn45/warden/blob/main/docs/specs/2026-10-04-plan-modification-api.md) for mutation contracts (DAG validation, optimistic concurrency).
+
+Only a `pending` Plan can be modified. `wd plan update`, `wd plan edit`, and
+`wd plan task add|edit|rm` update the canonical record, validate the task DAG,
+and use the current revision to prevent an unnoticed concurrent edit. Running,
+completed, and archived Plans reject definition changes with 409 Conflict.
 
 ## Stable plan identity
 

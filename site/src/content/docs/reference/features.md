@@ -55,11 +55,11 @@ default; each in its own tmux session, most in a git worktree).
 | Agent role (built-in persona + default flags) at spawn | `start --role` | `spawn_agent` (`role`) | ✓ | ✓ (Role select) | `ctrl+r` (new-agent) | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |
 | Switch a running agent's role (relaunch re-injects) | `set-role` | `set_role` | ✓ | — | — | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |
 | List the built-in role catalog | `role list` | `list_roles` | ✓ | ✓ (Role select) | list | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/) |
-| Tiered model routing — derive the model tier from a **task** | `start --task` (CLI + REST; no pipeline `task:`) | routes by `role` only (no `task` param) | — | — | — | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/#roles-tasks-and-tiers) |
-| Tiered model routing — pin the model **tier** for the quota-balanced resolver | `start --tier` (also pipeline `tier:`) | routes by `role` only (no `tier` param) | ✓ | — | `ctrl+t` (new-agent; live candidate table) | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/#roles-tasks-and-tiers) |
+| Tiered model routing — derive the model tier from a **task** | `start --task` (also REST; no pipeline `task:`) | `spawn_agent` (`task`) | ✓ | — | — | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/#tasks-describe-the-work) |
+| Tiered model routing — pin the model **tier** for the quota-balanced resolver | `start --tier` (also REST and pipeline `tier:`) | `spawn_agent` (`tier`) | ✓ | — | `ctrl+t` (new-agent; live candidate table) | [agent-roles](https://srjn45.github.io/warden/guides/agent-roles/#how-a-target-tier-resolves) |
 | List the backend's live model menu | `models` (`--backend`, `--json`) | **CLI-only** (agent-native; local worktree exec, no daemon round-trip) | ✓ | — | — | [backend-superpowers](https://srjn45.github.io/warden/guides/backend-superpowers/) |
 | Backend selection (Claude / Aider / OpenCode / Codex / Crush / Goose / Cursor / Antigravity) | `start --aicli` | `spawn_agent` (`backend`) | ✓ | — | — (CLI/MCP pin; TUI is tier-first) | [agent-backends](https://srjn45.github.io/warden/concepts/agent-backends/) — only `claude` is stable; `codex` and `antigravity` are β beta; `aider`, `opencode`, `crush`, `goose`, and `cursor` are 🧪 experimental |
-| Terminal session (`kind=terminal`) — managed `$SHELL` seat, no AI (prompt ignored); back-compat `backend=terminal` alias | `start --kind terminal` | `spawn_agent` (`kind`) | ✓ | ✓ (Terminals tab) | `t` (in the cursor's project) | [tui-cockpit](https://srjn45.github.io/warden/guides/tui-cockpit/) |
+| Terminal session (`kind=terminal`) — managed `$SHELL` seat, no AI (prompt ignored); back-compat `backend=terminal` alias | `start --kind terminal` | `spawn_agent` (`kind`) | ✓ | ✓ (Terminals tab) | `t` (in the cursor's project) | [terminals](https://srjn45.github.io/warden/guides/terminals/) |
 | Handoff — delegate (new / `--to` existing) or retire self (`--retire`) | `handoff` | `handoff_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
 | Self-rotation (retire → successor) — alias for `handoff --retire` | `rotate` | `rotate_agent` | ✓ | — | — | [rotation-digests](https://srjn45.github.io/warden/guides/rotation-digests/) |
 | Fork an agent's session into a new managed agent (Codex-only; branches the conversation, source keeps running; dirty-tree carry) | `fork` | `fork_agent` | ✓ | — | — | [backend-superpowers](https://srjn45.github.io/warden/guides/backend-superpowers/) |
@@ -74,7 +74,7 @@ default; each in its own tmux session, most in a git worktree).
 | In-repo opt-out (write-agent) | `start --in-repo` | `spawn_agent` (`in_repo`) | ✓ | ✓ | — | [worktrees-task-types](https://srjn45.github.io/warden/concepts/worktrees-task-types/) |
 | List worktrees | `worktree list` (alias `worktree ls`; bare `worktree`) | `list_worktrees` | ✓ | — | — | [worktrees-task-types](https://srjn45.github.io/warden/concepts/worktrees-task-types/) |
 | Prune orphaned worktrees | `worktree prune` (alias `prune`) | `prune_worktrees` | ✓ | — | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
-| Clean merged branches + stale worktrees | `workspace clean` (alias `clean`) | — | ✓ | — | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
+| Clean merged branches + stale worktrees | `workspace clean` (alias `clean`) | — | ✓ | — | — | [workspace-release-hygiene](https://srjn45.github.io/warden/guides/workspace-release-hygiene/) |
 | Remove one agent's worktree | `remove-worktree` (= `stop --keep-record`, worktree only) | `remove_worktree` | ✓ | ✓ | — | [fleet-operations](https://srjn45.github.io/warden/guides/fleet-operations/) |
 
 ## 3. Git & check lifecycle (with rails)
@@ -87,6 +87,7 @@ default; each in its own tmux session, most in a git worktree).
 | Open / return the PR for the agent branch (agent keeps running) | `git pr` (`--base`, `--title`, `--body`/`--body-file`, `--json`) | `create_pr` | ✓ | — | — | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) |
 | Run project checks (compact failures; works from subdirectories) | `check` | `check` |
 | List configured checks without running them | `check list` | `list_checks` | ✓ | — | — | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) | ✓ | — | — | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) |
+| SemVer release recommendation and categorized changelog; tag only on explicit confirmation | `release` (alias `git release`) | — | ✓ | — | — | [workspace-release-hygiene](https://srjn45.github.io/warden/guides/workspace-release-hygiene/) |
 | Agent-native diff review (backend's own reviewer) | `review` (`--base`, `--prompt`, `--backend`) | **CLI-only** (agent-native; local worktree exec, no daemon round-trip) | ✓ | — | — | [backend-superpowers](https://srjn45.github.io/warden/guides/backend-superpowers/) |
 | Machine-readable review findings (neutral JSON) | `review --json` | **CLI-only** | ✓ | — | — | [backend-superpowers](https://srjn45.github.io/warden/guides/backend-superpowers/) |
 | git-guard hook (deny raw git mutations) | `git-guard` (hook) | enforced | ✓ | — | — | [lifecycle-and-rails](https://srjn45.github.io/warden/guides/lifecycle-and-rails/) |
@@ -148,6 +149,7 @@ default; each in its own tmux session, most in a git worktree).
 | Workspace-trust prompt auto-answer (Claude/Codex/Antigravity in-pane; Cursor via `--trust`; on by default) | `config` (`trust_workspace`) | — | — | — | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
 | Model-assisted prompt recognition (a reworded/unknown menu is read by Fast-Brain, verified against the pane, then follows the normal policy; on by default) | `config` (`recognize_prompts`) | — | — | — | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
 | Learned prompt shapes — a model-read prompt is learned on its first verified success so the next one needs no model call; list/forget (REST `GET`/`DELETE /api/v1/known-prompts[/{id}]`; config `known_prompts_max`, `known_prompts_prune_days`) | `approval known list\|forget` | `list_known_prompts`, `forget_known_prompt` | ✓ | — | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
+| Fast-Brain approval arbiter (optional; confidence threshold, destructive guard, circuit breaker, and fail-open escalation remain authoritative) | config (`auto_approve.use_fast_brain`) | automatic while arbitrating | ✓ | — | — | [fast-brain](https://srjn45.github.io/warden/guides/fast-brain/) |
 | Set permission mode (running agent) | `set-permission-mode` | `set_permission_mode` | ✓ | ✓ | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
 | Supervised spawn (gate every prompt) | `start --supervised` | `spawn_agent` (`supervised`) | ✓ | ✓ | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
 
@@ -307,13 +309,42 @@ Tiers: `free` · `subscription` · `pay_per_use` · `unclassified` .
 | Set a backend's billing tier (free\|subscription\|pay_per_use\|unclassified) | `backends tier <id> <tier>` | `set_backend_tier` | ✓ | ✓ (Tier dropdown) | `t` (cycle) | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
 | Set the single default backend  | `backends default <id>` | `set_default_backend` | ✓ | ✓ (Default radio) | `d`/`enter` | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
 | Enable / disable a backend | `backends enable\|disable <id>` | — (REST `PATCH /backends/{id}`; no MCP tool) | ✓ (via CLI) | ✓ (Enabled checkbox) | `e`/space | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
-| Fast-Brain internal thinking (classification, naming, commit messages, digest narration, memory curation, REPL planning — latency-bounded, fail-open) | automatic | automatic | ✓ | — | — | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
+| Fast-Brain internal thinking (classification, naming, commit messages, digest narration, memory curation, REPL planning, crash/stall/CI diagnosis, and priority admission — latency-bounded, fail-open) | automatic | automatic | ✓ | — | — | [fast-brain](https://srjn45.github.io/warden/guides/fast-brain/) |
 
 The registry supersedes the deprecated `autopilot.brain.backends` ladder and
 `autopilot.brain.allow_pay_per_use` gate — those keys are imported **once** on the
 first boot after upgrade, then ignored (edit tiers via the surfaces above).
 
-## 16. Admin / host (CLI-only by design)
+## 16. Remote and planned clients
+
+| Feature | Status | Docs |
+|---|---|---|
+| Node device authorization | Shipped: `warden login` provisions a local certificate identity for a compatible Hub | [warden login device flow](https://srjn45.github.io/warden/guides/warden-login/) |
+| Node-side relay wire contract and accept-side scope enforcement | Shipped building blocks; Hub service and dial-out connector are planned | [relay contract](https://srjn45.github.io/warden/guides/relay/) |
+| Versioned daemon API shared by web and future clients | Shipped | [node API client contract](https://srjn45.github.io/warden/guides/node-api-client-contract/) |
+| Android app and Hub-routed mobile connection | Planned; use the mobile-responsive web dashboard today | [Android connectivity status](https://srjn45.github.io/warden/guides/android-connectivity/) |
+
+## 17. Plans & autopilot
+
+Plans are ScrivaDB-canonical records. Autopilot is the long-running execution
+mode that gives a Plan a manager, isolated workers, a daemon-owned landing loop,
+and one owner-merged final PR. See [Plans](/warden/concepts/plans/), [Using
+plans](/warden/guides/using-plans/), and [Autopilot](/warden/concepts/autopilot/)
+for the model and safety boundaries.
+
+| Feature | CLI | MCP | Skill | Web | TUI | Docs |
+|---|---|---|---|---|---|---|
+| Create, inspect, and list canonical Plans | `plan create\|show\|list` | `create_plan`, `get_plan`, `list_plans` | ✓ | ✓ | project tree | [using-plans](/warden/guides/using-plans/) |
+| Modify a pending Plan definition or task DAG (revision-checked; non-pending plans reject changes) | `plan update\|edit\|task add\|edit\|rm` | `update_plan` | ✓ | ✓ | — | [Plans](/warden/concepts/plans/) |
+| Run a Plan in autopilot, pipeline, orchestrator-worker, or manual mode | `plan run <id> --mode …` | `run_plan` | ✓ | ✓ | `r` | [using-plans](/warden/guides/using-plans/) |
+| Track task status and executor state | `plan task status`, `plan show --watch` | `update_task_status` | ✓ | ✓ | project tree | [using-plans](/warden/guides/using-plans/) |
+| Pause, resume, stop, or destructively restart an executor | `plan pause\|resume\|stop\|restart` | `control_plan`, `restart_plan` | ✓ | ✓ | — | [Autopilot guide](/warden/guides/autopilot/) |
+| Archive / unarchive a Plan (preserve unmerged branches and task progress) | `plan archive\|unarchive` | `archive_plan`, `unarchive_plan` | ✓ | ✓ | `a` | [using-plans](/warden/guides/using-plans/#archiving-and-restoring-safely) |
+| Autopilot manager / worker / resolver topology, guardian, overwatch, and usage-limit recovery | automatic; `autopilot status` | `autopilot_status`, `brain_consult` | ✓ | ✓ | project tree | [Autopilot concepts](/warden/concepts/autopilot/) |
+| Daemon-owned gate/CI fix loop and worker landing to the per-plan integration branch | automatic; `autopilot land` is an escape hatch | `land` | ✓ | ✓ | — | [Autopilot guide](/warden/guides/autopilot/#landing-a-worker-branch-manually) |
+| One final integration → default-branch PR; daemon gates and polls, owner merges | automatic; `autopilot status` | `autopilot_complete` (manager-only) | ✓ | ✓ | — | [Autopilot concepts](/warden/concepts/autopilot/#completion-phase-and-the-final-pr) |
+
+## 18. Admin / host (CLI-only by design)
 
 These operate on the host, the daemon process, the local shell, or the bearer
 secret — they are **intentionally not exposed over MCP or web**, because doing so
@@ -327,6 +358,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 | Local-LLM model picker (memory-ranked) | `llm suggest` | reads host hardware to size the orchestrator model | [repl](https://srjn45.github.io/warden/multi-agent/repl/) |
 | Configuration view / init / path | `config` | local file authoring | [env-vars](https://srjn45.github.io/warden/reference/env-vars/) |
 | **Data schema ledger + boot guard** (`<data>/schema.json`: integer `schema_version` separate from semver; daemon refuses a data dir it must not open — newer, needing migration, or mid-migration — before touching a store; pre-ledger installs are stamped once at the schema-1 baseline; fresh installs start on schema 2 (single `warden-db`); schema-1 data is cut over once by the journaled, verified `migrate --apply` that `update` runs, with full rollback; `schema_version` on `/healthz`, checked by `update`) | automatic (`daemon`; `version` prints the binary's schema); `migrate --plan/--apply/--resume/--restore`, `update` | a property of the on-disk data dir and the daemon process | [troubleshooting](https://srjn45.github.io/warden/reference/troubleshooting/) |
+| **Update and data-safety operator runbook** (read-only update and migration planning; rollback, offline repair, scoped factory reset, and backup-gated legacy-store cleanup) | `update --plan`, `rollback`, `migrate`, `repair`, `factory-reset` | host data lifecycle and recovery | [updates-and-data-safety](https://srjn45.github.io/warden/guides/updates-and-data-safety/) |
 | **Planned upgrade & waypoint path planner** (`warden update --plan` / `wd update --plan`: evaluates release manifest, computes minimal waypoint hops, reports breaking API changes, preflights whole-data stores, and estimates downtime/disk without mutating state) | `update --plan` (alias `wd update --plan`) | host binary and data upgrade planning | [install](https://srjn45.github.io/warden/start/install/#upgrade) |
 | **Migration registry runner** (`warden migrate` / `wd migrate`: `--check`, `--apply`, `--resume`, `--restore`; idempotent, journaled in schema ledger, verified before advancing ledger; daemon never runs destructive migrations at boot) | `migrate` (alias `wd migrate`) | offline data format upgrade execution | [install](https://srjn45.github.io/warden/start/install/#rollback--data-maintenance) |
 | **Update transaction snapshot & rollback** (`warden rollback` / `wd rollback`: data snapshot taken in `<data>/backups/pre-<ver>-<ts>/` before update with hardlink/copy and checksums, journaled in schema ledger; rollback performs plain binary swap when no schema change, or restores snapshot with loss-of-changes confirmation; 2 updates / 14 days retention) | `rollback` (alias `wd rollback`) | transactional upgrade safety | [install](https://srjn45.github.io/warden/start/install/#rollback--data-maintenance) |
@@ -347,7 +379,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 Every fleet/data feature is reachable over MCP (including the
 umbrella `stop_agent`). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
-§16 (plus interactive `attach`/`repl`, the local-config `preset` /
+§17 (plus interactive `attach`/`repl`, the local-config `preset` /
 `prompt-template` authoring commands, and the agent-native, worktree-local
 `review` / `models` verbs — they exec in the agent's worktree with no daemon
 round-trip, so they have no MCP twin by design), which are

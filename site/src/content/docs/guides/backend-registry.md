@@ -9,6 +9,16 @@ behind it: warden detects the coding-agent CLIs installed on this machine and
 remembers, per backend, **how it's billed**, **whether it's enabled**, and **which one
 is the default**.
 
+:::tip[Billing tiers are not model tiers]
+The registry has two different meanings of “tier.” A backend's billing tier
+(`free`, `subscription`, `pay_per_use`, or `unclassified`) describes its cost.
+A model's capability tier (`tier-1`, `tier-2`, or `tier-3`) is what the spawn
+resolver uses after a role or task has selected the kind of reasoning needed.
+The same registry stores both, but they answer different questions. See
+[Roles, tiers, and model routing](/warden/guides/agent-roles/) for the resolver
+order and model-tier selection.
+:::
+
 That store is warden's **single source of truth** for backends. It feeds
 **[Autopilot](/warden/concepts/autopilot/)'s cost-tier ladder** — cheapest-first
 backend selection for the manager and guardian.
@@ -35,6 +45,21 @@ resetting *how you tiered things*.
 The store lives in an embedded ScrivaDB collection at `~/.warden/backends` and is
 managed by the daemon — every surface below is a thin caller of the same
 `/api/v1/backends*` endpoints.
+
+## How the registry participates in model routing
+
+The role and task inputs select a target *model* tier; the resolver then reads
+this registry to find a candidate. It requires a model enabled for automatic
+assignment, an installed and enabled backend, account availability, and a model
+that is not in a rate-limit cooldown. It ranks eligible candidates by quota
+headroom, with special preference for safe capacity that resets soon.
+
+For ordinary agent routing, installed and enabled `subscription` backends are
+eligible by default; `pay_per_use` requires explicit allowance. Autopilot's
+cost ladder is a separate consumer: it reads installed, enabled registry rows
+and orders its choices by billing tier. Review the current model assignments
+with `warden models list --by-tier`; refresh account-scoped catalog evidence via
+the [model-catalog rollout](/warden/guides/model-catalog-rollout/).
 
 ## Tiers
 

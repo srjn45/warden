@@ -16,6 +16,10 @@ runtime:
 
 The setting hot-reloads; a change applies to sessions created **afterwards**.
 
+For creating and using a plain-shell `kind=terminal` session (rather than an AI
+agent), see [Terminal sessions](/warden/guides/terminals/). This guide covers the PTY runtime
+that can observe or directly host that session.
+
 ## Modes
 
 | Mode | Agents | Plain-shell terminals | Journal / stream |
@@ -141,6 +145,9 @@ Project close/reopen is a different thing: it deliberately ends the shell and st
 one (identity kept). It is never used for a daemon restart.
 
 ## Attaching: `wd attach`, the cockpit, controller lease
+
+For the normal terminal-session workflow, including creation, project ownership,
+and restoration, see [Terminal sessions](/warden/guides/terminals/).
 
 `wd attach <id>` attaches your terminal to a direct terminal natively: the local tty goes
 raw (Ctrl-C, Ctrl-D, Ctrl-Z, full-screen programs, UTF-8/ANSI all behave as in a local
