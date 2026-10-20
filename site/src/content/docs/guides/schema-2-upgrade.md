@@ -10,6 +10,9 @@ The v11 major moves every durable store into **one** database, `<data_dir>/warde
 offline, by a journaled migration. There is no dual-writer mode and no silent
 fallback: the daemon runs on `warden-db` only.
 
+For update planning, rollback, repair, factory reset, and the backup-gated
+retirement of retained stores, see the [Operator guide: updates and data safety](/warden/guides/updates-and-data-safety/).
+
 <Aside type="note">
 Nothing is deleted. The schema-1 store directories stay exactly as they were, and an
 immutable, checksummed copy is taken first under `backups/pre-schema2-<timestamp>/`.
