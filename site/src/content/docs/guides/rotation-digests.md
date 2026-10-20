@@ -5,7 +5,7 @@ description: Retire a context-heavy agent into a fresh successor, and summarize 
 
 ## Self-rotation (`warden agent handoff --retire`, alias `warden agent rotate`)
 
-Run **inside an agent session** to retire a long-lived, context-heavy agent and hand off to a fresh successor in the same workdir/worktree. This is the **retire** mode of the unified [`handoff`](/warden/guides/fleet-operations/#handoff-warden-handoff) verb; `warden agent rotate` is an exact alias. Phase 1 (writing the handoff file + resume prompt) is driven by the `/warden` skill; on confirmation the agent spawns its successor and reaps itself.
+Run **inside an agent session** to retire a long-lived, context-heavy agent and hand off to a fresh successor in the same workdir/worktree. This is the **retire** mode of the unified [`handoff`](/warden/guides/fleet-operations/#handoff-warden-agent-handoff) verb; `warden agent rotate` is an exact alias. Phase 1 (writing the handoff file + resume prompt) is driven by the `/warden` skill; on confirmation the agent spawns its successor and reaps itself.
 
 ```sh
 warden agent handoff --retire --yes \
@@ -22,7 +22,7 @@ warden agent handoff --retire --yes \
 :::tip[Want to keep the conversation, not just the task?]
 Rotate/handoff carry the **task** into a fresh agent but **drop the conversation**.
 To branch an agent's **recorded session** (its conversation/reasoning) sideways into
-a new agent while the source keeps running, use [`warden agent fork`](/warden/guides/backend-superpowers/#wd-fork--branch-an-agents-session-into-a-new-agent) — a Codex-only superpower.
+a new agent while the source keeps running, use [`warden agent fork`](/warden/guides/backend-superpowers/#wd-agent-fork--branch-an-agents-session-into-a-new-agent) — a Codex-only superpower.
 :::
 
 ## Completion digest (`warden agent digest`)
