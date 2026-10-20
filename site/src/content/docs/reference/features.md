@@ -148,6 +148,7 @@ default; each in its own tmux session, most in a git worktree).
 | Workspace-trust prompt auto-answer (Claude/Codex/Antigravity in-pane; Cursor via `--trust`; on by default) | `config` (`trust_workspace`) | — | — | — | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
 | Model-assisted prompt recognition (a reworded/unknown menu is read by Fast-Brain, verified against the pane, then follows the normal policy; on by default) | `config` (`recognize_prompts`) | — | — | — | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
 | Learned prompt shapes — a model-read prompt is learned on its first verified success so the next one needs no model call; list/forget (REST `GET`/`DELETE /api/v1/known-prompts[/{id}]`; config `known_prompts_max`, `known_prompts_prune_days`) | `approval known list\|forget` | `list_known_prompts`, `forget_known_prompt` | ✓ | — | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
+| Fast-Brain approval arbiter (optional; confidence threshold, destructive guard, circuit breaker, and fail-open escalation remain authoritative) | config (`auto_approve.use_fast_brain`) | automatic while arbitrating | ✓ | — | — | [fast-brain](https://srjn45.github.io/warden/guides/fast-brain/) |
 | Set permission mode (running agent) | `set-permission-mode` | `set_permission_mode` | ✓ | ✓ | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
 | Supervised spawn (gate every prompt) | `start --supervised` | `spawn_agent` (`supervised`) | ✓ | ✓ | — | [approvals-supervised](https://srjn45.github.io/warden/guides/approvals-supervised/) |
 
@@ -307,7 +308,7 @@ Tiers: `free` · `subscription` · `pay_per_use` · `unclassified` .
 | Set a backend's billing tier (free\|subscription\|pay_per_use\|unclassified) | `backends tier <id> <tier>` | `set_backend_tier` | ✓ | ✓ (Tier dropdown) | `t` (cycle) | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
 | Set the single default backend  | `backends default <id>` | `set_default_backend` | ✓ | ✓ (Default radio) | `d`/`enter` | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
 | Enable / disable a backend | `backends enable\|disable <id>` | — (REST `PATCH /backends/{id}`; no MCP tool) | ✓ (via CLI) | ✓ (Enabled checkbox) | `e`/space | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
-| Fast-Brain internal thinking (classification, naming, commit messages, digest narration, memory curation, REPL planning — latency-bounded, fail-open) | automatic | automatic | ✓ | — | — | [backend-registry](https://srjn45.github.io/warden/guides/backend-registry/) |
+| Fast-Brain internal thinking (classification, naming, commit messages, digest narration, memory curation, REPL planning, crash/stall/CI diagnosis, and priority admission — latency-bounded, fail-open) | automatic | automatic | ✓ | — | — | [fast-brain](https://srjn45.github.io/warden/guides/fast-brain/) |
 
 The registry supersedes the deprecated `autopilot.brain.backends` ladder and
 `autopilot.brain.allow_pay_per_use` gate — those keys are imported **once** on the
