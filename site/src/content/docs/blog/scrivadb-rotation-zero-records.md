@@ -11,6 +11,10 @@ tags:
   - debugging
 ---
 
+:::note[Historical post]
+Written against warden v8 (schema 1), when sessions lived in `sessions-db/`. As of v11 every store is in one `warden-db/` and the repair commands differ — see [Schema 2 upgrade](/warden/guides/schema-2-upgrade/).
+:::
+
 I restarted the warden daemon. The cockpit came up with an **empty fleet.**
 
 Except it wasn't empty. `tmux ls` listed every agent session, alive, each one
