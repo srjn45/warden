@@ -170,6 +170,6 @@ memory:
 
 ## See also
 
-- [`wd project memory` in the CLI reference](/warden/reference/cli/#warden-memory)
+- [`wd project memory` in the CLI reference](/warden/reference/cli/#warden-project-memory)
 - [Lifecycle commands & rails](/warden/guides/lifecycle-and-rails/)
 - [Agent backends](/warden/concepts/agent-backends/)

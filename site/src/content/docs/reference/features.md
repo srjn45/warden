@@ -314,7 +314,16 @@ The registry supersedes the deprecated `autopilot.brain.backends` ladder and
 `autopilot.brain.allow_pay_per_use` gate — those keys are imported **once** on the
 first boot after upgrade, then ignored (edit tiers via the surfaces above).
 
-## 16. Admin / host (CLI-only by design)
+## 16. Remote and planned clients
+
+| Feature | Status | Docs |
+|---|---|---|
+| Node device authorization | Shipped: `warden login` provisions a local certificate identity for a compatible Hub | [warden login device flow](https://srjn45.github.io/warden/guides/warden-login/) |
+| Node-side relay wire contract and accept-side scope enforcement | Shipped building blocks; Hub service and dial-out connector are planned | [relay contract](https://srjn45.github.io/warden/guides/relay/) |
+| Versioned daemon API shared by web and future clients | Shipped | [node API client contract](https://srjn45.github.io/warden/guides/node-api-client-contract/) |
+| Android app and Hub-routed mobile connection | Planned; use the mobile-responsive web dashboard today | [Android connectivity status](https://srjn45.github.io/warden/guides/android-connectivity/) |
+
+## 17. Admin / host (CLI-only by design)
 
 These operate on the host, the daemon process, the local shell, or the bearer
 secret — they are **intentionally not exposed over MCP or web**, because doing so
@@ -348,7 +357,7 @@ out / rotating the very token that guards the MCP and HTTP channels).
 Every fleet/data feature is reachable over MCP (including the
 umbrella `stop_agent`). The only
 CLI-exclusive features are the host/process/interactive/secret commands in
-§16 (plus interactive `attach`/`repl`, the local-config `preset` /
+§17 (plus interactive `attach`/`repl`, the local-config `preset` /
 `prompt-template` authoring commands, and the agent-native, worktree-local
 `review` / `models` verbs — they exec in the agent's worktree with no daemon
 round-trip, so they have no MCP twin by design), which are

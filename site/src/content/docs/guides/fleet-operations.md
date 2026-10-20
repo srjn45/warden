@@ -75,7 +75,7 @@ warden agent handoff --to agent-4f2a --resume-file notes.md --resume-prompt "…
 warden agent handoff --retire --yes --resume-file notes.md --resume-prompt "…" # retire self into a same-worktree successor
 ```
 
-The first two modes **keep the source running**. `--retire` (requires `--yes`) is the **self-succession** mode — it spawns a successor in the calling agent's own worktree and reaps the caller, exactly what the `warden agent rotate` alias runs (see [Self-rotation](/warden/guides/rotation-digests/#self-rotation-warden-handoff---retire-alias-warden-rotate)). `--retire` and `--to` are mutually exclusive.
+The first two modes **keep the source running**. `--retire` (requires `--yes`) is the **self-succession** mode — it spawns a successor in the calling agent's own worktree and reaps the caller, exactly what the `warden agent rotate` alias runs (see [Self-rotation](/warden/guides/rotation-digests/#self-rotation-warden-agent-handoff---retire-alias-warden-agent-rotate)). `--retire` and `--to` are mutually exclusive.
 
 ## Export / import
 
