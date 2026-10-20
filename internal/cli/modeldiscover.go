@@ -3,7 +3,6 @@ package cli
 import (
 	"bufio"
 	"bytes"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,8 +59,12 @@ func discoverInstalledModels(backendFilter string) ([]DiscoveredModel, error) {
 		{"cursor", discoverCursorModels},
 		{"antigravity", discoverAgyModels},
 		{"opencode", discoverOpencodeModels},
-		{"crush", discoverCrushModels},
-		{"codex", discoverCodexModels},
+		// `crush models` is its public provider registry, not the operator's
+		// entitlement. The structured source filters it by configured providers;
+		// this legacy ids-only command must not offer it for import.
+		// Codex is intentionally not probed here. Its config.toml `model` is a
+		// selected default, not evidence of the account catalog. The structured
+		// ModelCatalogSource owns its CODEX_HOME-aware cache/live discovery.
 	}
 	for _, p := range probes {
 		if filter != "" && p.backend != filter {
@@ -113,18 +116,6 @@ func discoverCrushModels() ([]DiscoveredModel, error) {
 		return nil, err
 	}
 	return parseOneIDPerLine(raw, "crush"), nil
-}
-
-func discoverCodexModels() ([]DiscoveredModel, error) {
-	path := discoverCodexConfigPath()
-	if path == "" {
-		return nil, fmt.Errorf("no home directory")
-	}
-	raw, err := discoverReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return parseCodexConfigModels(raw, "codex"), nil
 }
 
 // parseCursorDiscover normalizes `cursor-agent --list-models` stdout into
@@ -205,9 +196,9 @@ func parseOneIDPerLine(out []byte, backend string) []DiscoveredModel {
 	return models
 }
 
-// parseCodexConfigModels extracts the top-level `model = "..."` (or `'...'`)
-// from ~/.codex/config.toml. Nested tables are ignored — only the bare model
-// key before the first `[section]` is considered the active default.
+// parseCodexConfigModels extracts a selected config hint. It is retained for
+// callers that display the selected default, but it must never be used as an
+// available-model discovery result: config.toml has exactly one chosen model.
 func parseCodexConfigModels(out []byte, backend string) []DiscoveredModel {
 	sc := bufio.NewScanner(bytes.NewReader(out))
 	for sc.Scan() {

@@ -1074,12 +1074,12 @@ warden backend model --backend antigravity # e.g. Gemini 3.5 Flash (Low), Claude
 warden backend model --backend cursor --json
 ```
 
-### `warden backend model list|tier|add|discover` (model catalog)
+### `warden backend model list|tier|add|discover|refresh|history|rollback` (model catalog)
 
 Inspect and extend warden's **tiered model catalog** (ScrivaDB `models` collection) —
 the seed list used by quota-balanced routing (`--task` / `--tier`). Distinct from the
 bare `warden backend model` live menu above: these subcommands read/write the local
-catalog store (CLI-only, no daemon round-trip).
+catalog (`list`/`tier`/`add`/`discover` read or write the local store when no daemon owns it; `refresh`, `history` and `rollback` always use the daemon).
 
 ```sh
 warden backend model list [--by-tier] [--tier tier-2] [--backend cursor]
@@ -1088,12 +1088,38 @@ warden backend model add cursor my-model --tier tier-2 --display "My Model" --au
 warden backend model discover                              # probe installed AI CLIs
 warden backend model discover --backend opencode --json
 warden backend model discover --import --tier tier-2       # register missing ids as custom
+warden backend model refresh --aicli codex                 # preview only; routing unchanged
+warden backend model refresh --aicli codex --apply --yes    # apply exactly the proposals just created
+warden backend model history --aicli codex --json           # via the daemon
+warden backend model rollback 42 --yes                      # via the daemon; policy only, live sessions unchanged
 ```
 
 `add` inserts a custom row (`IsCustom=true`) so seed pruning never removes it.
 `discover` soft-fails missing tools and parses: `cursor-agent --list-models`,
 `agy models`, `opencode models`, `crush models`, and the top-level `model = "…"`
 from `~/.codex/config.toml`.
+
+`refresh` (alias `warden models refresh`) runs each installed AI CLI's own
+non-generating model discovery, submits the evidence to the daemon and prints a
+proposal per AI CLI; `--apply --yes` applies it. `--apply` without `--yes` is
+refused, failed or partial discovery is reported per AI CLI and never retires a
+model, and account identity is sent only as an opaque `scope_fp`. Catalog
+mutation (`refresh --apply`, `rollback`) always goes through the daemon.
+
+Applying never moves a live agent. Reselect one afterwards with `warden switch`:
+
+```sh
+warden switch AGENT --aicli codex                  # catalog pick in codex at the agent's own role tier
+warden switch AGENT --aicli codex --tier tier-1    # catalog pick in codex at tier-1
+warden switch AGENT --tier tier-2                  # router pick across AI CLIs
+warden switch AGENT --aicli codex --model MODEL    # explicit pin; catalog not consulted
+```
+
+Automatic recovery from an invalid model at launch is deferred (see
+`docs/FUTURE_ENHANCEMENTS.md`); this manual workflow is the supported path. See the
+[AI CLI model-catalog rollout runbook](RUNBOOK-aicli-model-catalog.md) for the full
+procedure. `discover` is not evidence of account entitlement and does not reconcile
+routing policy.
 
 ### `warden backend list|rescan|tier|default|enable|disable` (backend registry)
 

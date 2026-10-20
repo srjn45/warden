@@ -13,6 +13,7 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/audit"
+	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/client"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/knownprompts"
@@ -286,6 +287,43 @@ type setModelTierArgs struct {
 	Backend string `json:"backend" jsonschema:"the backend id (e.g. claude, antigravity, codex)"`
 	Model   string `json:"model" jsonschema:"the model id (e.g. sonnet)"`
 	Tier    string `json:"tier" jsonschema:"the model tier: tier-1 | tier-2 | tier-3"`
+}
+type catalogProposalArgs struct {
+	ProposalID string `json:"proposal_id" jsonschema:"exact proposal id returned by preview_model_catalog; applies catalog policy only and never performs live-session recovery"`
+}
+type catalogObservedModelArgs struct {
+	ModelID          string   `json:"model_id" jsonschema:"exact model id accepted by the AI CLI; required"`
+	DisplayName      string   `json:"display_name,omitempty" jsonschema:"provider display name, if known"`
+	Visibility       string   `json:"visibility,omitempty" jsonschema:"provider visibility (for example listed or hidden), if known"`
+	ReasoningLevels  []string `json:"reasoning_levels,omitempty" jsonschema:"provider-declared reasoning levels only; never infer values"`
+	DefaultReasoning string   `json:"default_reasoning,omitempty" jsonschema:"provider-declared default reasoning level"`
+	ContextWindow    int      `json:"context_window,omitempty" jsonschema:"provider-declared context window; zero means unknown"`
+	UpgradeTo        string   `json:"upgrade_to,omitempty" jsonschema:"provider-declared successor model id"`
+}
+type catalogObservationArgs struct {
+	Source          string                     `json:"source" jsonschema:"REQUIRED — live_command | cli_cache | provider_catalog | bundled | config_hint | launch_rejection"`
+	SourceDetail    string                     `json:"source_detail,omitempty" jsonschema:"safe source label; never include command output, paths containing secrets, or credentials"`
+	SourceFetchedAt string                     `json:"source_fetched_at,omitempty" jsonschema:"RFC3339 timestamp for cached evidence"`
+	Completeness    string                     `json:"completeness" jsonschema:"REQUIRED — complete | partial | empty | failed"`
+	ErrorCode       string                     `json:"error_code,omitempty" jsonschema:"classified error code; absence/error never authorizes retirement"`
+	ErrorMessage    string                     `json:"error_message,omitempty" jsonschema:"safe, redacted error summary"`
+	Models          []catalogObservedModelArgs `json:"models,omitempty" jsonschema:"observed models; provider metadata only"`
+}
+type catalogPreviewArgs struct {
+	AiCli       string                 `json:"ai_cli" jsonschema:"REQUIRED — installed AI CLI identifier"`
+	AuthMode    string                 `json:"auth_mode,omitempty" jsonschema:"non-secret auth mode label"`
+	PlanLabel   string                 `json:"plan_label,omitempty" jsonschema:"account-safe plan label"`
+	CLIVersion  string                 `json:"cli_version,omitempty" jsonschema:"installed AI CLI version"`
+	ObservedAt  string                 `json:"observed_at,omitempty" jsonschema:"RFC3339 observation time; empty uses the daemon time"`
+	SnapshotID  string                 `json:"snapshot_id,omitempty" jsonschema:"optional deterministic evidence id"`
+	ScopeFP     string                 `json:"scope_fp,omitempty" jsonschema:"optional opaque account scope fingerprint (sha256: plus 24 hex digits) computed by the caller; raw account or profile identifiers are never accepted"`
+	Observation catalogObservationArgs `json:"observation" jsonschema:"REQUIRED — structured, non-secret discovery evidence; this tool never executes a provider command"`
+}
+type catalogRollbackArgs struct {
+	Revision uint64 `json:"revision" jsonschema:"exact catalog revision to roll back; rollback changes catalog policy only, never live sessions"`
+}
+type catalogHistoryArgs struct {
+	AiCli string `json:"ai_cli,omitempty" jsonschema:"optional installed AI CLI filter; returns account-safe scope fingerprints, not credentials"`
 }
 type setRoleTierArgs struct {
 	Role string `json:"role" jsonschema:"the agent role name (e.g. general, orchestrator, planner, worker)"`
@@ -828,6 +866,76 @@ func (s *Server) registerExtraTools() {
 			return textResult("error: " + err.Error()), nil, nil
 		}
 		return jsonResultAny(m)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "preview_model_catalog",
+		Description: "Record operator-supplied, structured discovery evidence and preview a catalog proposal. This never runs a provider command, mutates catalog policy, changes routing, or recovers live sessions. Inspect the returned ops, blocked entries, and evidence before explicitly applying the proposal.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a catalogPreviewArgs) (*mcpsdk.CallToolResult, any, error) {
+		observedAt := time.Time{}
+		if a.ObservedAt != "" {
+			var err error
+			observedAt, err = time.Parse(time.RFC3339, a.ObservedAt)
+			if err != nil {
+				return textResult("error: observed_at must be RFC3339: " + err.Error()), nil, nil
+			}
+		}
+		fetchedAt := time.Time{}
+		if a.Observation.SourceFetchedAt != "" {
+			var err error
+			fetchedAt, err = time.Parse(time.RFC3339, a.Observation.SourceFetchedAt)
+			if err != nil {
+				return textResult("error: source_fetched_at must be RFC3339: " + err.Error()), nil, nil
+			}
+		}
+		observation := backendstore.CatalogObservation{Source: backendstore.SourceKind(a.Observation.Source), SourceDetail: a.Observation.SourceDetail, SourceFetchedAt: fetchedAt, Completeness: backendstore.Completeness(a.Observation.Completeness)}
+		if a.Observation.ErrorCode != "" || a.Observation.ErrorMessage != "" {
+			observation.Err = &backendstore.CatalogError{Code: a.Observation.ErrorCode, Message: a.Observation.ErrorMessage}
+		}
+		for _, model := range a.Observation.Models {
+			observation.Models = append(observation.Models, backendstore.ObservedModel{ModelID: model.ModelID, DisplayName: model.DisplayName, Visibility: model.Visibility, ReasoningLevels: model.ReasoningLevels, DefaultReasoning: model.DefaultReasoning, ContextWindow: model.ContextWindow, UpgradeTo: model.UpgradeTo})
+		}
+		if a.ScopeFP != "" && !backendstore.ValidScopeFP(a.ScopeFP) {
+			return textResult("error: scope_fp must be sha256: followed by 24 hex digits"), nil, nil
+		}
+		p, err := s.cl.PreviewModelCatalog(ctx, backendstore.CatalogRefresh{Scope: backendstore.CatalogScope{AiCli: a.AiCli, AuthMode: a.AuthMode, PlanLabel: a.PlanLabel, CLIVersion: a.CLIVersion, Fingerprint: a.ScopeFP}, Observation: observation, ObservedAt: observedAt, SnapshotID: a.SnapshotID})
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(p)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "model_catalog_history",
+		Description: "Read catalog discovery snapshots and policy revisions. Results use account-safe scope fingerprints; unknown or stale evidence is not presented as verified availability.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a catalogHistoryArgs) (*mcpsdk.CallToolResult, any, error) {
+		h, err := s.cl.ListModelCatalogHistory(ctx, a.AiCli)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(h)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "apply_model_catalog_proposal",
+		Description: "Apply the exact previewed proposal by proposal_id. This is a catalog mutation, requires a current open proposal, and does not perform live-session recovery or switching.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a catalogProposalArgs) (*mcpsdk.CallToolResult, any, error) {
+		r, err := s.cl.ApplyModelCatalogProposal(ctx, a.ProposalID)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(r)
+	})
+
+	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
+		Name:        "rollback_model_catalog_revision",
+		Description: "Roll back one catalog policy revision after compare-and-swap validation. It never changes discovery evidence, quota state, routing already chosen, or live sessions.",
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a catalogRollbackArgs) (*mcpsdk.CallToolResult, any, error) {
+		r, err := s.cl.RollbackModelCatalogRevision(ctx, a.Revision)
+		if err != nil {
+			return textResult("error: " + err.Error()), nil, nil
+		}
+		return jsonResultAny(r)
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

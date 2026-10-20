@@ -2,16 +2,190 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/srjn45/warden/internal/agentstore"
+	"github.com/srjn45/warden/internal/audit"
 	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/lifecycle"
 )
+
+// catalogOAPI converts the durable catalog types to their generated transport
+// counterparts. Keeping the OpenAPI types at this boundary means the store can
+// evolve independently and, importantly, never receives raw HTTP payloads.
+func catalogOAPI[T any](in any) (T, error) {
+	var out T
+	b, err := json.Marshal(in)
+	if err != nil {
+		return out, err
+	}
+	err = json.Unmarshal(b, &out)
+	return out, err
+}
+
+func catalogServiceUnavailable() error {
+	return errStatus(http.StatusServiceUnavailable, "backend registry not configured")
+}
+
+// PreviewModelCatalog records structured discovery evidence and produces an
+// unapplied proposal. It deliberately accepts no path, command or credentials.
+func (s *Server) PreviewModelCatalog(_ context.Context, req oapi.PreviewModelCatalogRequestObject) (oapi.PreviewModelCatalogResponseObject, error) {
+	if s.backends == nil {
+		return nil, catalogServiceUnavailable()
+	}
+	if req.Body == nil || strings.TrimSpace(req.Body.Aicli) == "" {
+		return nil, errStatus(http.StatusBadRequest, "aicli and observation are required")
+	}
+	b := req.Body
+	obs := backendstore.CatalogObservation{
+		Source: backendstore.SourceKind(b.Observation.Source), SourceDetail: b.Observation.SourceDetail,
+		SourceFetchedAt: b.Observation.SourceFetchedAt, Completeness: backendstore.Completeness(b.Observation.Completeness),
+	}
+	if b.Observation.Error.Code != "" || b.Observation.Error.Message != "" {
+		obs.Err = &backendstore.CatalogError{Code: b.Observation.Error.Code, Message: b.Observation.Error.Message}
+	}
+	for _, m := range b.Observation.Models {
+		if strings.TrimSpace(m.ModelId) == "" {
+			return nil, errStatus(http.StatusBadRequest, "observation model_id cannot be empty")
+		}
+		obs.Models = append(obs.Models, backendstore.ObservedModel{ModelID: m.ModelId, DisplayName: m.DisplayName, Visibility: m.Visibility, ReasoningLevels: m.ReasoningLevels, DefaultReasoning: m.DefaultReasoning, ContextWindow: m.ContextWindow, UpgradeTo: m.UpgradeTo})
+	}
+	if b.ScopeFp != "" && !backendstore.ValidScopeFP(b.ScopeFp) {
+		return nil, errStatus(http.StatusBadRequest, "scope_fp must be sha256: followed by 24 hex digits")
+	}
+	scope := backendstore.CatalogScope{AiCli: strings.TrimSpace(b.Aicli), AuthMode: b.AuthMode, PlanLabel: b.PlanLabel, CLIVersion: b.CliVersion}
+	if b.ScopeFp != "" {
+		scope.Fingerprint = b.ScopeFp
+	}
+	p, err := s.backends.Preview(backendstore.CatalogRefresh{Scope: scope, Observation: obs, ObservedAt: b.ObservedAt, SnapshotID: b.SnapshotId}, time.Now().UTC())
+	if err != nil {
+		return nil, errStatus(http.StatusBadRequest, err.Error())
+	}
+	s.recordCatalogAudit(audit.ActionModelCatalogRefresh, p, nil)
+	out, err := catalogOAPI[oapi.CatalogProposal](p)
+	if err != nil {
+		return nil, err
+	}
+	return oapi.PreviewModelCatalog200JSONResponse(out), nil
+}
+
+// ApplyModelCatalogProposal changes policy only; it never initiates a session
+// switch or recovery, even when the applied catalog affects later routing.
+func (s *Server) ApplyModelCatalogProposal(_ context.Context, req oapi.ApplyModelCatalogProposalRequestObject) (oapi.ApplyModelCatalogProposalResponseObject, error) {
+	if s.backends == nil {
+		return nil, catalogServiceUnavailable()
+	}
+	r, err := s.backends.ApplyCatalogProposal(req.ProposalId, time.Now().UTC())
+	if err != nil {
+		if errors.Is(err, backendstore.ErrProposalNotFound) {
+			return nil, errStatus(http.StatusNotFound, err.Error())
+		}
+		if errors.Is(err, backendstore.ErrProposalStale) || errors.Is(err, backendstore.ErrProposalExpired) {
+			return nil, errStatus(http.StatusConflict, err.Error())
+		}
+		return nil, err
+	}
+	if p, getErr := s.backends.GetCatalogProposal(req.ProposalId); getErr == nil {
+		s.recordCatalogAudit(audit.ActionModelCatalogApply, p, &r)
+	} else {
+		s.recordCatalogRevisionAudit(audit.ActionModelCatalogApply, r)
+	}
+	out, err := catalogOAPI[oapi.CatalogRevision](r)
+	if err != nil {
+		return nil, err
+	}
+	return oapi.ApplyModelCatalogProposal200JSONResponse(out), nil
+}
+
+func (s *Server) ListModelCatalogHistory(_ context.Context, req oapi.ListModelCatalogHistoryRequestObject) (oapi.ListModelCatalogHistoryResponseObject, error) {
+	if s.backends == nil {
+		return nil, catalogServiceUnavailable()
+	}
+	snaps, err := s.backends.ListCatalogSnapshots(strings.TrimSpace(req.Params.Aicli), "")
+	if err != nil {
+		return nil, err
+	}
+	revs, err := s.backends.ListCatalogRevisions()
+	if err != nil {
+		return nil, err
+	}
+	out, err := catalogOAPI[oapi.CatalogHistory](map[string]any{"snapshots": snaps, "revisions": revs})
+	if err != nil {
+		return nil, err
+	}
+	return oapi.ListModelCatalogHistory200JSONResponse(out), nil
+}
+
+func (s *Server) RollbackModelCatalogRevision(_ context.Context, req oapi.RollbackModelCatalogRevisionRequestObject) (oapi.RollbackModelCatalogRevisionResponseObject, error) {
+	if s.backends == nil {
+		return nil, catalogServiceUnavailable()
+	}
+	if req.Revision < 1 {
+		return nil, errStatus(http.StatusBadRequest, "revision must be positive")
+	}
+	prior, _ := s.backends.GetCatalogRevision(uint64(req.Revision))
+	r, err := s.backends.RollbackCatalogRevision(uint64(req.Revision), time.Now().UTC())
+	if err != nil {
+		if errors.Is(err, backendstore.ErrNotFound) {
+			return nil, errStatus(http.StatusNotFound, "catalog revision not found")
+		}
+		if errors.Is(err, backendstore.ErrRevisionConflict) {
+			return nil, errStatus(http.StatusConflict, err.Error())
+		}
+		return nil, err
+	}
+	if prior.ProposalID != "" {
+		if p, getErr := s.backends.GetCatalogProposal(prior.ProposalID); getErr == nil {
+			s.recordCatalogAudit(audit.ActionModelCatalogRollback, p, &r)
+		} else {
+			s.recordCatalogRevisionAudit(audit.ActionModelCatalogRollback, r)
+		}
+	} else {
+		s.recordCatalogRevisionAudit(audit.ActionModelCatalogRollback, r)
+	}
+	out, err := catalogOAPI[oapi.CatalogRevision](r)
+	if err != nil {
+		return nil, err
+	}
+	return oapi.RollbackModelCatalogRevision200JSONResponse(out), nil
+}
+
+// recordCatalogAudit keeps the rich, non-secret decision provenance in audit,
+// not in metric labels. The target is an opaque proposal/revision id and the
+// account scope is already a one-way fingerprint.
+func (s *Server) recordCatalogAudit(action string, p backendstore.CatalogProposal, r *backendstore.CatalogRevision) {
+	if s == nil || s.audit == nil {
+		return
+	}
+	d := map[string]string{"aicli": p.Scope.AiCli, "scope_fingerprint": p.Scope.ActiveScopeFP, "snapshot_ids": strings.Join(p.Snapshots, ","), "proposal_state": p.State, "ops": strconv.Itoa(len(p.Ops)), "blocked": strconv.Itoa(len(p.Blocked))}
+	if r != nil {
+		d["revision"] = strconv.FormatUint(r.Rev, 10)
+		d["parent_revision"] = strconv.FormatUint(r.ParentRev, 10)
+	}
+	for i, op := range p.Ops {
+		if i == 20 {
+			d["operations_truncated"] = "true"
+			break
+		}
+		d["op_"+strconv.Itoa(i)] = op.Op + ":" + op.Key + ":" + strings.Join(op.Reasons, "+")
+	}
+	s.audit.Log(audit.Event{Action: action, Target: p.ID, Detail: audit.SafeDetail(d)})
+}
+
+func (s *Server) recordCatalogRevisionAudit(action string, r backendstore.CatalogRevision) {
+	p := backendstore.CatalogProposal{ID: r.ProposalID, State: r.Kind, Snapshots: r.Snapshots, Ops: r.Ops}
+	if len(r.Ops) > 0 && r.Ops[0].After != nil {
+		p.Scope.AiCli = r.Ops[0].After.BackendID
+	}
+	s.recordCatalogAudit(action, p, &r)
+}
 
 // ListModels implements GET /api/v1/models: list models in the catalog and their assigned tiers.
 func (s *Server) ListModels(_ context.Context, req oapi.ListModelsRequestObject) (oapi.ListModelsResponseObject, error) {

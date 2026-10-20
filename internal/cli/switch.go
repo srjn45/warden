@@ -64,10 +64,17 @@ func newSwitchCmd() *cobra.Command {
 			"(resolved via quota-balanced weighted headroom routing across eligible AI CLIs).\n" +
 			"--model requires --aicli. --role only selects the tier to resolve from; it does not\n" +
 			"change the agent's role (see 'warden agent set <AGENT> role').\n\n" +
+			"With --aicli and no --model, the model is picked from the accepted model catalog\n" +
+			"within that AI CLI, at --tier, else --role's tier, else the agent's own role tier;\n" +
+			"it never keeps the old pin, widens the tier or uses a paid route, and the swap is\n" +
+			"refused (the running CLI is left alone) when no candidate is eligible. Refresh the\n" +
+			"catalog first with 'warden models refresh --apply --yes'. An explicit --aicli plus\n" +
+			"--model is launched exactly as given.\n\n" +
 			"The swap is performed by the warden daemon (the sole owner of the session store),\n" +
 			"so the daemon must be running.\n\n" +
 			"Examples:\n" +
 			"  warden switch --aicli antigravity --model gemini-3.1-pro\n" +
+			"  warden switch --aicli codex            (catalog pick in codex at the agent's role tier)\n" +
 			"  warden switch --tier tier-1\n" +
 			"  warden switch abc123 --tier tier-3 --prompt 'Focus on unit test coverage'\n",
 		Args: cobra.MaximumNArgs(1),

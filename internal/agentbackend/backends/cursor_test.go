@@ -1,6 +1,7 @@
 package backends
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -426,11 +427,12 @@ func TestParseCursorModelsTrimsAndDropsBlanks(t *testing.T) {
 // --list-models` runner (the fixture stands in for the live binary) and asserts it
 // normalizes the menu to ids.
 func TestCursorListModels(t *testing.T) {
-	orig := cursorListModelsCmd
-	t.Cleanup(func() { cursorListModelsCmd = orig })
-	cursorListModelsCmd = func() ([]byte, error) {
+	withCatalogRunner(t, func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if len(args) == 1 && args[0] == "--version" {
+			return []byte("test\n"), nil
+		}
 		return []byte(cursorFixture(t, "models.txt")), nil
-	}
+	})
 	models, ok := Cursor{}.ListModels()
 	require.True(t, ok)
 	require.NotEmpty(t, models)
@@ -441,11 +443,9 @@ func TestCursorListModels(t *testing.T) {
 // TestCursorListModelsDegradesOnError: a command error (binary missing / not signed
 // in) returns ok=false so `wd models` reports a clean degrade, never a crash.
 func TestCursorListModelsDegradesOnError(t *testing.T) {
-	orig := cursorListModelsCmd
-	t.Cleanup(func() { cursorListModelsCmd = orig })
-	cursorListModelsCmd = func() ([]byte, error) {
+	withCatalogRunner(t, func(_ context.Context, _ string, _ ...string) ([]byte, error) {
 		return nil, errors.New("exec: cursor-agent: not found")
-	}
+	})
 	_, ok := Cursor{}.ListModels()
 	require.False(t, ok, "a command error degrades to ok=false")
 }

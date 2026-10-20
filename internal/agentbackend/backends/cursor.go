@@ -2,6 +2,7 @@ package backends
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"io"
 	"os/exec"
@@ -661,11 +662,7 @@ var cursorListModelsCmd = func() ([]byte, error) {
 // tool's own "use --model <id>" tip points at). ok=false on any command error (binary
 // missing, not signed in) so `wd models` degrades cleanly.
 func (Cursor) ListModels() ([]string, bool) {
-	out, err := cursorListModelsCmd()
-	if err != nil {
-		return nil, false
-	}
-	return parseCursorModels(out), true
+	return catalogList(context.Background(), Cursor{})
 }
 
 // parseCursorModels normalizes `cursor-agent --list-models` stdout into a clean

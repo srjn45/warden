@@ -842,11 +842,7 @@ var agyModelsCmd = func() ([]byte, error) {
 // exact display labels `agy --model` accepts (e.g. "Gemini 3.5 Flash (Low)"). ok=false
 // on any command error (binary missing, not signed in) so `wd models` degrades cleanly.
 func (Antigravity) ListModels() ([]string, bool) {
-	out, err := agyModelsCmd()
-	if err != nil {
-		return nil, false
-	}
-	return parseAgyModels(out), true
+	return catalogList(context.Background(), Antigravity{})
 }
 
 // parseAgyModels normalizes `agy models` stdout into a clean []string of model ids.
@@ -865,7 +861,14 @@ func parseAgyModels(out []byte) []string {
 	sc := bufio.NewScanner(strings.NewReader(string(out)))
 	for sc.Scan() {
 		if line := strings.TrimSpace(sc.Text()); line != "" {
-			models = append(models, line)
+			// Newer agy versions print the exact launch id followed by a tab and
+			// human label. Keep the old display-only format for compatibility.
+			if id, _, ok := strings.Cut(line, "\t"); ok {
+				line = strings.TrimSpace(id)
+			}
+			if line != "" {
+				models = append(models, line)
+			}
 		}
 	}
 	return models

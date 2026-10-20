@@ -2,6 +2,8 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"github.com/srjn45/warden/internal/backendstore"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -53,12 +55,42 @@ func TestExtraToolsRegistered(t *testing.T) {
 		"validate_pipeline", "list_pipeline_templates", "library_list",
 		"create_schedule", "delete_schedule", "run_schedule", "update_schedule",
 		"autopilot_status", "land", "autopilot_complete", "brain_consult",
-		"list_models", "set_model_tier", "list_role_tiers", "set_role_tier",
+		"list_models", "set_model_tier", "preview_model_catalog", "model_catalog_history", "apply_model_catalog_proposal", "rollback_model_catalog_revision", "list_role_tiers", "set_role_tier",
 		"switch_agent", "get_handover_settings", "set_handover_settings",
 	}
 	for _, name := range want {
 		require.Truef(t, got[name], "tool %q should be registered", name)
 	}
+}
+
+func TestPreviewModelCatalogToolForwardsStructuredEvidence(t *testing.T) {
+	var method, path string
+	var body map[string]any
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method, path = r.Method, r.URL.Path
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		_, _ = w.Write([]byte(`{"id":"proposal-1","state":"open","created_at":"2026-10-19T00:00:00Z"}`))
+	}))
+	defer daemon.Close()
+	session := connectTo(t, daemon.URL)
+
+	result, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name: "preview_model_catalog",
+		Arguments: map[string]any{
+			"ai_cli": "codex", "auth_mode": "chatgpt", "observed_at": "2026-10-19T00:00:00Z",
+			"observation": map[string]any{
+				"source": "cli_cache", "completeness": "complete",
+				"models": []any{map[string]any{"model_id": "gpt-example", "visibility": "listed"}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError, textOf(result))
+	require.Equal(t, http.MethodPost, method)
+	require.Equal(t, "/api/v1/model-catalog/proposals", path)
+	require.Equal(t, "codex", body["aicli"])
+	require.Equal(t, "complete", body["observation"].(map[string]any)["completeness"])
+	require.Contains(t, textOf(result), `"id": "proposal-1"`)
 }
 
 // TestValidatePipelineTool runs entirely locally (no daemon contact).
@@ -422,4 +454,46 @@ func TestKnownPromptsTools(t *testing.T) {
 	require.Contains(t, call("forget_known_prompt", map[string]any{}), "error")
 	require.Contains(t, call("forget_known_prompt", map[string]any{"id": "x", "all": true}), "error")
 	require.Equal(t, []string{"GET /api/v1/known-prompts", "DELETE /api/v1/known-prompts/abc", "DELETE /api/v1/known-prompts"}, hits)
+}
+
+func TestPreviewModelCatalogToolForwardsOpaqueScopeFingerprint(t *testing.T) {
+	var body map[string]any
+	daemon := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		_, _ = w.Write([]byte(`{"id":"proposal-1"}`))
+	}))
+	defer daemon.Close()
+	session := connectTo(t, daemon.URL)
+	fp := backendstore.CatalogScope{AiCli: "codex", AccountRef: "acct", Profile: "p"}.ScopeFP()
+
+	result, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name: "preview_model_catalog",
+		Arguments: map[string]any{
+			"ai_cli": "codex", "scope_fp": fp,
+			"observation": map[string]any{"source": "cli_cache", "completeness": "partial"},
+		},
+	})
+	require.NoError(t, err)
+	require.False(t, result.IsError, textOf(result))
+	require.Equal(t, fp, body["scope_fp"])
+}
+
+func TestPreviewModelCatalogToolRejectsMalformedScopeFingerprint(t *testing.T) {
+	hit := false
+	daemon := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hit = true }))
+	defer daemon.Close()
+	session := connectTo(t, daemon.URL)
+
+	for _, fp := range []string{"acct-a", "sha256:zz", "sha256:dd9208115a23db829577df2"} {
+		result, err := session.CallTool(context.Background(), &mcpsdk.CallToolParams{
+			Name: "preview_model_catalog",
+			Arguments: map[string]any{
+				"ai_cli": "codex", "scope_fp": fp,
+				"observation": map[string]any{"source": "cli_cache", "completeness": "partial"},
+			},
+		})
+		require.NoError(t, err)
+		require.Contains(t, textOf(result), "scope_fp must be")
+	}
+	require.False(t, hit, "a malformed fingerprint never reaches the daemon")
 }

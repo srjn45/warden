@@ -33,13 +33,18 @@ import (
 )
 
 const (
-	backendsCollection    = "backends"
-	modelsCollectionName  = "backend_models"
-	roleTiersCollection   = "backend_roles"
-	handoverCollection    = "backend_settings"
-	quotasCollection      = "backend_quotas"
-	rlCooldownsCollection = "backend_rl_cooldowns"
-	recordSchemaVersion   = 1
+	backendsCollection            = "backends"
+	modelsCollectionName          = "backend_models"
+	roleTiersCollection           = "backend_roles"
+	handoverCollection            = "backend_settings"
+	quotasCollection              = "backend_quotas"
+	rlCooldownsCollection         = "backend_rl_cooldowns"
+	catalogScopesCollection       = "model_catalog_scopes"
+	catalogSnapshotsCollection    = "model_catalog_snapshots"
+	catalogObservationsCollection = "model_catalog_observations"
+	catalogProposalsCollection    = "model_catalog_proposals"
+	catalogRevisionsCollection    = "model_catalog_revisions"
+	recordSchemaVersion           = 1
 )
 
 // docs is the document surface Store needs from a collection; both the legacy
@@ -109,7 +114,7 @@ func (d sharedDocs) DeleteByKey(k string) error {
 // CollectionSpecs declares the collections this store owns on the shared
 // handle. Order is registration order.
 func CollectionSpecs() []wardendb.Spec {
-	names := []string{backendsCollection, modelsCollectionName, roleTiersCollection, handoverCollection, quotasCollection, rlCooldownsCollection}
+	names := []string{backendsCollection, modelsCollectionName, roleTiersCollection, handoverCollection, quotasCollection, rlCooldownsCollection, catalogScopesCollection, catalogSnapshotsCollection, catalogObservationsCollection, catalogProposalsCollection, catalogRevisionsCollection}
 	out := make([]wardendb.Spec, 0, len(names))
 	for _, n := range names {
 		out = append(out, wardendb.Spec{Name: n, Version: recordSchemaVersion, Options: []scriva.CollectionOption(nil)})
@@ -153,7 +158,27 @@ func NewStoreFromDB(db *wardendb.DB) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{col: col, modelsCol: modelsCol, rolesCol: rolesCol, handoverCol: handoverCol, quotasCol: quotasCol, rlCooldownsCol: rlCol}
+	scopes, err := register[ActiveCatalogScope](db, catalogScopesCollection)
+	if err != nil {
+		return nil, err
+	}
+	snaps, err := register[CatalogSnapshot](db, catalogSnapshotsCollection)
+	if err != nil {
+		return nil, err
+	}
+	obs, err := register[StoredObservation](db, catalogObservationsCollection)
+	if err != nil {
+		return nil, err
+	}
+	props, err := register[CatalogProposal](db, catalogProposalsCollection)
+	if err != nil {
+		return nil, err
+	}
+	revs, err := register[CatalogRevision](db, catalogRevisionsCollection)
+	if err != nil {
+		return nil, err
+	}
+	s := &Store{col: col, modelsCol: modelsCol, rolesCol: rolesCol, handoverCol: handoverCol, quotasCol: quotasCol, rlCooldownsCol: rlCol, catalogScopesCol: scopes, catalogSnapshotsCol: snaps, catalogObservationsCol: obs, catalogProposalsCol: props, catalogRevisionsCol: revs, catalogMetrics: NewCatalogMetrics()}
 	if err := s.seedDefaultsIfEmpty(); err != nil {
 		return nil, err
 	}

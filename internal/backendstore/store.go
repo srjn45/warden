@@ -107,14 +107,20 @@ type Settings struct {
 // guards the read-then-write critical sections. Read-only methods take it too for
 // a behaviour-identical mutex model.
 type Store struct {
-	mu             sync.Mutex
-	db             *scriva.DB // nil for a shared-handle store (owner closes it)
-	col            docs
-	modelsCol      docs
-	rolesCol       docs
-	handoverCol    docs
-	quotasCol      docs
-	rlCooldownsCol docs
+	mu                     sync.Mutex
+	db                     *scriva.DB // nil for a shared-handle store (owner closes it)
+	col                    docs
+	modelsCol              docs
+	rolesCol               docs
+	handoverCol            docs
+	quotasCol              docs
+	rlCooldownsCol         docs
+	catalogScopesCol       docs
+	catalogSnapshotsCol    docs
+	catalogObservationsCol docs
+	catalogProposalsCol    docs
+	catalogRevisionsCol    docs
+	catalogMetrics         *CatalogMetrics
 	// release runs on Close; nil for production shared-handle stores, whose DB
 	// is owned by the handle owner. Tests use it to release a per-store handle.
 	release func() error
@@ -161,14 +167,43 @@ func NewStore(dir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	catalogScopesCol, err := db.Collection("model_catalog_scopes")
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	catalogSnapshotsCol, err := db.Collection("model_catalog_snapshots")
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	catalogObservationsCol, err := db.Collection("model_catalog_observations")
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	catalogProposalsCol, err := db.Collection("model_catalog_proposals")
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	catalogRevisionsCol, err := db.Collection("model_catalog_revisions")
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
 	s := &Store{
-		db:             db,
-		col:            col,
-		modelsCol:      modelsCol,
-		rolesCol:       rolesCol,
-		handoverCol:    handoverCol,
-		quotasCol:      quotasCol,
-		rlCooldownsCol: rlCooldownsCol,
+		db:               db,
+		col:              col,
+		modelsCol:        modelsCol,
+		rolesCol:         rolesCol,
+		handoverCol:      handoverCol,
+		quotasCol:        quotasCol,
+		rlCooldownsCol:   rlCooldownsCol,
+		catalogScopesCol: catalogScopesCol, catalogSnapshotsCol: catalogSnapshotsCol,
+		catalogObservationsCol: catalogObservationsCol, catalogProposalsCol: catalogProposalsCol,
+		catalogRevisionsCol: catalogRevisionsCol,
+		catalogMetrics:      NewCatalogMetrics(),
 	}
 	if err := s.seedDefaultsIfEmpty(); err != nil {
 		db.Close()
@@ -622,13 +657,14 @@ func (s *Store) AddModel(backendID, modelID, displayName string, tier ModelTier,
 		Enabled:     true,
 		AutoAssign:  autoAssign,
 		IsCustom:    true,
+		Origin:      ModelOriginCustom,
 		QuotaScope:  quotaScope,
 	})
 }
 
 // SetModelTier updates the tier for a specific model (RMW). Returns ErrModelNotFound if missing, or ErrInvalidTier if tier is invalid.
 func (s *Store) SetModelTier(backendID, modelID string, tier ModelTier) error {
-	if !tier.Valid() {
+	if !tier.ValidStored() {
 		return ErrInvalidTier
 	}
 	s.mu.Lock()
@@ -664,7 +700,7 @@ func (s *Store) upsertModel(m ModelEntry) error {
 	if m.BackendID == "" || m.ModelID == "" {
 		return errors.New("backend ID and model ID cannot be empty")
 	}
-	if !m.Tier.Valid() {
+	if !m.Tier.ValidStored() {
 		return ErrInvalidTier
 	}
 	key := modelKey(m.BackendID, m.ModelID)
@@ -853,6 +889,17 @@ func (s *Store) setHandoverSettings(settings HandoverSettings) error {
 func (s *Store) DeleteModel(backendID, modelID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	m, err := s.getModel(backendID, modelID)
+	if errors.Is(err, ErrModelNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !m.IsCustom {
+		m.Lifecycle, m.Enabled, m.AutoAssign = ModelLifecycleExcluded, false, false
+		return s.upsertModel(m)
+	}
 	return s.modelsCol.DeleteByKey(modelKey(backendID, modelID))
 }
 
@@ -871,8 +918,10 @@ func (s *Store) seedDefaultsIfEmpty() error {
 	}
 
 	for _, m := range existingModels {
-		if !m.IsCustom && !defaultKeys[modelKey(m.BackendID, m.ModelID)] {
-			s.modelsCol.DeleteByKey(modelKey(m.BackendID, m.ModelID))
+		if m.EffectiveOrigin() == ModelOriginSeed && !defaultKeys[modelKey(m.BackendID, m.ModelID)] && len(m.OperatorSet) == 0 && !s.hasAvailableObservation(m.BackendID, m.ModelID) {
+			if err := s.modelsCol.DeleteByKey(modelKey(m.BackendID, m.ModelID)); err != nil && !errors.Is(err, engine.ErrKeyNotFound) {
+				return err
+			}
 		}
 	}
 
@@ -881,6 +930,7 @@ func (s *Store) seedDefaultsIfEmpty() error {
 		key := modelKey(m.BackendID, m.ModelID)
 		rec, err := s.modelsCol.GetByKey(key)
 		if errors.Is(err, engine.ErrKeyNotFound) {
+			m.Origin, m.Lifecycle = ModelOriginSeed, ModelLifecycleActive
 			if err := s.upsertModel(m); err != nil {
 				return err
 			}
@@ -888,12 +938,12 @@ func (s *Store) seedDefaultsIfEmpty() error {
 			model, merr := modelFromRecord(rec.Data)
 			if merr == nil {
 				changed := false
-				if _, ok := rec.Data["auto_assign"]; !ok {
+				if _, ok := rec.Data["auto_assign"]; !ok && !hasOperatorSet(model, "auto_assign") {
 					// Backfill missing AutoAssign for existing records
 					model.AutoAssign = m.AutoAssign
 					changed = true
 				}
-				if model.QuotaScope == "" && m.QuotaScope != "" {
+				if model.QuotaScope == "" && m.QuotaScope != "" && !hasOperatorSet(model, "quota_scope") {
 					// Backfill QuotaScope from the canonical seed (D7).
 					model.QuotaScope = m.QuotaScope
 					changed = true

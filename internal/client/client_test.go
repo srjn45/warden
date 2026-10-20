@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/srjn45/warden/internal/backendstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -733,4 +734,20 @@ func TestWatchInterleavedFramesAcrossReconnect(t *testing.T) {
 	got = nil
 	require.NoError(t, New(ts.URL).WatchAll(t.Context(), collect))
 	require.Equal(t, [][]string{{"A-1", "A-2"}}, got)
+}
+
+func TestPreviewModelCatalogSendsOpaqueScopeFingerprintNotIdentity(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_, _ = w.Write([]byte(`{"id":"p1"}`))
+	}))
+	defer srv.Close()
+	c := New(srv.URL)
+	scope := backendstore.CatalogScope{AiCli: "codex", AccountRef: "secret-account", Profile: "secret-profile"}
+	_, err := c.PreviewModelCatalog(context.Background(), backendstore.CatalogRefresh{Scope: scope})
+	require.NoError(t, err)
+	require.Equal(t, scope.ScopeFP(), body["scope_fp"])
+	raw, _ := json.Marshal(body)
+	require.NotContains(t, string(raw), "secret")
 }

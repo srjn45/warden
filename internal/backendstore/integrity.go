@@ -38,7 +38,7 @@ const RepairDryRunCommand = "warden repair backends --dry-run"
 
 // registryCollections is every ScrivaDB collection opened by NewStore; the only
 // ones the recovery layer will touch.
-var registryCollections = []string{"backends", "models", "role_tiers", "handover_settings", "quotas", "rl_cooldowns"}
+var registryCollections = []string{"backends", "models", "role_tiers", "handover_settings", "quotas", "rl_cooldowns", "model_catalog_scopes", "model_catalog_snapshots", "model_catalog_observations", "model_catalog_proposals", "model_catalog_revisions"}
 
 // Resolution rules (see classifyRegressions). The winner of a regressed id is
 // always its highest-revision line.

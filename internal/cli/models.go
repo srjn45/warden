@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -88,7 +89,10 @@ func newModelsCmd() *cobra.Command {
 			"  list      List models in the catalog and their assigned tiers\n" +
 			"  tier      Set a model's tier classification (tier-1|tier-2|tier-3)\n" +
 			"  add       Register a custom model in the catalog at runtime\n" +
-			"  discover  Probe installed AI CLIs for live model menus\n\n" +
+			"  discover  Probe installed AI CLIs for live model menus\n" +
+			"  refresh   Preview/apply a catalog refresh through the daemon (--apply --yes)\n" +
+			"  history   Show catalog evidence and revisions\n" +
+			"  rollback  Roll back a catalog revision (--yes)\n\n" +
 			"When run without subcommands, `warden models` shows the live model menu of the\n" +
 			"current or specified backend.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -125,7 +129,56 @@ func newModelsCmd() *cobra.Command {
 	cmd.Flags().StringVar(&backend, "backend", "", "list models for this backend id (default: the current agent's backend)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the menu as a JSON array instead of one id per line")
 
-	cmd.AddCommand(newModelsListCmd(), newModelsTierCmd(), newModelsAddCmd(), newModelsDiscoverCmd())
+	cmd.AddCommand(newModelsListCmd(), newModelsTierCmd(), newModelsAddCmd(), newModelsDiscoverCmd(), newModelsHistoryCmd(), newModelsRollbackCmd(), newModelsRefreshCmd())
+	return cmd
+}
+
+func newModelsHistoryCmd() *cobra.Command {
+	var aicli string
+	var asJSON bool
+	cmd := &cobra.Command{Use: "history", Short: "Show catalog evidence and revision history", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		h, err := newCatalogRefreshAPI(cmd).ListModelCatalogHistory(cmd.Context(), aicli)
+		if err != nil {
+			return err
+		}
+		snaps, revs := h.Snapshots, h.Revisions
+		if asJSON {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"snapshots": snaps, "revisions": revs})
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "catalog snapshots: %d\ncatalog revisions: %d\n", len(snaps), len(revs))
+		for _, r := range revs {
+			fmt.Fprintf(cmd.OutOrStdout(), "rev %d\t%s\tproposal=%s\n", r.Rev, r.Kind, r.ProposalID)
+		}
+		return nil
+	}}
+	cmd.Flags().StringVar(&aicli, "aicli", "", "filter evidence by AI CLI (account-safe; no credentials are shown)")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit structured history")
+	return cmd
+}
+
+func newModelsRollbackCmd() *cobra.Command {
+	var yes bool
+	var asJSON bool
+	cmd := &cobra.Command{Use: "rollback <revision>", Short: "Roll back a catalog policy revision", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if !yes {
+			return fmt.Errorf("rollback changes catalog policy; re-run with --yes (it does not recover live sessions)")
+		}
+		rev, err := strconv.ParseUint(args[0], 10, 64)
+		if err != nil || rev == 0 {
+			return fmt.Errorf("revision must be a positive integer")
+		}
+		r, err := newCatalogRefreshAPI(cmd).RollbackModelCatalogRevision(cmd.Context(), rev)
+		if err != nil {
+			return err
+		}
+		if asJSON {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(r)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "rolled back catalog revision %d as revision %d (live sessions unchanged)\n", rev, r.Rev)
+		return nil
+	}}
+	cmd.Flags().BoolVar(&yes, "yes", false, "confirm the catalog-policy rollback")
+	cmd.Flags().BoolVar(&asJSON, "json", false, "emit structured result")
 	return cmd
 }
 

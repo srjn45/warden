@@ -2142,6 +2142,60 @@ func (c *Client) SetModelTier(ctx context.Context, backend, model, tier string) 
 	return out, nil
 }
 
+// PreviewModelCatalog records structured discovery evidence and returns an
+// unapplied proposal. It cannot execute a command or recover a live session.
+func (c *Client) PreviewModelCatalog(ctx context.Context, refresh backendstore.CatalogRefresh) (backendstore.CatalogProposal, error) {
+	var out backendstore.CatalogProposal
+	body := map[string]any{
+		"aicli": refresh.Scope.AiCli, "auth_mode": refresh.Scope.AuthMode,
+		"plan_label": refresh.Scope.PlanLabel, "cli_version": refresh.Scope.CLIVersion,
+		"scope_fp":    refresh.Scope.ScopeFP(),
+		"observed_at": refresh.ObservedAt, "snapshot_id": refresh.SnapshotID,
+		"observation": refresh.Observation,
+	}
+	if err := c.do(ctx, http.MethodPost, "/model-catalog/proposals", body, &out); err != nil {
+		return backendstore.CatalogProposal{}, err
+	}
+	return out, nil
+}
+
+// ApplyModelCatalogProposal applies exactly one previewed proposal. It mutates
+// catalog policy only; callers must use the session switch API for live recovery.
+func (c *Client) ApplyModelCatalogProposal(ctx context.Context, proposalID string) (backendstore.CatalogRevision, error) {
+	var out backendstore.CatalogRevision
+	path := "/model-catalog/proposals/" + url.PathEscape(proposalID) + "/apply"
+	if err := c.do(ctx, http.MethodPost, path, nil, &out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+type CatalogHistory struct {
+	Snapshots []backendstore.CatalogSnapshot `json:"snapshots"`
+	Revisions []backendstore.CatalogRevision `json:"revisions"`
+}
+
+func (c *Client) ListModelCatalogHistory(ctx context.Context, aicli string) (CatalogHistory, error) {
+	var out CatalogHistory
+	path := "/model-catalog/history"
+	if aicli != "" {
+		path += "?aicli=" + url.QueryEscape(aicli)
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
+func (c *Client) RollbackModelCatalogRevision(ctx context.Context, revision uint64) (backendstore.CatalogRevision, error) {
+	var out backendstore.CatalogRevision
+	path := fmt.Sprintf("/model-catalog/revisions/%d/rollback", revision)
+	if err := c.do(ctx, http.MethodPost, path, nil, &out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
 // ListRoleTiers returns all role-to-tier mappings.
 func (c *Client) ListRoleTiers(ctx context.Context) ([]backendstore.RoleTierMapping, error) {
 	var out []backendstore.RoleTierMapping

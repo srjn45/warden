@@ -60,7 +60,7 @@ func TestResolveSpawnTarget(t *testing.T) {
 		require.Equal(t, "worker", cr.opts.Role)
 		require.Equal(t, "development", cr.opts.Task)
 		require.EqualValues(t, "tier-1", cr.opts.Tier)
-		require.True(t, cr.opts.AllowFallback)
+		require.False(t, cr.opts.AllowFallback, "startup must remain in the selected tier")
 		require.NotEmpty(t, m, "model must never be left empty")
 	})
 
@@ -87,7 +87,7 @@ func TestResolveSpawnTarget(t *testing.T) {
 		require.Equal(t, "development", cr.opts.Task)
 		require.EqualValues(t, "tier-1", cr.opts.Tier)
 		require.Empty(t, cr.opts.PreferredBackend)
-		require.True(t, cr.opts.AllowFallback, "spawn must allow tier fallback so a first spawn always finds a model")
+		require.False(t, cr.opts.AllowFallback, "spawn must not silently cross tiers")
 	})
 
 	t.Run("nil resolver degrades to default model (never empty)", func(t *testing.T) {
@@ -108,26 +108,22 @@ func TestResolveSpawnTarget(t *testing.T) {
 		require.Equal(t, DefaultModel, m)
 	})
 
-	t.Run("resolver error degrades to default model (spawn never hard-fails)", func(t *testing.T) {
+	t.Run("resolver error fails promptly instead of bypassing catalog", func(t *testing.T) {
 		cr := &stubResolveCapture{err: router.ErrNoCandidate}
 		lc := New(&FakeRunner{}, &FakeConfig{})
 		lc.Resolver = cr
-		b, m, err := lc.resolveSpawnTarget(context.Background(), "worker", "", "tier-1", "", "")
-		require.NoError(t, err)
-		require.Equal(t, "", b)
-		require.Equal(t, DefaultModel, m)
+		_, _, err := lc.resolveSpawnTarget(context.Background(), "worker", "", "tier-1", "", "")
+		require.ErrorIs(t, err, router.ErrNoCandidate)
 		require.True(t, cr.called)
 	})
 
-	t.Run("resolver empty resolution degrades to default model", func(t *testing.T) {
+	t.Run("resolver empty resolution fails with actionable diagnostics", func(t *testing.T) {
 		// ErrAllExhausted returns a non-nil Resolution with an empty BackendID.
 		cr := &stubResolveCapture{res: &router.Resolution{}, err: router.ErrAllExhausted}
 		lc := New(&FakeRunner{}, &FakeConfig{})
 		lc.Resolver = cr
-		b, m, err := lc.resolveSpawnTarget(context.Background(), "", "", "tier-2", "", "")
-		require.NoError(t, err)
-		require.Equal(t, "", b)
-		require.Equal(t, DefaultModel, m)
+		_, _, err := lc.resolveSpawnTarget(context.Background(), "", "", "tier-2", "", "")
+		require.ErrorIs(t, err, router.ErrAllExhausted)
 	})
 
 	t.Run("unknown aicli on exact pin is rejected", func(t *testing.T) {
