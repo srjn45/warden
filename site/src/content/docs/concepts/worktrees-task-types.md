@@ -27,5 +27,5 @@ If a worktree for the ticket already exists on disk, the spawn adopts it (reatta
 flag (from the built-in *task registry*) decides the **model tier** the
 quota-balanced router targets — e.g. `--task architecture` → tier-1,
 `--task merge-pr` → tier-3. They are independent flags. See
-[Agent roles → Roles, tasks, and tiers](/warden/guides/agent-roles/#roles-tasks-and-tiers).
+[Roles, tiers, and model routing → Tasks describe the work](/warden/guides/agent-roles/#tasks-describe-the-work).
 :::
