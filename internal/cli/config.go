@@ -132,6 +132,12 @@ func printConfig(out io.Writer, cfg config.Config) {
 			{"rails.root_guard", fmt.Sprintf("%t", cfg.Rails.RootGuard)},
 			{"rails.isolation_guard", fmt.Sprintf("%t", cfg.Rails.IsolationGuard)},
 		}},
+		{"startup model recovery (model_recovery.*)", [][2]string{
+			{"model_recovery.max_attempts", fmt.Sprintf("%d", cfg.ModelRecoveryMaxAttempts())},
+			{"model_recovery.deadline", cfg.ModelRecoveryDeadline().String()},
+			{"model_recovery.attempt_timeout", cfg.ModelRecoveryAttemptTimeout().String()},
+			{"model_recovery.rejection_ttl", cfg.ModelRecoveryRejectionTTL().String()},
+		}},
 		{"auto-restart (auto_restart.*)", [][2]string{
 			{"auto_restart.max", fmt.Sprintf("%d", cfg.AutoRestart.Max)},
 			{"auto_restart.reset", cfg.AutoRestart.Reset},

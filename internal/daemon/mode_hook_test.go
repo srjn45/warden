@@ -47,3 +47,30 @@ func TestModeNormalizedHookPersistsAndAudits(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(raw), audit.ActionRelaunchModeNormalized)
 }
+
+func TestModelAttemptEventsHookPersistsOnStoredRecord(t *testing.T) {
+	ctx := context.Background()
+	st, err := agentstore.New(t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = st.Close() })
+	now := time.Now().UTC()
+	require.NoError(t, st.Insert(ctx, &agentstore.Agent{
+		ID: "a1", Name: "a1", TmuxSession: "a1", AiCli: "codex", Model: "m",
+		Status: store.StatusWorking, CreatedAt: now, UpdatedAt: now,
+	}))
+	hook := NewModelAttemptEventsHook(st)
+
+	hook(ctx, "a1", []store.Event{{Type: "model_launch_attempt", Detail: "rejected"}, {Type: "model_launch_attempt", Detail: "ambiguous"}})
+	// A record that does not exist (an Adopt that never persisted) is skipped, not fatal.
+	hook(ctx, "never-stored", []store.Event{{Type: "model_launch_attempt", Detail: "rejected"}})
+
+	got, err := st.Get(ctx, "a1")
+	require.NoError(t, err)
+	var n int
+	for _, e := range got.Events {
+		if e.Type == "model_launch_attempt" {
+			n++
+		}
+	}
+	require.Equal(t, 2, n, "attempt audit survives the failed relaunch")
+}

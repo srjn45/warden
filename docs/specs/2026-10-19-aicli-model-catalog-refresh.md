@@ -434,7 +434,7 @@ Each signature needs a recorded fixture under `testdata/modelcatalog/<aicli>/<ve
 
 | Parameter | Default | Config key (`model_recovery.*`, hot-reloaded) |
 |---|---|---|
-| distinct pre-task launch attempts (the original attempt counts) | **3** | `max_attempts` (1–5) |
+| distinct pre-task launch attempts (the original attempt counts) | **3** | `max_attempts` (1–3; values above 3 are clamped to 3) |
 | shared deadline from the first launch | **3m** | `deadline` |
 | per-attempt readiness wait | `min(60s, remaining)` | `attempt_timeout` |
 | route suppression after rejection | **24h** | `rejection_ttl` |
@@ -475,7 +475,9 @@ A backend that withholds the prompt from the launch line (a `PromptSeeder` such 
 
 **Prompt-withheld seam (backends that put the prompt on the launch line, e.g. Codex).** A backend engages the seam only when it implements both `LaunchRejectionDetector` and `InputReadiness` and is not a `PromptSeeder` (`withholdPrompt`). Then the task prompt is kept off the launch line (`launchPromptArg` returns `""`) and the supervisor waits for either an exact-model rejection (non-zero exit, no transcript, anchored signature naming the model) or a positive `InputReady`. Only after `InputReady` is the prompt delivered, exactly once, through `Input`; a rejected attempt never receives it. A timeout, cancellation, an exit with no rejection signature, or a failed delivery returns the typed `StartupAmbiguousError` (`startup_ambiguous`): the child and tmux shell are reaped, no negative model evidence is recorded, and there is no retry or substitution. Because no production adapter implements the detector, the seam is inert and Codex launches are byte-for-byte unchanged today; it is exercised only by test-only fakes combined with Codex's real `InputReady`.
 
-Known gaps: no production detector (needs an operator-captured TUI fixture with CLI version, exit code and pane text; public forum reports are ACP/print mode and do not qualify); `model_recovery.*` config keys are not exposed (defaults 3 / 3m / 60s / 24h are compiled in; exposing them needs the config schema, getters and daemon hot-reload wiring, deferred until a detector exists to tune). A stale gpt-5.5 id is excluded by the catalog refresh/observation path, not by launch recovery.
+Known gaps: no production detector (needs an operator-captured TUI fixture with CLI version, exit code and pane text; public forum reports are ACP/print mode and do not qualify); no remaining config gap (see below). A stale gpt-5.5 id is excluded by the catalog refresh/observation path, not by launch recovery.
+
+**Config and persistence (implemented).** `model_recovery.{max_attempts,deadline,attempt_timeout,rejection_ttl}` live in the `config.Config` namespace (defaults `3` / `3m` / `60s` / `24h`), exposed to the lifecycle through optional `ConfigProvider` getters that `Lifecycle.SetConfig` swaps atomically, so the daemon's existing reload hook applies an edit from the next launch with no restart. `max_attempts` is clamped to the hard cap 3 at every layer (config getter and `ModelRecoveryConfig.norm`): `4`, `5`, `0` and negatives all resolve to 3 (the 1–5 range in the §9.2 table is superseded). Unparsable or non-positive durations fall back to the defaults. A programmatic non-zero `Lifecycle.ModelRecovery` field still overrides the provider (tests). When a recorded-model relaunch (Restore, SwitchRole, hot-swap successor, Adopt) fails with a typed `model_rejected` / `startup_ambiguous`, callers drop the in-memory agent, so the `model_launch_attempt` events are handed to `Lifecycle.OnModelAttemptEvents`, which the daemon wires to append them to the stored record. An Adopt has no stored record, so its events are not persisted (the typed error is returned to the caller).
 
 ## 10. Startup readiness and pickers
 

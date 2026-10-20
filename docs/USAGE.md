@@ -2293,6 +2293,10 @@ restart list; everything else takes effect on save.
 | `fast_brain.fast_timeout` | `10s` | Ceiling for ordinary Fast-Brain native-CLI decisions. |
 | `fast_brain.thinking_timeout` | `20s` | Ceiling for Fast-Brain reasoning and prompt-recognition decisions. |
 | `fast_brain.max_concurrent` | `2` | Process-wide cap on concurrent internal model calls. Identical in-flight decisions are coalesced, and cosmetic activity work yields capacity to operational decisions. |
+| `model_recovery.max_attempts` | `3` | Distinct pre-task launch attempts (including the first) when a launch is rejected for an invalid/not-entitled model. Hard cap 3: `4`/`5` and non-positive values are clamped/defaulted to 3. Same aicli and tier only; exact pins and recorded-model relaunches are never substituted. Dormant until an adapter ships a rejection detector. Hot-reloaded. |
+| `model_recovery.deadline` | `3m` | Shared deadline from the first launch for the whole recovery. Invalid/non-positive → default. Hot-reloaded. |
+| `model_recovery.attempt_timeout` | `60s` | Per-attempt observation window. Invalid/non-positive → default. Hot-reloaded. |
+| `model_recovery.rejection_ttl` | `24h` | How long a rejection observation suppresses a (aicli, model) route. Invalid/non-positive → default. Hot-reloaded. |
 | `router.use_fast_brain` | `false` | Opt-in Fast-Brain prompt-complexity tier routing for unpinned spawns (lowest precedence; confidence ≥ 0.8; see §5.3) |
 | `snapshots` | `true` | Enable the worktree+transcript checkpoint store (`warden workspace snapshot`) and its `snapshot_*` MCP tools |
 | `insights` | `true` | Enable history-mined insights (`warden usage insights` + the `insights` MCP tool) |

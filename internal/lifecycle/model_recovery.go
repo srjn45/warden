@@ -60,6 +60,40 @@ func (c ModelRecoveryConfig) norm() ModelRecoveryConfig {
 	return c
 }
 
+// modelRecoverySettings is the optional ConfigProvider extension carrying the
+// hot-reloaded model_recovery.* keys (config.Config implements it). A provider
+// without it (test doubles) leaves the compiled defaults.
+type modelRecoverySettings interface {
+	ModelRecoveryMaxAttempts() int
+	ModelRecoveryDeadline() time.Duration
+	ModelRecoveryAttemptTimeout() time.Duration
+	ModelRecoveryRejectionTTL() time.Duration
+}
+
+// modelRecoveryConfig resolves the effective bounds for one launch. An explicit
+// non-zero l.ModelRecovery field wins (programmatic/test override); otherwise the
+// live config provider supplies it, read per launch so a reload applies from the
+// next launch; otherwise the default. The result is always normalised, so the
+// hard cap of 3 holds whatever any layer says.
+func (l *Lifecycle) modelRecoveryConfig() ModelRecoveryConfig {
+	c := l.ModelRecovery
+	if s, ok := l.config().(modelRecoverySettings); ok {
+		if c.MaxAttempts <= 0 {
+			c.MaxAttempts = s.ModelRecoveryMaxAttempts()
+		}
+		if c.Deadline <= 0 {
+			c.Deadline = s.ModelRecoveryDeadline()
+		}
+		if c.AttemptTimeout <= 0 {
+			c.AttemptTimeout = s.ModelRecoveryAttemptTimeout()
+		}
+		if c.RejectionTTL <= 0 {
+			c.RejectionTTL = s.ModelRecoveryRejectionTTL()
+		}
+	}
+	return c.norm()
+}
+
 // LaunchEvidenceRecorder persists scope-local launch observations
 // (*backendstore.Store implements it).
 type LaunchEvidenceRecorder interface {
@@ -235,7 +269,7 @@ func (l *Lifecycle) superviseStartup(ctx context.Context, s startupRun) error {
 	if s.PromptOnLaunchLine && !det.RejectsBeforePrompt() {
 		return nil // cannot prove the prompt was not accepted: fail closed
 	}
-	cfg := l.ModelRecovery.norm()
+	cfg := l.modelRecoveryConfig()
 	dctx, cancel := context.WithTimeout(ctx, cfg.Deadline)
 	defer cancel()
 	ready := ""
@@ -354,7 +388,13 @@ func (l *Lifecycle) suggestions(a *agentstore.Agent, tier string) []string {
 func (l *Lifecycle) superviseRecorded(ctx context.Context, agent *agentstore.Agent, b agentbackend.Backend, model string, promptOnLaunchLine bool, withheld string) error {
 	cp := *agent
 	cp.AiCli, cp.Model = b.ID(), model
+	before := len(cp.Events)
 	err := l.superviseStartup(ctx, startupRun{Agent: &cp, B: b, Pinned: true, PromptOnLaunchLine: promptOnLaunchLine, WithheldPrompt: withheld})
 	agent.Events = cp.Events
+	// Every caller drops the in-memory record on a typed error, so the attempt
+	// audit would be lost; hand the new events to the daemon to persist.
+	if err != nil && l.OnModelAttemptEvents != nil && len(cp.Events) > before {
+		l.OnModelAttemptEvents(ctx, agent.ID, append([]store.Event(nil), cp.Events[before:]...))
+	}
 	return err
 }

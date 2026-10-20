@@ -956,6 +956,12 @@ type Lifecycle struct {
 	// ModeNormalization.Persist) and records a durable audit event. It is never
 	// called for a failed launch. nil in tests / `wd switch`.
 	OnModeNormalized func(ctx context.Context, n ModeNormalization)
+	// OnModelAttemptEvents, when set, receives the model_launch_attempt events of
+	// a recorded-model relaunch (Restore, SwitchRole, Adopt, hot-swap) that FAILED
+	// with a typed recovery error, so the daemon can persist them on the stored
+	// record (callers discard the in-memory agent on error). An Adopt has no stored
+	// record yet, so its events have nowhere to land. nil in tests / `wd switch`.
+	OnModelAttemptEvents func(ctx context.Context, agentID string, events []store.Event)
 	// ExitsDir is a shared dir (the daemon sets it, e.g. ~/.warden/exits) where
 	// each agent's shell records claude's exit status, keyed by agent id. Empty
 	// (tests) disables exit capture — agents then fall back to orphaned-only
