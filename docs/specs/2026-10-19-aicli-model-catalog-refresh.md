@@ -456,11 +456,22 @@ Every attempt emits an agent event `model_launch_attempt {n, aicli, model, outco
 
 ### 9.4 Implementation status (follow-up)
 
-Implemented: `agentbackend.LaunchRejectionDetector`, `router.ResolveOptions.ExcludeRoutes`, and `internal/lifecycle/model_recovery.go` (wired into Spawn free-form/typed and SpawnJob; evidence via `backendstore.RecordLaunchEvidence`). A rejection counts only when the CLI exited non-zero, no ready marker or transcript exists, the adapter's anchored signature names the attempted model, and (for a launch carrying a prompt) the adapter attests `RejectsBeforePrompt()`; otherwise recovery fails closed. Attempts are hard-capped at 3. Recovery picks another model of the same aicli and tier only; pins and forks fail with `model_rejected`.
+**Status: NOT complete. Recovery is dormant in production: no production adapter implements `LaunchRejectionDetector`.** No captured, versioned rejection fixture exists and live/paid probing is forbidden, so no real launch is retried today. The mechanism below is exercised only by test-only fake detectors.
 
-**Status: NOT complete.** Safe future seam (not built): for a detector-capable backend, launch WITHOUT the positional prompt, wait for either the exact-model rejection or the adapter's positive `InputReady(pane)`, then deliver the stored prompt once through the existing Input path; if neither is observed, fail closed (no retry, no duplicate prompt). This needs session-registration care and a launch-path refactor, so it is deferred.
+Implemented: `agentbackend.LaunchRejectionDetector`, `router.ResolveOptions.ExcludeRoutes`, and `internal/lifecycle/model_recovery.go`. Evidence is written through `backendstore.RecordLaunchEvidence` (daemon wires `lc.Evidence`). A rejection counts only when the CLI exited non-zero, no ready marker or transcript exists, the adapter's anchored signature names the attempted model, and, when the task prompt rides the launch line (`startupRun.PromptOnLaunchLine`), the adapter attests `RejectsBeforePrompt()`; otherwise recovery fails closed. Attempts are hard-capped at 3 including the initial (the 1–5 range in the config table is clamped to 3), under one shared deadline, with no pair repeated.
 
-Known gaps: **no production adapter implements the detector** (no captured, versioned rejection fixture exists; live probing is forbidden, so recovery is dormant in production until one is supplied and reviewed); `model_recovery.*` config keys are not yet exposed (defaults 3 / 3m / 60s / 24h are compiled in); Restore, restart and hot-swap/handoff relaunches and cross-aicli recovery are not wired (they keep today's behaviour).
+Per launch surface:
+
+| Surface | Behaviour when a detector exists |
+|---|---|
+| Spawn / SpawnJob, no pin | Retries another model of the same aicli and tier (max 3 distinct attempts). Exhaustion returns `model_recovery_exhausted`. |
+| Spawn / SpawnJob with exact backend+model pin, or fork | `model_rejected` with same-tier suggestions; never substituted. |
+| Restore, SwitchRole, hot-swap successor | The recorded/target model is treated as an exact pin: evidence recorded, child and tmux session reaped, typed `model_rejected` (attention needed). No retry, no substitution. The resume command carries no prompt, so no pre-prompt attestation is needed. |
+| Adopt, terminal restore, cross-aicli recovery | Not supervised; unchanged behaviour. |
+
+A backend that withholds the prompt from the launch line (a `PromptSeeder` such as Cursor, `LaunchPromptArg == ""`) is supervised before the prompt is typed, because `seedInteractivePrompt` runs after supervision. That makes the prompt-withheld contract structural for such backends. The prompt-withheld launch for backends that currently put the prompt on the launch line (Codex) is not built.
+
+Known gaps: no production detector (needs an operator-captured TUI fixture with CLI version, exit code and pane text; public forum reports are ACP/print mode and do not qualify); `model_recovery.*` config keys are not exposed (defaults 3 / 3m / 60s / 24h are compiled in); Adopt and cross-aicli recovery are unwired. A stale gpt-5.5 id is excluded by the catalog refresh/observation path, not by launch recovery.
 
 ## 10. Startup readiness and pickers
 

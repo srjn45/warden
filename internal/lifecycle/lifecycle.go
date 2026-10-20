@@ -2148,7 +2148,7 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, agent *
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
 	if err := l.superviseStartup(ctx, startupRun{
-		Agent: agent, B: b, Pinned: req.startupPinned, Role: req.Role, Task: req.Task, Tier: req.Tier,
+		Agent: agent, B: b, Pinned: req.startupPinned, PromptOnLaunchLine: l.promptArg(b, promptFile) != "", Role: req.Role, Task: req.Task, Tier: req.Tier,
 		Relaunch: func(rctx context.Context, model string) error {
 			if err := l.newAgentSession(rctx, "", agent.ID, req.Cwd); err != nil {
 				return err
@@ -2272,7 +2272,7 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, agent *age
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
 	if err := l.superviseStartup(ctx, startupRun{
-		Agent: agent, B: b, Pinned: req.startupPinned, Role: req.Role, Task: req.Task, Tier: req.Tier,
+		Agent: agent, B: b, Pinned: req.startupPinned, PromptOnLaunchLine: l.promptArg(b, promptFile) != "", Role: req.Role, Task: req.Task, Tier: req.Tier,
 		Relaunch: func(rctx context.Context, model string) error {
 			if err := l.newAgentSession(rctx, req.Repo, agent.ID, workdir); err != nil {
 				return err
@@ -2502,6 +2502,9 @@ func (l *Lifecycle) Restore(ctx context.Context, agent *agentstore.Agent) error 
 	if err := l.resumeInTmux(ctx, b, agent.ID, agent.Workdir, agent.AICLISessionID, agent.Model, mode, launchNetwork(agent)); err != nil {
 		return err
 	}
+	if err := l.superviseRecorded(ctx, agent, b, agent.Model, false); err != nil {
+		return err
+	}
 	l.commitRelaunchMode(ctx, agent, agent.PermissionMode, mode, rat, "restore")
 	return nil
 }
@@ -2566,6 +2569,9 @@ func (l *Lifecycle) SwitchRole(ctx context.Context, agent *agentstore.Agent) err
 		hintSpec{l.config().GetMemoryInject(), mem},
 		hintSpec{peers != "", peers})
 	if err := l.resumeInTmuxWithHints(ctx, b, agent.ID, agent.Workdir, agent.AICLISessionID, agent.Model, mode, launchNetwork(agent), hints); err != nil {
+		return err
+	}
+	if err := l.superviseRecorded(ctx, agent, b, agent.Model, false); err != nil {
 		return err
 	}
 	l.commitRelaunchMode(ctx, agent, agent.PermissionMode, mode, rat, "switch-role")
@@ -3347,7 +3353,7 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
 	}
 	if err := l.superviseStartup(ctx, startupRun{
-		Agent: agent, B: b, Pinned: jobPinned, Role: req.Role, Task: req.Task, Tier: req.Tier,
+		Agent: agent, B: b, Pinned: jobPinned, PromptOnLaunchLine: l.promptArg(b, promptFile) != "", Role: req.Role, Task: req.Task, Tier: req.Tier,
 		Relaunch: func(rctx context.Context, model string) error {
 			if err := l.newAgentSession(rctx, req.Repo, id, workdir,
 				"WARDEN_PIPELINE_ID="+req.PipelineID, "WARDEN_JOB_ID="+req.JobID,

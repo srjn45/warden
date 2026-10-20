@@ -109,9 +109,13 @@ type startupRun struct {
 	Agent  *agentstore.Agent
 	B      agentbackend.Backend
 	Pinned bool // exact pin / recorded model: report, never substitute
-	Role   string
-	Task   string
-	Tier   string
+	// PromptOnLaunchLine is true when the task prompt rides the launch command
+	// (positional arg). The prompt-withheld path (Cursor-style PromptSeeder, resume
+	// commands) is false and needs no pre-prompt attestation.
+	PromptOnLaunchLine bool
+	Role               string
+	Task               string
+	Tier               string
 	// Relaunch starts the same agent again (fresh pane, same worktree) on model.
 	Relaunch func(ctx context.Context, model string) error
 }
@@ -163,7 +167,7 @@ func (l *Lifecycle) superviseStartup(ctx context.Context, s startupRun) error {
 	if !ok {
 		return nil
 	}
-	if s.Agent.Prompt != "" && !det.RejectsBeforePrompt() {
+	if s.PromptOnLaunchLine && !det.RejectsBeforePrompt() {
 		return nil // cannot prove the prompt was not accepted: fail closed
 	}
 	cfg := l.ModelRecovery.norm()
@@ -251,4 +255,21 @@ func (l *Lifecycle) suggestions(a *agentstore.Agent, tier string) []string {
 		tried = append(tried, router.Route{BackendID: res.BackendID, ModelID: res.ModelID})
 	}
 	return out
+}
+
+// superviseRecorded supervises a relaunch of a RECORDED model (Restore, SwitchRole,
+// hot-swap successor). The model is part of the agent's history, so it is treated
+// as an exact pin: a detected rejection is recorded as evidence, the failed child
+// and its tmux session are reaped, and a typed ModelRejectedError (attention
+// needed) is returned. Nothing is ever substituted and the launch is never retried.
+// promptOnLaunchLine is true only when the relaunch command carries the task prompt.
+// The attempt is judged against model (the one actually launched), which for a
+// hot-swap is the successor's, not yet the record's: supervision runs on a copy so
+// the record is only mutated by the caller, once the successor is confirmed.
+func (l *Lifecycle) superviseRecorded(ctx context.Context, agent *agentstore.Agent, b agentbackend.Backend, model string, promptOnLaunchLine bool) error {
+	cp := *agent
+	cp.AiCli, cp.Model = b.ID(), model
+	err := l.superviseStartup(ctx, startupRun{Agent: &cp, B: b, Pinned: true, PromptOnLaunchLine: promptOnLaunchLine})
+	agent.Events = cp.Events
+	return err
 }

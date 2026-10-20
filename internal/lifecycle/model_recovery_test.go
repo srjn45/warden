@@ -49,6 +49,8 @@ type paneRunner struct {
 	panes  map[string]string
 	kills  map[string]int
 	sends  int
+	// noSession makes `tmux has-session` fail (the session is gone), as Restore needs.
+	noSession bool
 }
 
 type paneScript struct {
@@ -90,6 +92,10 @@ func (p *paneRunner) Run(_ context.Context, _ string, name string, args ...strin
 		}
 	case "capture-pane":
 		return p.panes[args[len(args)-1]], nil
+	case "has-session":
+		if p.noSession {
+			return "", errors.New("no session")
+		}
 	case "kill-session":
 		p.kills[args[len(args)-1]]++
 	}

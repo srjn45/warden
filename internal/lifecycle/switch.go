@@ -510,6 +510,9 @@ func (l *Lifecycle) launchSuccessor(ctx context.Context, agent *agentstore.Agent
 		l.killSession(agent.ID)
 		return fmt.Errorf("tmux send-keys: %w: %s", err, out)
 	}
+	if err := l.superviseRecorded(ctx, agent, b, model, l.promptArg(b, promptFile) != ""); err != nil {
+		return err
+	}
 	l.seedInteractivePrompt(b, agent, continuationPrompt(handoffPath, h, req))
 	return nil
 }
