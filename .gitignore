@@ -6,6 +6,8 @@ web/dist/*
 
 bin/
 dist/
+!web/dist/
+!web/dist/.gitkeep
 manifest.json
 .claude/
 
