@@ -141,6 +141,17 @@ func (s *Server) recoverPTY(ctx context.Context) {
 	if n := s.pty.RecoverShadow(ctx, names); n > 0 {
 		slog.Info("ptyhost: re-adopted mirrored panes", "count", n)
 	}
+	// A direct agent is never restarted here.  Unlike a shell, it has a
+	// provider-owned conversation and a launch may have side effects; a missing
+	// or unverifiable holder is therefore an orphan, not an invitation to start
+	// another child.  This happens before pollers and guardian recovery begin.
+	if s.store != nil {
+		if agents, err := s.store.List(ctx); err == nil {
+			for _, a := range agents {
+				s.adoptDirectAgent(ctx, a)
+			}
+		}
+	}
 	if s.life == nil {
 		return
 	}
@@ -172,11 +183,62 @@ func (s *Server) recoverPTY(ctx context.Context) {
 	}
 }
 
+// adoptDirectAgent re-attaches to an agent that was launched directly under a
+// holder.  Runtime.Kind is deliberately the authority here: a journal or a
+// current global mode alone is not proof that a record owns a direct child.
+// In particular, a config rollback must not take control away from a live
+// holder-backed agent, while an old tmux agent must never be adopted as one.
+func (s *Server) adoptDirectAgent(ctx context.Context, a *agentstore.Agent) {
+	if a == nil || !liveStatus(a.Status) || a.Runtime == nil || a.Runtime.Kind != "direct" {
+		return
+	}
+	name := a.RuntimeKey()
+	if name == "" {
+		return
+	}
+	if !s.pty.HasDirectJournal(name) {
+		s.markDirectAgentLost(ctx, a, "its direct runtime journal is missing")
+		return
+	}
+	if !s.pty.HolderHosted(name) {
+		s.markDirectAgentLost(ctx, a, "its PTY holder is unavailable")
+		return
+	}
+	pid, start, proto, ok := s.pty.HolderMeta(name)
+	if !ok || (a.Runtime.HolderPID != 0 && a.Runtime.HolderPID != pid) ||
+		(a.Runtime.HolderStart != 0 && a.Runtime.HolderStart != start) ||
+		(a.Runtime.Proto != 0 && a.Runtime.Proto != proto) {
+		s.markDirectAgentLost(ctx, a, "its PTY holder identity does not match the recorded runtime")
+		return
+	}
+	if err := s.pty.AdoptDirect(ctx, name); err != nil {
+		s.markDirectAgentLost(ctx, a, "cannot re-adopt its PTY holder: "+err.Error())
+		return
+	}
+	slog.Info("ptyhost: re-adopted live direct agent (same process, no relaunch)", "agent", a.ID)
+	if d := s.pty.Direct(name); d != nil {
+		go func() {
+			select {
+			case <-d.Done():
+				s.recordDirectAgentEnd(name, d.Exit())
+			case <-s.done:
+			}
+		}()
+	}
+}
+
+func (s *Server) markDirectAgentLost(ctx context.Context, a *agentstore.Agent, cause string) {
+	detail := cause + "; run `warden agent restore " + a.ID + "` to start a fresh agent (the old process is not restarted automatically)"
+	slog.Error("ptyhost: direct agent could not be adopted; not relaunching", "agent", a.ID, "detail", detail)
+	_ = s.pty.MarkDirectLost(a.RuntimeKey(), detail)
+	_, _ = s.store.UpdateStatusIf(ctx, a.ID, a.Status, store.StatusOrphaned)
+}
+
 // adoptDirectTerminal re-attaches to a holder-hosted terminal's live process
 // after a daemon restart/update/crash.
 func (s *Server) adoptDirectTerminal(ctx context.Context, t *terminalstore.Terminal) {
 	name := t.RuntimeKey()
-	if err := s.pty.AdoptDirect(ctx, name); err != nil {
+	if err := s.pty.AdoptDirectTerminal(ctx, name); err != nil {
 		detail := "cannot re-adopt the shell (" + err.Error() + "); its PTY holder is unavailable — " +
 			"run `warden agent restore " + t.ID + "` to start a fresh shell (the old process is not restarted automatically)"
 		slog.Error("ptyhost: direct terminal could not be adopted; not relaunching", "terminal", t.ID, "err", err)
@@ -218,7 +280,28 @@ func (s *Server) onPTYEvent(name string, ev ptyevent.Event) {
 			s.recordDirectTerminalEnd(name, ev.Lifecycle)
 		}
 	}
+	if ev.Lifecycle.Phase.Terminal() && s.store != nil && s.pty != nil {
+		if d := s.pty.Direct(name); d != nil && d.Epoch() == ev.Epoch {
+			s.recordDirectAgentEnd(name, ev.Lifecycle)
+		}
+	}
 	s.notify()
+}
+
+// recordDirectAgentEnd records a directly-owned agent exit without relying on
+// tmux discovery.  Only explicitly direct runtime records participate, so a
+// same-named legacy pane cannot be moved by a stale PTY event.
+func (s *Server) recordDirectAgentEnd(name string, lc *ptyevent.Lifecycle) {
+	ctx := context.Background()
+	a, err := s.store.Get(ctx, name)
+	if err != nil || a.Runtime == nil || a.Runtime.Kind != "direct" || !liveStatus(a.Status) {
+		return
+	}
+	next := store.StatusOrphaned
+	if lc != nil && lc.Phase == ptyevent.PhaseExited && lc.ExitCode != nil && *lc.ExitCode == 0 {
+		next = store.StatusDone
+	}
+	_, _ = s.store.UpdateStatusIf(ctx, a.ID, a.Status, next)
 }
 
 // recordDirectTerminalEnd persists how a direct shell ended with the same

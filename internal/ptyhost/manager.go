@@ -415,11 +415,25 @@ func (m *Manager) HasDirectJournal(name string) bool {
 // (its process survives this daemon).
 func (m *Manager) HolderHosted(name string) bool { return m.direct.HolderHosted(name) }
 
+// HolderMeta returns the verified holder identity for name.  Recovery uses it
+// to fence a durable direct-runtime record from a recycled PID or a different
+// holder that happens to reuse the same session name.
+func (m *Manager) HolderMeta(name string) (int, uint64, int, bool) {
+	if m == nil || m.direct == nil || m.direct.Launcher == nil {
+		return 0, 0, 0, false
+	}
+	if hv, ok := m.direct.Launcher.(interface {
+		VerifyHolder(string) (int, uint64, int, bool)
+	}); ok {
+		return hv.VerifyHolder(name)
+	}
+	return 0, 0, 0, false
+}
+
 // AdoptDirect re-attaches to name's live holder-hosted process after a daemon
 // restart: the same process on its journal (epoch+1, lifecycle{recovered}), no
 // relaunch. The caller reports a failure with its cause; nothing is started.
 func (m *Manager) AdoptDirect(ctx context.Context, name string) error {
-	m.MarkTerminal(name) // direct sessions are plain shells
 	m.SetSessionRuntimePin(name, ModeOn)
 	if err := m.direct.Adopt(ctx, name); err != nil {
 		return err
@@ -428,6 +442,14 @@ func (m *Manager) AdoptDirect(ctx context.Context, name string) error {
 		m.watchStream(name, s)
 	}
 	return nil
+}
+
+// AdoptDirectTerminal is AdoptDirect with the durable shell classification
+// restored for callers that know they are recovering a plain terminal. Agents
+// must use AdoptDirect, otherwise AI-only observers would silently lose them.
+func (m *Manager) AdoptDirectTerminal(ctx context.Context, name string) error {
+	m.MarkTerminal(name)
+	return m.AdoptDirect(ctx, name)
 }
 
 // MarkDirectLost journals that name's holder-hosted process could not be
@@ -672,14 +694,7 @@ func (r routed) PinnedMode(name string) string {
 
 // HolderMeta returns holder process identity if name is holder-hosted.
 func (r routed) HolderMeta(name string) (int, uint64, int, bool) {
-	if r.m.direct != nil && r.m.direct.Launcher != nil {
-		if hv, ok := r.m.direct.Launcher.(interface {
-			VerifyHolder(string) (int, uint64, int, bool)
-		}); ok {
-			return hv.VerifyHolder(name)
-		}
-	}
-	return 0, 0, 0, false
+	return r.m.HolderMeta(name)
 }
 
 // directEnv is added to a direct terminal: the daemon (launchd/systemd) often

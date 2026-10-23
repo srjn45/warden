@@ -11,22 +11,25 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/ptyevent"
 	"github.com/srjn45/warden/internal/ptyholder"
 	"github.com/srjn45/warden/internal/ptyhost"
 	"github.com/srjn45/warden/internal/ptyruntime"
+	"github.com/srjn45/warden/internal/store"
 	"github.com/srjn45/warden/internal/terminalstore"
 )
 
 // adoptRig is a daemon "generation": a PTY manager over shared state dirs, with
 // shells hosted by real holder processes (this test binary re-exec'd).
 type adoptRig struct {
-	t    *testing.T
-	dir  string
-	srv  *Server
-	mgr  *ptyhost.Manager
-	ts   *terminalstore.Store
-	life *fakeLife
+	t      *testing.T
+	dir    string
+	srv    *Server
+	mgr    *ptyhost.Manager
+	ts     *terminalstore.Store
+	life   *fakeLife
+	agents *fakeStore
 }
 
 func newAdoptRig(t *testing.T) *adoptRig {
@@ -37,7 +40,7 @@ func newAdoptRig(t *testing.T) *adoptRig {
 	ts, err := terminalstore.New(filepath.Join(d, "terminals-db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ts.Close() })
-	r := &adoptRig{t: t, dir: d, ts: ts, life: &fakeLife{}}
+	r := &adoptRig{t: t, dir: d, ts: ts, life: &fakeLife{}, agents: newFakeStore()}
 	r.restart()
 	return r
 }
@@ -53,7 +56,26 @@ func (r *adoptRig) restart() {
 		Launcher: &ptyholder.Launcher{Root: filepath.Join(r.dir, "pty", "holder"), Command: []string{exe, "__ptyholder"}, ExitedLinger: time.Minute},
 		Options:  ptyruntime.Options{KillGrace: 200 * time.Millisecond}})
 	r.mgr.SetTerminalResolver(func(name string) bool { _, err := r.ts.Get(context.Background(), name); return err == nil })
-	r.srv = &Server{store: newFakeStore(), life: r.life, terminals: r.ts, hub: newHub(), done: make(chan struct{}), pty: r.mgr}
+	r.srv = &Server{store: r.agents, life: r.life, terminals: r.ts, hub: newHub(), done: make(chan struct{}), pty: r.mgr}
+}
+
+func (r *adoptRig) spawnAgent(id string) int {
+	r.t.Helper()
+	r.mgr.SetAgentDirectReady(true)
+	h, ok := r.mgr.Host().(interface {
+		LaunchCommand(context.Context, string, string, []string, ...string) error
+	})
+	require.True(r.t, ok)
+	require.NoError(r.t, h.LaunchCommand(context.Background(), id, r.t.TempDir(), []string{"/bin/sh", "-c", "exec sleep 1000"}))
+	d := r.mgr.Direct(id)
+	require.NotNil(r.t, d)
+	holderPID, holderStart, proto, ok := r.mgr.HolderMeta(id)
+	require.True(r.t, ok)
+	require.NoError(r.t, r.agents.Insert(context.Background(), &agentstore.Agent{
+		ID: id, TmuxSession: id, Workdir: r.t.TempDir(), Status: store.StatusWorking,
+		Runtime: &store.SessionRuntime{Kind: "direct", PinnedMode: "on", HolderPID: holderPID, HolderStart: holderStart, Proto: proto},
+	}))
+	return d.PID()
 }
 
 func (r *adoptRig) spawn(id string) (pid int) {
@@ -160,6 +182,71 @@ func TestRecoverPTYShellExitedWhileDaemonDown(t *testing.T) {
 	rec, _ := r.ts.Get(ctx, "term-gone")
 	require.NotNil(t, rec.ExitCode)
 	require.Equal(t, 7, *rec.ExitCode)
+}
+
+// Direct agents have provider-native conversations, so recovery must adopt the
+// exact holder-owned child even when runtime.pty was rolled back globally. It
+// must also retain its agent identity (not be misclassified as a shell).
+func TestRecoverPTYAdoptsLiveHolderAgentAfterRollback(t *testing.T) {
+	r := newAdoptRig(t)
+	ctx := context.Background()
+	pid := r.spawnAgent("agent-keep")
+	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+
+	r.restart()
+	r.mgr.SetMode(ptyhost.ModeOff) // applies only to new sessions
+	r.srv.recoverPTY(ctx)
+
+	d := r.mgr.Direct("agent-keep")
+	require.NotNil(t, d)
+	require.Equal(t, pid, d.PID(), "recovery must retain the existing child")
+	require.False(t, r.mgr.IsTerminal("agent-keep"), "adopting an agent must not turn it into a terminal")
+	rec, err := r.agents.Get(ctx, "agent-keep")
+	require.NoError(t, err)
+	require.Equal(t, store.StatusWorking, rec.Status)
+}
+
+// A direct agent without a verifiable holder is unsafe to restart: preserve
+// its conversation/worktree record as orphaned and leave launch to an explicit
+// restore operation.
+func TestRecoverPTYLostHolderAgentIsOrphanedNotRelaunched(t *testing.T) {
+	r := newAdoptRig(t)
+	ctx := context.Background()
+	pid := r.spawnAgent("agent-lost")
+	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+	h, err := ptyholder.Open(filepath.Join(r.dir, "pty", "holder"), "agent-lost")
+	require.NoError(t, err)
+	m, _ := h.Meta()
+
+	r.restart()
+	require.NoError(t, syscall.Kill(m.HolderPID, syscall.SIGKILL))
+	require.Eventually(t, func() bool { return !procAlive(m.HolderPID) }, 10*time.Second, 5*time.Millisecond)
+	r.srv.recoverPTY(ctx)
+
+	require.Nil(t, r.mgr.Direct("agent-lost"))
+	rec, err := r.agents.Get(ctx, "agent-lost")
+	require.NoError(t, err)
+	require.Equal(t, store.StatusOrphaned, rec.Status)
+}
+
+// PID reuse or an old state generation must not make a different holder look
+// adoptable merely because it still has the same session name.
+func TestRecoverPTYRejectsStaleAgentHolderIdentity(t *testing.T) {
+	r := newAdoptRig(t)
+	ctx := context.Background()
+	pid := r.spawnAgent("agent-stale")
+	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+	require.NoError(t, r.agents.Update(ctx, "agent-stale", func(a *agentstore.Agent) error {
+		a.Runtime.HolderStart++
+		return nil
+	}))
+
+	r.restart()
+	r.srv.recoverPTY(ctx)
+	require.Nil(t, r.mgr.Direct("agent-stale"), "a stale runtime identity must not attach")
+	rec, err := r.agents.Get(ctx, "agent-stale")
+	require.NoError(t, err)
+	require.Equal(t, store.StatusOrphaned, rec.Status)
 }
 
 func itoa(n int) string {
