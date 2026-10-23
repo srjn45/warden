@@ -403,10 +403,15 @@ func applyLiveTerminalNames(items []item, sessions []*store.Session, info map[st
 }
 
 // terminalNameParts picks the cwd/repo-root/branch a terminal's §7 name is built
-// from: the live pane reading when present, else the session's stored fields.
+// from: the live pane reading when present. Direct and unknown runtime records
+// cannot be interrogated through tmux; their persisted launch directory is not
+// current shell state, so render an explicit unavailable value instead.
 func terminalNameParts(t *store.Session, info map[string]terminalLiveInfo) (cwd, repoRoot, branch string) {
 	if li, ok := info[t.ID]; ok && li.cwd != "" {
 		return li.cwd, li.repoRoot, li.branch
+	}
+	if t.Runtime != nil && t.Runtime.Kind != "tmux" {
+		return "unavailable", "", ""
 	}
 	return terminalCwd(t), t.Repo, t.Branch
 }
