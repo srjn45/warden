@@ -70,7 +70,7 @@ agents**.
 | `Ctrl-b` then `t`/`a`/`p` | Config-free rotation fallback (add Shift for reverse) — identical to `M-t`/`M-a`/`M-p`, but via the tmux prefix so it works on terminals that don't send Alt/Option as Meta (**macOS Terminal.app / iTerm2** default). See [macOS: the Option key](#macos-the-option-key) |
 | `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
-| `a` | Attach — full-screen the agent's (or running job's) tmux session; press **`Ctrl-b Enter`** to return to the dashboard |
+| `a` | Attach — full-screen the agent (or running job) via `warden attach`; detach to return to the dashboard |
 | `l` | Log viewer — scrollable tail of the TUI log (`~/.warden/tui.log` or `$WARDEN_TUI_LOG`); `g`/`G` top/bottom, `l`/`esc` to close; levels coloured (ERROR red, WARN yellow, INFO cyan) |
 | `d` | Completion digest for the selected agent — scrollable overlay; `d`/`esc` to close |
 | `i` | **Agent info** — a scrollable pane showing every stored field for the selected agent, plus three interactive controls: `↑`/`↓` walk the control cursor and then scroll the body once past the last control, **`space`** toggles **auto-approve** and cycles **force-compact** (inherit → on → off), and **`enter`** on the **events** row (or **`e`**) opens the event log. `pgup`/`pgdn`/`g`/`G` also scroll · `r` rename · `i`/`esc` back |
@@ -166,7 +166,7 @@ other surfaces can mirror the tree.
 
 ## Getting back from an attach
 
-Attaching moves your single tmux client onto the agent's session (tmux can't nest an attach), so use **`Ctrl-b Enter`** to jump back to the dashboard — not `Ctrl-b d`. `Ctrl-b d` still works but it *detaches* the cockpit to the background rather than returning to it; the cockpit survives (it's reaped on your next `warden tui`), so an accidental detach no longer destroys your dashboard. Only `q` tears it down.
+Fullscreen attach (`a`) runs `warden attach <id>` as a child of the cockpit and restores the dashboard when it exits, so detaching never kills the session and works for tmux-hosted and direct sessions alike. The agent and terminal panes run the same client, keyed by record ID; replacing or closing a pane only detaches that viewer. A direct or unknown-runtime terminal has no tmux pane to inspect, so its working directory shows `unavailable` instead of a stale or invented value.
 
 ## macOS: the Option key
 
