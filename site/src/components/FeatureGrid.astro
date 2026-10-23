@@ -1,27 +1,37 @@
 ---
+import { featureGroups } from '../data/features';
 const base = import.meta.env.BASE_URL;
-const tiles = [
-  ['Spawn & classify', 'guides/spawn-and-watch'],
-  ['Approvals & auto-approve', 'guides/approvals-supervised'],
-  ['Supervised mode', 'guides/approvals-supervised'],
-  ['Pipelines (DAG)', 'multi-agent/pipelines'],
-  ['Worktrees & task types', 'concepts/worktrees-task-types'],
-  ['Self-rotation & digests', 'guides/rotation-digests'],
-  ['Savings & cost governance', 'reference/savings'],
-  ['Context guard & compaction', 'reference/observability'],
-  ['Snapshots & rollback', 'guides/snapshots'],
-  ['Scheduling', 'guides/scheduling'],
-  ['Remote access', 'guides/remote-access'],
-  ['Insights', 'reference/insights'],
-];
 ---
 <section class="section" id="features">
   <div class="wrap">
     <h2 style="text-align:center">Everything warden does</h2>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
-      {tiles.map(([label, slug]) => (
-        <a href={`${base}${slug}/`} style="background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:14px;text-decoration:none;color:var(--fg)">{label}</a>
-      ))}
-    </div>
+    {featureGroups.map((g) => (
+      <div class="fg" id={g.id}>
+        <h3 class="fg-title">{g.title}</h3>
+        <p class="fg-blurb">{g.blurb}</p>
+        <div class="fg-grid">
+          {g.features.map((f) => (
+            <a class="fg-card" href={`${base}${f.href}/`}>
+              <strong>{f.title}</strong>
+              <span>{f.desc}</span>
+            </a>
+          ))}
+        </div>
+      </div>
+    ))}
   </div>
 </section>
+
+<style>
+  .fg { margin-top: 28px; scroll-margin-top: 70px; }
+  .fg-title { margin: 0; font-size: 1.15rem; }
+  .fg-blurb { margin: 4px 0 12px; color: var(--muted); }
+  .fg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; }
+  .fg-card {
+    display: flex; flex-direction: column; gap: 4px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+    padding: 14px; text-decoration: none; color: var(--fg); min-width: 0;
+  }
+  .fg-card span { color: var(--muted); font-size: 0.9rem; overflow-wrap: anywhere; }
+  .fg-card:hover { border-color: var(--accent); }
+</style>
