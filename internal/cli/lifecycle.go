@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +17,7 @@ import (
 	"github.com/srjn45/warden/internal/preset"
 	"github.com/srjn45/warden/internal/prompttemplate"
 	"github.com/srjn45/warden/internal/ptyattach"
+	"github.com/srjn45/warden/internal/ptyhost"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/srjn45/warden/internal/task"
@@ -802,15 +802,21 @@ Every other session (agents, tmux-hosted terminals) attaches with tmux as before
 			// watches a PTY-hosted session read-only. (Environment, not flags: the
 			// attach command's flag set is part of the frozen legacy surface.)
 			mode := os.Getenv("WARDEN_ATTACH")
-			if gerr == nil && sess.IsTerminal() && mode != "tmux" {
+			if gerr != nil {
+				return gerr
+			}
+			if sess.Runtime != nil && sess.Runtime.Kind == "unknown" {
+				return fmt.Errorf("%w: daemon reported no attachable runtime for %s", ptyattach.ErrUnknownRuntime, sess.ID)
+			}
+			if sess.Runtime != nil && sess.Runtime.Kind == "direct" {
+				if mode == "tmux" {
+					return fmt.Errorf("%w: %s is direct and has no tmux fallback", ptyattach.ErrNotDirect, sess.ID)
+				}
 				err := attachDirect(cmd, sess.ID, mode == "observe")
 				if err == nil {
 					return nil
 				}
-				if !errors.Is(err, ptyattach.ErrNotDirect) {
-					return err
-				}
-				// Hosted by tmux: fall through to the tmux attach below.
+				return err
 			}
 			// Replaces the current process with an interactive tmux attach.
 			tmux, err := exec.LookPath("tmux")
@@ -819,7 +825,10 @@ Every other session (agents, tmux-hosted terminals) attaches with tmux as before
 			}
 			// Resolve name/id/ticket to the session via the daemon; fall back
 			// to the raw argument if the daemon cannot.
-			if gerr == nil && sess.RuntimeKey() != "" {
+			if sess.Runtime != nil && sess.Runtime.Kind != "tmux" && sess.Runtime.Kind != "" {
+				return fmt.Errorf("%w: unsupported runtime kind %q", ptyattach.ErrUnknownRuntime, sess.Runtime.Kind)
+			}
+			if sess.RuntimeKey() != "" {
 				target = sess.RuntimeKey()
 			}
 			c := exec.Command(tmux, "attach", "-t", target)
@@ -840,9 +849,10 @@ func attachDirect(cmd *cobra.Command, id string, observe bool) error {
 	if a, _ := cmd.Flags().GetString("addr"); a != "" {
 		cfg.Addr = a
 	}
-	res, err := ptyattach.Run(cmd.Context(), ptyattach.Options{
-		URL:      "ws://" + cfg.Addr + "/api/v1/sessions/" + url.PathEscape(id) + "/pty",
-		Token:    auth.ResolveToken(),
+	res, err := ptyattach.Open("http://"+cfg.Addr, auth.ResolveToken()).Attach(cmd.Context(), ptyattach.Target{
+		SessionID: id,
+		Info:      ptyhost.RuntimeInfo{Kind: "direct", Key: id},
+	}, ptyattach.Options{
 		In:       os.Stdin,
 		Out:      os.Stdout,
 		Status:   os.Stderr,

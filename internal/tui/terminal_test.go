@@ -38,6 +38,14 @@ func TestApplyLiveTerminalNamesPrefersLiveInfo(t *testing.T) {
 	require.Equal(t, "1. repo:site/ (main)", rows[1].termName)
 }
 
+func TestApplyLiveTerminalNamesDoesNotPresentDirectLaunchMetadataAsLive(t *testing.T) {
+	direct := liveTerminal("direct", "/stale/launch-dir", time.Now())
+	direct.Runtime = &store.SessionRuntime{Kind: "direct"}
+	rows := []item{{session: direct}}
+	applyLiveTerminalNames(rows, []*store.Session{direct}, nil)
+	require.Equal(t, "1. unavailable", rows[0].termName)
+}
+
 // terminalProjectPane is a cockpit with one open project (proj-1 at /alpha) that
 // owns the live agent a1 and the live terminal t1. Terminals are project members:
 // they render inside their project, not in a separate tab.

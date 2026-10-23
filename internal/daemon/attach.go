@@ -85,16 +85,36 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := sess.RuntimeKey()
-	// A terminal hosted directly on the PTY runtime (runtime.pty: on) has no
-	// tmux session: bridge the same raw protocol to the runtime instead.
-	if d := s.directSession(key); d != nil {
-		conn, err := websocket.Accept(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer conn.CloseNow()
-		ptyhost.BridgeLegacy(r.Context(), conn, d, newPTYClientID())
+	// Runtime resolution, not the presence of a tmux name, decides which bridge
+	// owns this viewer. This covers direct agents as well as terminals and makes
+	// an unknown/future runtime an explicit browser error rather than a guessed
+	// tmux attach.
+	if sess.Runtime != nil && sess.Runtime.Kind == "unknown" {
+		writeErr(w, http.StatusConflict, "unknown session runtime")
 		return
+	}
+	if s.pty != nil {
+		info := s.pty.Resolve(r.Context(), sess.ID)
+		switch info.Kind {
+		case "unknown", "":
+			writeErr(w, http.StatusConflict, "unknown session runtime: "+info.Reason)
+			return
+		case "direct":
+			d := s.directSession(info.Key)
+			if d == nil {
+				writeErr(w, http.StatusConflict, "direct session runtime unavailable")
+				return
+			}
+			conn, err := websocket.Accept(w, r, nil)
+			if err != nil {
+				return
+			}
+			defer conn.CloseNow()
+			ptyhost.BridgeLegacy(r.Context(), conn, d, newPTYClientID())
+			return
+		case "tmux":
+			key = info.Key
+		}
 	}
 	// Enable tmux mouse mode on the agent session so wheel/scroll events from a
 	// client (notably the Android app's swipe-to-scroll) are forwarded — agent
