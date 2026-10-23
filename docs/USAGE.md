@@ -1665,7 +1665,7 @@ type).
 | `t` | Create a terminal inside the project under the cursor (same targeting as `n`, using the row's directory) — refused with a status hint when the cursor is outside any project |
 | `o` | Open a directory as a group (becomes the spawn target for `n`) |
 | `s` | Send a message to the selected agent — `enter` to send, `esc` to cancel |
-| `a` | Attach — hands the whole client to the agent's/terminal's (or running job's) tmux session. Press **`Ctrl-b Enter`** to return to the dashboard (a hint flashes on attach). |
+| `a` | Attach — hands the terminal to the shared `warden attach` client for the selected agent/terminal (or running job), resolved by record ID so direct (non-tmux) sessions work too. Detach (the attach client's detach key) to return to the same dashboard selection. |
 | `l` | Log viewer — scrollable tail of the TUI log (`~/.warden/tui.log` or `$WARDEN_TUI_LOG`); `g`/`G` top/bottom, `l`/`esc` to close; levels coloured (ERROR red, WARN yellow, INFO cyan) |
 | `d` | Completion digest for the selected agent — scrollable overlay (`d`/`esc` to close) |
 | `i` | Answer pending approvals (also `enter` on the **⏳ Approvals** row) — `1`-`9` to answer, `tab` for next |
@@ -1701,12 +1701,13 @@ terminal (reconfirming the tombstone's tmux is actually dead first — an
 live one is ever archived anyway). `Enter` on a finished agent or tombstone
 opens its stored detail instead of attaching to a dead session.
 
-> **Getting back from an agent.** Attaching moves your single tmux client onto
-> the agent's session (tmux can't nest an attach), so use **`Ctrl-b Enter`** to
-> jump back to the dashboard — not `Ctrl-b d`. `Ctrl-b d` still works but it
-> *detaches* the cockpit to the background rather than returning to it; the
-> cockpit survives (it's reaped on your next `warden tui`), so an accidental
-> detach no longer destroys your dashboard. Only `q` tears it down.
+> **Getting back from an agent.** Fullscreen attach runs `warden attach <id>` as a
+> child of the cockpit and restores the dashboard when it exits, so detaching
+> never kills the session and works for both tmux-hosted and direct sessions.
+> The agent/terminal presentation panes run the same client, keyed by record ID;
+> replacing or closing a pane only detaches that viewer. A direct or unknown-runtime
+> terminal has no tmux pane to inspect, so its name shows `unavailable` for the
+> working directory rather than a stale or invented value.
 
 **Bottom-left — terminal pane.** Terminals are first-class `kind=terminal`
 sessions (not a backend) — a plain interactive shell (`$SHELL`) beside the fleet,
