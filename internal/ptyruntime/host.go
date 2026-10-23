@@ -73,6 +73,17 @@ func (h *Host) shell() []string {
 
 // NewSession implements tmuxproc.Host.
 func (h *Host) NewSession(ctx context.Context, name, cwd string, env ...string) error {
+	return h.NewCommand(ctx, name, cwd, h.shell(), env...)
+}
+
+// NewCommand starts argv (not the user's shell) as the session's process: the
+// process IS the session, so a native AI CLI runs with its own process group
+// and its exit ends the session with its real status. Identity, journal and
+// holder handling are identical to NewSession.
+func (h *Host) NewCommand(ctx context.Context, name, cwd string, argv []string, env ...string) error {
+	if len(argv) == 0 {
+		return fmt.Errorf("ptyruntime: empty argv for session %s", name)
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.sessions == nil {
@@ -89,7 +100,7 @@ func (h *Host) NewSession(ctx context.Context, name, cwd string, env ...string) 
 		return err
 	}
 	full := append(os.Environ(), "WARDEN_SESSION_ID="+name, "AGENTCTL_SESSION_ID="+name)
-	cfg := Config{Journal: j, Argv: h.shell(), Dir: cwd, Env: append(full, env...),
+	cfg := Config{Journal: j, Argv: argv, Dir: cwd, Env: append(full, env...),
 		Cols: h.Cols, Rows: h.Rows, Options: h.Options}
 	if h.Launcher != nil {
 		ad, err := h.Launcher.Launch(ctx, name, cfg.Argv, cwd, cfg.Env, cfg.Cols, cfg.Rows)

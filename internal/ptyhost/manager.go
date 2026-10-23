@@ -3,6 +3,7 @@ package ptyhost
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -48,14 +49,15 @@ type Observer func(name string, ev ptyevent.Event)
 
 // Manager owns the PTY runtime for the daemon.
 type Manager struct {
-	mode   atomic.Value // Mode
-	dir    string
-	run    tmuxproc.Runner
-	tmux   tmuxproc.Host
-	direct *ptyruntime.Host
-	shadow *Shadow
-	every  time.Duration
-	acks   acks
+	mode        atomic.Value // Mode
+	dir         string
+	run         tmuxproc.Runner
+	tmux        tmuxproc.Host
+	direct      *ptyruntime.Host
+	agentDirect atomic.Bool
+	shadow      *Shadow
+	every       time.Duration
+	acks        acks
 
 	omu       sync.RWMutex
 	observers []observer
@@ -592,6 +594,65 @@ type routed struct {
 	m        *Manager
 	terminal bool
 }
+
+// agentDirectReady is the internal readiness guard for direct AI-agent
+// launches. It defaults DISABLED: until the authority work (02b-04) lands, an
+// agent hosted on a direct PTY could be driven by legacy-only control or a
+// competing poller, so only an explicit SetAgentDirectReady(true) (never
+// config-derived yet) lets mode `on` launch an agent directly.
+// SetAgentDirectReady flips the internal agent direct-launch guard.
+func (m *Manager) SetAgentDirectReady(v bool) { m.agentDirect.Store(v) }
+
+// AgentDirectReady reports the internal agent direct-launch guard.
+func (m *Manager) AgentDirectReady() bool { return m.agentDirect.Load() }
+
+// PlanAgentDirect reports whether a NEW agent named name would launch on a
+// direct warden-owned PTY: guard enabled and the effective mode is `on`.
+// Everything else (off, shadow, guard disabled) keeps the tmux path unchanged.
+func (r routed) PlanAgentDirect(name string) bool {
+	return !r.terminal && r.m.agentDirect.Load() && r.m.EffectiveMode(name) == ModeOn
+}
+
+// LaunchCommand starts argv as the agent's own process on a direct PTY under
+// the independent holder. It is idempotent: if a holder already owns name (a
+// crash between PTY start and the store write) the live process is adopted
+// instead of launching a duplicate child. Callers must have checked
+// PlanAgentDirect; a false plan returns ErrAgentDirectNotPlanned.
+func (r routed) LaunchCommand(ctx context.Context, name, cwd string, argv []string, env ...string) error {
+	m := r.m
+	if !r.PlanAgentDirect(name) {
+		return ErrAgentDirectNotPlanned
+	}
+	if s := m.direct.Session(name); s != nil && s.Alive() {
+		return fmt.Errorf("ptyhost: agent %s already running directly", name)
+	} else if s != nil {
+		m.unwatch(name)
+		_ = m.direct.KillSession(ctx, name)
+		m.forgetSession(name)
+	}
+	m.SetSessionRuntimePin(name, ModeOn)
+	m.forgetKind(name) // an agent never inherits a stale shell mark
+	if m.direct.Launcher != nil && m.direct.Launcher.Has(name) {
+		if err := m.direct.Adopt(ctx, name); err == nil {
+			if s := m.direct.Session(name); s != nil {
+				m.watchStream(name, s)
+			}
+			return nil
+		}
+	}
+	if err := m.direct.NewCommand(ctx, name, cwd, argv, append(append([]string{}, directEnv...), env...)...); err != nil {
+		m.forgetSession(name)
+		return err
+	}
+	if s := m.direct.Session(name); s != nil {
+		m.watchStream(name, s)
+	}
+	return nil
+}
+
+// ErrAgentDirectNotPlanned: a direct agent launch was requested while the
+// guard is disabled or the session's mode is not `on`.
+var ErrAgentDirectNotPlanned = errors.New("ptyhost: direct agent launch not enabled for this session")
 
 var _ tmuxproc.Host = routed{}
 
