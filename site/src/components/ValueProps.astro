@@ -1,12 +1,19 @@
+---
+const tiles = [
+  { icon: '🚀', title: 'Autopilot, plan-driven', body: 'Describe a goal in a plan; a manager delegates tasks to workers and lands their PRs. Workers never touch main.' },
+  { icon: '🧭', title: 'Any backend, one cockpit', body: 'Run Claude, Codex, Antigravity, Cursor, OpenCode, Aider, Crush and Goose side by side in a TUI and web cockpit.' },
+  { icon: '⚖️', title: 'Cost-tier routing and recovery', body: 'Autopilot prefers free, then subscription, then opt-in pay-per-use backends, and recovers when a limit is hit.' },
+  { icon: '🩹', title: 'Self-healing', body: 'A guardian restarts a wedged manager; the web cockpit rebuilds a wedged session.' },
+  { icon: '📱', title: 'Remote and mobile', body: 'Reach the dashboard from a phone or tablet with token auth and a mobile-responsive UI.' },
+];
+---
 <section class="section">
-  <div class="wrap" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px">
-    <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px">
-      <h3>🧭 One cockpit</h3><p style="color:var(--muted)">TUI + web. See every agent's status at a glance.</p></div>
-    <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px">
-      <h3>🔗 Pipelines</h3><p style="color:var(--muted)">Chain dependent agents into a DAG — analyze → implement → review.</p></div>
-    <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px">
-      <h3>💸 Measured savings</h3><p style="color:var(--muted)">A real ledger of tokens kept out of context, plus per-model cost governance.</p></div>
-    <div style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:16px">
-      <h3>📦 One binary</h3><p style="color:var(--muted)">Daemon, CLI, TUI, web, MCP. No database.</p></div>
+  <div class="wrap value-grid">
+    {tiles.map((t) => (
+      <div class="tile">
+        <h3>{t.icon} {t.title}</h3>
+        <p>{t.body}</p>
+      </div>
+    ))}
   </div>
 </section>
