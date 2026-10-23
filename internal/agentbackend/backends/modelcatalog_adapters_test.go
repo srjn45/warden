@@ -54,8 +54,10 @@ func TestSlowCatalogProviderDoesNotBlockCatalogStoreReaders(t *testing.T) {
 
 func TestCodexCatalogUsesCodexHomeCacheNotConfigDefault(t *testing.T) {
 	dir := t.TempDir()
+	// fetched_at must be recent: the adapter treats caches older than 24h as stale.
+	fresh := time.Now().UTC().Format(time.RFC3339)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "models_cache.json"), []byte(`{
- "fetched_at":"2026-10-19T17:08:00Z", "client_version":"0.160.1", "identity":"account-a",
+ "fetched_at":"`+fresh+`", "client_version":"0.160.1", "identity":"account-a",
  "models":[{"slug":"gpt-6-sol","display_name":"GPT 6 Sol","visibility":"list","supported_reasoning_levels":[{"effort":"high"}]},{"slug":"gpt-reserve","visibility":"hide"}]
 }`), 0600))
 	oldHome := codexHome
