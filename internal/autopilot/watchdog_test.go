@@ -43,7 +43,7 @@ func newWDHarness(t *testing.T, workers ...AgentInfo) *wdHarness {
 func (h *wdHarness) tick(d time.Duration) {
 	h.clock.add(d)
 	h.fake.activity[h.runID] = h.clock.now()
-	h.c.guardianTick(context.Background())
+	guardianTickAndWait(h.t, h.c, context.Background())
 }
 
 // progress makes a ledger task state change (each call moves to a new state).
@@ -193,13 +193,13 @@ func TestWatchdogPersistsAcrossControllerRebuild(t *testing.T) {
 
 	c1 := NewController(cfg, &fakeEnv{})
 	c1.setClock(clock.now)
-	c1.SetRuntime(fake)
+	setRuntimeAndWait(t, c1, fake)
 	st, err := c1.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	runID := st.Runs[0].RunID
 	fake.roster[runID] = []AgentInfo{{ID: "brain-1", State: "waiting_for_input"}}
 	fake.activity[runID] = clock.now()
-	c1.guardianTick(context.Background()) // seed + persist
+	guardianTickAndWait(t, c1, context.Background()) // seed + persist
 	seeded := c1.Status().Runs[0].LastProgressAt
 	require.NotEmpty(t, seeded)
 	require.NoError(t, c1.Close())
@@ -207,7 +207,7 @@ func TestWatchdogPersistsAcrossControllerRebuild(t *testing.T) {
 	clock.add(90 * time.Minute) // longer than the window while "down"
 	c2 := NewController(cfg, &fakeEnv{})
 	c2.setClock(clock.now)
-	c2.SetRuntime(fake)
+	setRuntimeAndWait(t, c2, fake)
 	r := c2.runs[runID]
 	require.NotNil(t, r, "run restored")
 	require.Equal(t, seeded, rfc3339OrEmpty(r.lastProgressAt), "daemon restart does not reset the window")

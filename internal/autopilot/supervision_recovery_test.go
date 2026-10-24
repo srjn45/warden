@@ -33,7 +33,7 @@ func TestSupervisorHealLadderTransitions(t *testing.T) {
 
 	// 1. Initial healthy state after first activity tick
 	clock.t = t0.Add(5 * time.Minute)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	st := c.Status().Runs[0]
 	require.Equal(t, SupervisorDaemon, st.Supervisor.Kind)
 	require.False(t, st.Supervisor.Addressable)
@@ -45,7 +45,7 @@ func TestSupervisorHealLadderTransitions(t *testing.T) {
 
 	// 2. Stage 1: Nudged (past heartbeat timeout)
 	clock.t = t0.Add(11 * time.Minute)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	st = c.Status().Runs[0]
 	require.Equal(t, SupervisorDaemon, st.Supervisor.Kind)
 	require.False(t, st.Supervisor.Addressable)
@@ -57,7 +57,7 @@ func TestSupervisorHealLadderTransitions(t *testing.T) {
 
 	// 3. Stage 2: Restarted (grace elapsed, still wedged)
 	clock.t = t0.Add(22 * time.Minute)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	st = c.Status().Runs[0]
 	require.Equal(t, SupervisorDaemon, st.Supervisor.Kind)
 	require.False(t, st.Supervisor.Addressable)
@@ -69,7 +69,7 @@ func TestSupervisorHealLadderTransitions(t *testing.T) {
 
 	// 4. Stage 3: Rotated (grace elapsed, still wedged)
 	clock.t = t0.Add(33 * time.Minute)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	st = c.Status().Runs[0]
 	require.Equal(t, SupervisorDaemon, st.Supervisor.Kind)
 	require.False(t, st.Supervisor.Addressable)
@@ -81,7 +81,7 @@ func TestSupervisorHealLadderTransitions(t *testing.T) {
 
 	// 5. Stage 4: Backoff (ladder exhausted)
 	clock.t = t0.Add(44 * time.Minute)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	st = c.Status().Runs[0]
 	require.Equal(t, SupervisorDaemon, st.Supervisor.Kind)
 	require.False(t, st.Supervisor.Addressable)
@@ -97,10 +97,10 @@ func TestSupervisorHealLadderTransitions(t *testing.T) {
 	require.NoError(t, err)
 	clock.t = retry.Add(time.Second)
 	fake.activity[runID] = clock.t
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	clock.t = clock.t.Add(time.Minute)
 	fake.activity[runID] = clock.t
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	st = c.Status().Runs[0]
 	require.Equal(t, HealthHealthy, st.Supervisor.Health)
 	require.Equal(t, "none", st.Supervisor.HealStage)
@@ -152,14 +152,14 @@ func TestSupervisorMissingManagerHealsToHealthy(t *testing.T) {
 
 	clock.t = t0.Add(time.Minute)
 	fake.activity = map[string]time.Time{runID: clock.t}
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	require.Equal(t, HealthHealthy, c.Status().Runs[0].Supervisor.Health)
 
 	// The manager is killed out from under the run.
 	fake.missing["brain-1"] = true
 	fake.spawnErrOn["a"] = context.DeadlineExceeded
 	clock.t = t0.Add(2 * time.Minute)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	st := c.Status().Runs[0]
 	require.NotEqual(t, HealthHealthy, st.Supervisor.Health, "no manager is never reported healthy")
 	require.Equal(t, SupervisorDaemon, st.Supervisor.Kind, "supervisor stays the daemon while the manager is gone")
@@ -173,13 +173,13 @@ func TestSupervisorMissingManagerHealsToHealthy(t *testing.T) {
 	require.NoError(t, err)
 	clock.t = retry.Add(time.Second)
 	fake.activity[runID] = clock.t
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	st = c.Status().Runs[0]
 	require.NotNil(t, st.Brain)
 	require.Equal(t, "brain-2", st.Brain.AgentID)
 	clock.t = clock.t.Add(time.Minute)
 	fake.activity[runID] = clock.t
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	st = c.Status().Runs[0]
 	require.Equal(t, HealthHealthy, st.Supervisor.Health)
 	require.Equal(t, "none", st.Supervisor.HealStage)
@@ -193,7 +193,7 @@ func TestSupervisorRestartRebuildsUnknownThenConverges(t *testing.T) {
 	c, runID := enabledGuardianController(t, fake, clock, cyclicResolver("a", "free"), testGuardian())
 	clock.t = t0.Add(time.Minute)
 	fake.activity = map[string]time.Time{runID: clock.t}
-	c.guardianTick(context.Background())
+	guardianTickAndWait(t, c, context.Background())
 	require.Equal(t, HealthHealthy, c.Status().Runs[0].Supervisor.Health)
 
 	// Daemon restart: heal/tick state is in-memory only.
@@ -208,7 +208,7 @@ func TestSupervisorRestartRebuildsUnknownThenConverges(t *testing.T) {
 
 	clock.t = clock.t.Add(time.Minute)
 	fake.activity[runID] = clock.t
-	c.guardianTick(context.Background())
+	guardianTickAndWait(t, c, context.Background())
 	require.Equal(t, HealthHealthy, c.Status().Runs[0].Supervisor.Health, "converges after one tick")
 }
 
@@ -242,7 +242,7 @@ func TestSupervisorParkedIsOperatorOwnedAndSurvivesTicks(t *testing.T) {
 	c.mu.Unlock()
 	for i := 1; i <= 3; i++ {
 		clock.t = t0.Add(time.Duration(i) * 20 * time.Minute)
-		c.guardianTick(context.Background())
+		guardianTickAndWait(t, c, context.Background())
 		st := c.Status().Runs[0]
 		require.Equal(t, HealthParked, st.Supervisor.Health)
 		require.Equal(t, "operator", st.NextStep.Owner)
@@ -263,7 +263,7 @@ func TestLegacyGuardianRecordIsNormalized(t *testing.T) {
 
 	r := run{runID: "ap-old", state: StateActive, slotScope: "old", lastTickAt: time.Now()}
 	c := NewController(ControllerConfig{BaseDir: t.TempDir(), Resolver: &fakeResolver{backendID: "a", tier: "free"}}, &fakeEnv{})
-	c.SetRuntime(newFakeRuntime())
+	setRuntimeAndWait(t, c, newFakeRuntime())
 	c.mu.Lock()
 	rs := c.runStatusLocked(&r)
 	c.mu.Unlock()

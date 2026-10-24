@@ -72,7 +72,7 @@ func planControllerFixture(t *testing.T) (*Controller, *autopilotstore.Store, *p
 		Gate:      "local",
 	}, &fakeEnv{repoOf: func(string) (string, error) { return repo, nil }})
 	rt := &planRuntime{}
-	c.SetRuntime(rt)
+	setRuntimeAndWait(t, c, rt)
 	return c, live, rt, repo, planPath
 }
 

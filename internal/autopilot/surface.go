@@ -88,7 +88,7 @@ func (c *Controller) runLedger(runID string) *Ledger {
 // surfaceLocked returns the run's surface record, hydrating it once from the
 // ledger after a restart. The caller must hold c.mu.
 func (c *Controller) surfaceLocked(r *run) *surfaceRecord {
-	if !r.surfaceLoaded {
+	if !r.surfaceLoaded && !c.statusReadOnly {
 		if l := c.runLedger(r.runID); l != nil {
 			r.surfaceLoaded = true
 			r.surface = l.loadSurface()
@@ -163,7 +163,7 @@ type surfaceView struct {
 // wins over the persisted final PR (which only fills in after a restart).
 func (c *Controller) surfaceViewLocked(r *run) surfaceView {
 	s := c.surfaceLocked(r)
-	v := surfaceView{diag: s.LastDiagnosis, finalPR: r.completion.finalPR.snapshot()}
+	v := surfaceView{fix: append([]FixStatus(nil), r.cachedFix...), diag: s.LastDiagnosis, finalPR: r.completion.finalPR.snapshot()}
 	if aw := r.completion.awaiting; aw != nil {
 		cp := *aw
 		v.awaiting = &cp
@@ -178,8 +178,11 @@ func (c *Controller) surfaceViewLocked(r *run) surfaceView {
 		}
 		v.resolver = &rs
 	}
-	if l := c.runLedger(r.runID); l != nil {
-		v.fix = fixStatuses(l, r.plan.Tasks)
+	if !c.statusReadOnly {
+		if l := c.runLedger(r.runID); l != nil {
+			v.fix = fixStatuses(l, r.plan.Tasks)
+			r.cachedFix = append([]FixStatus(nil), v.fix...)
+		}
 	}
 	return v
 }

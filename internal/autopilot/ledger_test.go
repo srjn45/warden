@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -10,12 +11,15 @@ import (
 // semantics (ErrLedgerMissing on absent Get, ErrLedgerConflict on CAS mismatch,
 // expected "" = must-be-absent) so the ledger is exercised without a ScrivaDB.
 type fakeStore struct {
-	m map[string]string
+	mu sync.Mutex
+	m  map[string]string
 }
 
 func newFakeStore() *fakeStore { return &fakeStore{m: map[string]string{}} }
 
 func (f *fakeStore) Get(key string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	v, ok := f.m[key]
 	if !ok {
 		return "", ErrLedgerMissing
@@ -24,11 +28,15 @@ func (f *fakeStore) Get(key string) (string, error) {
 }
 
 func (f *fakeStore) Set(key, value, _ string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.m[key] = value
 	return nil
 }
 
 func (f *fakeStore) CompareAndSet(key, expected, value, _ string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	cur, ok := f.m[key]
 	if expected == "" {
 		if ok {

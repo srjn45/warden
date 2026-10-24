@@ -50,7 +50,7 @@ func (c *Controller) restoreStoredRuns() {
 				_ = c.store.Delete(legacyID)
 			}
 		}
-		r := &run{runID: rec.RunID, name: rec.Name, planID: rec.PlanID, projectID: rec.ProjectID, repo: rec.Repo, planFile: rec.PlanFile,
+		r := &run{persistRevision: rec.PersistRevision, runID: rec.RunID, name: rec.Name, planID: rec.PlanID, projectID: rec.ProjectID, repo: rec.Repo, planFile: rec.PlanFile,
 			absPlanFile: rec.PlanFile, state: rec.State, resolvedGate: rec.Gate,
 			slotScope: rec.SlotScope, integrationBranch: rec.IntegrationBranch,
 			lastProgressAt: rec.LastProgressAt, progressFP: rec.ProgressFP,
@@ -73,7 +73,6 @@ func (c *Controller) restoreStoredRuns() {
 				r.preflightWarnings = warnings
 			}
 		}
-		c.hydratePlanTasksLocked(context.Background(), r)
 		c.runs[rec.RunID] = r
 	}
 	c.rebuildClaimsLocked()
@@ -108,7 +107,8 @@ func (c *Controller) rebuildClaimsLocked() {
 
 func (c *Controller) recordLocked(r *run) RunRecord {
 	now := c.now().UTC()
-	rec := RunRecord{RunID: r.runID, Name: r.name, Repo: r.repo, PlanFile: r.absPlanFile,
+	r.persistRevision++
+	rec := RunRecord{PersistRevision: r.persistRevision, RunID: r.runID, Name: r.name, Repo: r.repo, PlanFile: r.absPlanFile,
 		PlanID: r.planID, ProjectID: r.projectID,
 		State: r.state, IntegrationBranch: r.integrationBranch, Gate: c.runGate(r),
 		Strategy: c.strategy, DeleteBranch: c.deleteBranch, SlotScope: r.slotScope, UpdatedAt: now,
@@ -124,21 +124,11 @@ func (c *Controller) persistRunLocked(r *run) {
 }
 
 func (c *Controller) persistRunLockedErr(r *run) error {
-	c.persistIntegrationBranch(r)
-	if c.store == nil {
-		return nil
-	}
 	rec := c.recordLocked(r)
-	old, err := c.store.Get(r.runID)
-	if errors.Is(err, ErrRunNotFound) {
-		rec.CreatedAt = rec.UpdatedAt
-		return c.store.Create(rec)
-	}
-	if err != nil {
-		return err
-	}
-	rec.CreatedAt = old.CreatedAt
-	_, err = c.store.Update(r.runID, func(dst *RunRecord) error { *dst = rec; return nil })
+	rt, store, branch := c.runtime, c.store, r.integrationBranch
+	c.mu.Unlock()
+	err := persistRecoveryRecord(rt, store, rec, branch)
+	c.mu.Lock()
 	return err
 }
 
@@ -440,6 +430,10 @@ func (c *Controller) StartRun(ctx context.Context, id string) (RunStatus, error)
 	if !ok {
 		return RunStatus{}, ErrRunNotFound
 	}
+	if r.recoveryInFlight || c.recoveryOwners[id] != nil {
+		return c.runStatusLocked(r), fmt.Errorf("%w: recovery dependency or cleanup still in flight", ErrRunConflict)
+	}
+
 	switch r.state {
 	case StateActive, StateStarting, StateHealing, StateDegraded:
 		return c.runStatusLocked(r), nil
@@ -489,6 +483,7 @@ func (c *Controller) PauseRun(ctx context.Context, id string) (RunStatus, error)
 		return RunStatus{}, fmt.Errorf("%w: cannot pause run in state %s", ErrRunConflict, r.state)
 	}
 	r.state = StatePaused
+	c.invalidateRecoveryLocked(r)
 	c.clearParked(r)
 	if err := c.persistRunLockedErr(r); err != nil {
 		return RunStatus{}, err
@@ -512,6 +507,10 @@ func (c *Controller) ResumeRun(ctx context.Context, id string) (RunStatus, error
 		}
 		return RunStatus{}, fmt.Errorf("%w: cannot resume run in state %s", ErrRunConflict, r.state)
 	}
+	if r.recoveryInFlight || c.recoveryOwners[id] != nil {
+		return c.runStatusLocked(r), fmt.Errorf("%w: recovery dependency or cleanup still in flight", ErrRunConflict)
+	}
+
 	c.clearParked(r)
 	if err := c.preflightRegisteredRunLocked(ctx, r); err != nil {
 		return c.runStatusLocked(r), err
@@ -551,6 +550,7 @@ func (c *Controller) StopRun(ctx context.Context, id string) (RunStatus, error) 
 	if r.state != StateStopped {
 		c.stopRunLocked(ctx, r)
 		r.state = StateStopped
+		c.invalidateRecoveryLocked(r)
 		if err := c.persistRunLockedErr(r); err != nil {
 			return RunStatus{}, err
 		}
@@ -575,6 +575,9 @@ func (c *Controller) UnregisterRun(_ context.Context, id string) (RunStatus, err
 	default:
 		return RunStatus{}, fmt.Errorf("%w: stop run in state %s before unregistering", ErrRunConflict, r.state)
 	}
+	if r.recoveryInFlight {
+		return RunStatus{}, fmt.Errorf("%w: recovery cleanup still in flight", ErrRunConflict)
+	}
 	removed := c.runStatusLocked(r)
 	if c.store != nil {
 		if err := c.store.Delete(id); err != nil {
@@ -587,6 +590,10 @@ func (c *Controller) UnregisterRun(_ context.Context, id string) (RunStatus, err
 }
 
 func (c *Controller) runStatusLocked(r *run) RunStatus {
+	priorReadOnly := c.statusReadOnly
+	c.statusReadOnly = c.recoveryStats.InFlight > 0
+	defer func() { c.statusReadOnly = priorReadOnly }()
+
 	st := RunStatus{RunID: r.runID, Name: r.name, PlanFile: r.planFile, Repo: r.repo, PlanID: r.planID, ProjectID: r.projectID,
 		State: c.reportedStateLocked(r), Gate: c.runGate(r), Tasks: TaskCounts{},
 		PlanTasks: append([]PlanTask(nil), r.plan.Tasks...),
@@ -601,6 +608,12 @@ func (c *Controller) runStatusLocked(r *run) RunStatus {
 }
 
 func (c *Controller) ledgerTasksLocked(runID string) []LedgerTask {
+	if c.statusReadOnly {
+		if r := c.runs[runID]; r != nil {
+			return append([]LedgerTask(nil), r.cachedLedgerTasks...)
+		}
+		return nil
+	}
 	if c.runtime == nil {
 		return nil
 	}
@@ -612,6 +625,9 @@ func (c *Controller) ledgerTasksLocked(runID string) []LedgerTask {
 	if err != nil || len(tasks) == 0 {
 		return nil
 	}
+	if r := c.runs[runID]; r != nil {
+		r.cachedLedgerTasks = append([]LedgerTask(nil), tasks...)
+	}
 	return tasks
 }
 
@@ -619,6 +635,7 @@ func (c *Controller) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for _, r := range c.runs {
+		c.invalidateRecoveryLocked(r)
 		if r.cancel != nil {
 			r.cancel()
 			r.cancel = nil
@@ -627,7 +644,10 @@ func (c *Controller) Close() error {
 	if c.store == nil {
 		return nil
 	}
-	err := c.store.Close()
+	store := c.store
 	c.store = nil
+	c.mu.Unlock()
+	err := store.Close()
+	c.mu.Lock()
 	return err
 }

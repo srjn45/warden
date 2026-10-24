@@ -63,7 +63,7 @@ func completionSetup(t *testing.T, doneWhen []string) (*Controller, *completionR
 	t.Helper()
 	c, lrt, runID := landingSetup(t)
 	rt := &completionRT{landingRT: lrt, merge: MergeUpToDate, state: FinalPRState{State: "open", HeadSHA: "head1", Gate: GatePending}}
-	c.SetRuntime(rt)
+	setRuntimeAndWait(t, c, rt)
 	c.mu.Lock()
 	r := c.runs[runID]
 	r.plan.Tasks = []PlanTask{{ID: "t1", Status: TaskStatusDone, LandedPR: 1}}

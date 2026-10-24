@@ -224,7 +224,7 @@ func TestRestartRunUnsupportedRuntime(t *testing.T) {
 		Resolver: cyclicResolver("a", "free"),
 		Guardian: testGuardian(),
 	}, &fakeEnv{})
-	c.SetRuntime(rt)
+	setRuntimeAndWait(t, c, rt)
 	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	runID := st.Runs[0].RunID

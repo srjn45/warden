@@ -58,33 +58,127 @@ func (c *Controller) RunGuardian(ctx context.Context) {
 
 // guardianTick supervises every live run once. It honors the kill switch (a
 // disabled controller does nothing) and no-ops when the runtime cannot support a
-// guardian. It holds c.mu for the whole pass — matching Enable, so run state stays
-// consistent — which is fine at the guardian's generous cadence.
+// guardian. Each run reserves bounded capacity and performs its dependency
+// work on private state outside c.mu, then applies a generation-fenced result.
 func (c *Controller) guardianTick(ctx context.Context) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	gr, ok := c.runtime.(GuardianRuntime)
-	if !ok {
+	if _, ok := c.runtime.(GuardianRuntime); !ok {
 		return
 	}
 	now := c.now()
 	for _, r := range c.runs {
-		// Per-repo kill switch: a run whose repo has been switched off is supervised
-		// by nothing (disabled repos already have their runs torn down, so this is
-		// belt-and-suspenders).
-		if r.state == StatePaused || r.state == StateStopped || r.state == StateComplete || r.state == StateRegistered {
+		switch r.state {
+		case StatePaused, StateStopped, StateComplete, StateRegistered, StateDisabled:
+			continue
+		}
+		if r.recoveryInFlight {
+			continue
+		}
+		// Supervision itself can read tmux, plan store and the ledger. Reserve the
+		// same bounded work budget before creating its goroutine.
+		if !c.admitRecoveryLocked(r) {
 			continue
 		}
 		r.lastTickAt = now
-		// A run waiting only for its final PR to be merged has no agent to
-		// supervise: no manager respawn, heal, nudge or progress watchdog.
-		if r.state == StateActive && c.awaitingMergeLocked(r) {
-			continue
+		snapshot := cloneGuardianRun(r)
+		snapshot.recoveryInFlight = false
+		local := &Controller{
+			env: c.env, runtime: c.runtime, planSource: c.planSource,
+			resolver: c.resolver, tierstate: c.tierstate, guardian: c.guardian,
+			now: c.now, fastBrain: c.fastBrain, triageFn: c.triageFn,
+			integrationBranch: c.integrationBranch, gate: c.gate,
+			strategy: c.strategy, recoveryDeferred: true,
+			runs: map[string]*run{r.runID: snapshot},
 		}
-		c.superviseRun(ctx, gr, r, now)
-		c.checkNextStep(r, now)
-		c.persistRunLocked(r)
+		go c.superviseAdmitted(ctx, r.runID, snapshot, local, now)
 	}
+}
+
+// A supervisor works on private state. Lifecycle transitions invalidate the
+// generation while it is outside c.mu; only a matching observation may commit.
+func (c *Controller) superviseAdmitted(parent context.Context, id string, snapshot *run, local *Controller, now time.Time) {
+	ctx, cancel := context.WithCancel(snapshot.recoveryCtx)
+	stop := context.AfterFunc(parent, cancel)
+	defer stop()
+	defer cancel()
+	defer c.releaseRecovery(id, snapshot.recoveryAttempt)
+	gr := local.runtime.(GuardianRuntime)
+	if !local.awaitingMergeLocked(snapshot) {
+		local.superviseRun(ctx, gr, snapshot, now)
+		local.checkNextStep(snapshot, now)
+	}
+	c.mu.Lock()
+	r := c.runs[id]
+	if r == nil || c.recoveryOwners[id] != r || r.recoveryGeneration != snapshot.recoveryGeneration || r.persistRevision != snapshot.persistRevision || ctx.Err() != nil {
+		c.mu.Unlock()
+		return
+	}
+	requested := snapshot.recoveryInFlight
+	applyGuardianSnapshot(r, snapshot)
+	c.hydrateCompletionLocked(r)
+	rec, store, rt, branch := c.recordLocked(r), c.store, c.runtime, r.integrationBranch
+	c.mu.Unlock()
+	if requested {
+		// Continue in this reserved goroutine, retaining its admission token through
+		// preflight, spawn and cleanup. No second goroutine or semaphore waiter.
+		c.recoverAdmitted(ctx, id)
+	} else {
+		c.persistAdmittedRecord(rt, store, rec, branch)
+	}
+}
+
+// Apply only guardian-owned fields. Concurrent overwatch, completion and usage
+// limit updates must survive the unlocked observation interval.
+func applyGuardianSnapshot(r, s *run) {
+	r.state, r.brain = s.state, s.brain
+	r.tier, r.brainSpawnedAt, r.lastHeartbeat, r.contextLevel = s.tier, s.brainSpawnedAt, s.lastHeartbeat, s.contextLevel
+	r.healStage, r.healNextAt, r.backoffStage = s.healStage, s.healNextAt, s.backoffStage
+	r.backoffNextRetry, r.backoffLastErr, r.backoffKind = s.backoffNextRetry, s.backoffLastErr, s.backoffKind
+	r.failStreak, r.failStreakText, r.needsAttention, r.parkedPlanKey = s.failStreak, s.failStreakText, s.needsAttention, s.parkedPlanKey
+	r.lastProgressAt, r.progressFP, r.wdActive, r.wdParked = s.lastProgressAt, s.progressFP, s.wdActive, s.wdParked
+	r.plannedRotateNextAt, r.tried, r.triage = s.plannedRotateNextAt, s.tried, s.triage
+	if r.triage.result != nil {
+		r.triage.result.run = r
+	}
+	r.seedRedelivered, r.seedEscalated = s.seedRedelivered, s.seedEscalated
+	r.recoveryRotate, r.recoveryBackend, r.recoveryReason = s.recoveryRotate, s.recoveryBackend, s.recoveryReason
+	r.recoveryLostID, r.recoveryLostCause = s.recoveryLostID, s.recoveryLostCause
+	if !r.surfaceLoaded && s.surfaceLoaded {
+		r.surface, r.surfaceLoaded = s.surface, true
+	} else {
+		r.surface.LastDiagnosis, r.surface.Resolver = s.surface.LastDiagnosis, s.surface.Resolver
+	}
+}
+
+func cloneGuardianRun(r *run) *run {
+	cp := *r
+	cp.tried = make(map[string]bool, len(r.tried))
+	for k, v := range r.tried {
+		cp.tried[k] = v
+	}
+	if r.brain != nil {
+		b := *r.brain
+		cp.brain = &b
+	}
+	if cp.triage.result != nil {
+		result := *cp.triage.result
+		result.run = &cp
+		cp.triage.result = &result
+	}
+	cp.resting = make(map[string]*restingAgent, len(r.resting))
+	for id, entry := range r.resting {
+		e := *entry
+		cp.resting[id] = &e
+	}
+	cp.resolverAttempts = copyAttempts(r.resolverAttempts)
+	cp.completion.finalPR = r.completion.finalPR.snapshot()
+	if r.completion.awaiting != nil {
+		aw := *r.completion.awaiting
+		cp.completion.awaiting = &aw
+	}
+	cp.plan.Tasks = append([]PlanTask(nil), r.plan.Tasks...)
+	return &cp
 }
 
 // superviseRun runs the heal state machine for one run on this tick (§2.3). A
@@ -203,6 +297,7 @@ func (c *Controller) managerLost(ctx context.Context, gr GuardianRuntime, r *run
 	}
 	slog.Warn("autopilot guardian: manager session missing — replacing", "run", r.runID, "agent", id, "why", why)
 	gr.AuditRunEvent(ctx, r.runID, "autopilot.manager_missing", id, why+"; clearing stale manager record and respawning")
+	r.recoveryLostID, r.recoveryLostCause = id, why
 	r.brain = nil
 	r.contextLevel = ""
 	r.state = StateHealing
@@ -287,9 +382,8 @@ func (c *Controller) escalateWith(ctx context.Context, gr GuardianRuntime, r *ru
 func (c *Controller) restartStep(ctx context.Context, gr GuardianRuntime, r *run, now time.Time) {
 	cur := brainBackend(r)
 	r.tried[cur] = true
-	if err := c.rotateBrain(ctx, r, cur, RotateReasonHeal); err != nil {
-		slog.Warn("autopilot guardian: restart failed", "run", r.runID, "err", err)
-		r.state = StateDegraded
+	if c.admitRotationLocked(r, cur, RotateReasonHeal) {
+		c.launchRecovery(r.runID)
 	}
 	r.healStage = stageRestarted
 	r.healNextAt = now.Add(c.guardian.HeartbeatTimeout)
@@ -301,20 +395,27 @@ func (c *Controller) restartStep(ctx context.Context, gr GuardianRuntime, r *run
 // it enters backoff (§2.3 stage 4). Used both to walk down the ladder (stage 3)
 // and to (re)spawn a brain that is entirely gone.
 func (c *Controller) rotateStep(ctx context.Context, gr GuardianRuntime, r *run, now time.Time) {
-	sel := c.selectBrain(r.tried)
+	// A missing manager is recovery admission, not an inline guardian spawn.
+	// guardianTick owns c.mu, while SpawnBrain can block on a daemon/tmux
+	// dependency; reserve synchronously and let the coordinator do all external
+	// work after this tick releases the lock.  This also makes a watcher and the
+	// guardian contend on the same per-run singleflight bit.
+	if r.brain == nil || r.brain.AgentID == "" {
+		if c.admitRecoveryLocked(r) {
+			c.launchRecovery(r.runID)
+		}
+		return
+	}
+	sel := c.selectBrainContext(ctx, r.tried)
 	if !sel.OK {
 		c.enterBackoff(gr, r, now, KindNoBackendSelectable, sel.GateOnly, nil)
 		return
 	}
 	r.tried[sel.Backend] = true
-	if err := c.rotateBrain(ctx, r, sel.Backend, RotateReasonHeal); err != nil {
-		// The selected backend failed to spawn despite qualifying — degrade and back
-		// off; the next tick re-selects with this backend already marked tried.
-		slog.Warn("autopilot guardian: rotate spawn failed", "run", r.runID, "backend", sel.Backend, "err", err)
-		r.state = StateDegraded
-		c.enterBackoff(gr, r, now, classifySpawnError(err), false, err)
+	if !c.admitRotationLocked(r, sel.Backend, RotateReasonHeal) {
 		return
 	}
+	c.launchRecovery(r.runID)
 	r.tier = sel.Tier
 	r.healStage = stageRotated
 	r.healNextAt = now.Add(c.guardian.HeartbeatTimeout)
@@ -406,7 +507,10 @@ func (c *Controller) park(gr GuardianRuntime, r *run, kind FailureKind, cause er
 // planKey identifies the plan definition revision a plan-bound run last saw
 // ("" for legacy file-only runs or when the plan source is unavailable).
 func (c *Controller) planKey(ctx context.Context, r *run) string {
-	if r.planID == "" || c.planSource == nil {
+	if r.planID == "" {
+		return planDefinitionIdentity(r.absPlanFile)
+	}
+	if c.planSource == nil {
 		return ""
 	}
 	p, err := c.planSource.Get(ctx, r.planID)
@@ -418,7 +522,7 @@ func (c *Controller) planKey(ctx context.Context, r *run) string {
 
 // parkExpired reports whether the plan definition changed since the run parked.
 func (c *Controller) parkExpired(ctx context.Context, r *run) bool {
-	if r.parkedPlanKey == "" {
+	if r.backoffKind != KindDefinitionError || r.parkedPlanKey == "" {
 		return false
 	}
 	key := c.planKey(ctx, r)
@@ -456,15 +560,14 @@ func brainAgentID(r *run) string {
 // brain is never swapped without a replacement. A cooldown floor prevents
 // thrashing while the successor's context settles.
 func (c *Controller) plannedRotate(ctx context.Context, gr GuardianRuntime, r *run, now time.Time) {
-	sel := c.selectBrain(nil)
+	sel := c.selectBrainContext(ctx, nil)
 	if !sel.OK {
 		return // nothing to rotate onto — leave the working brain in place
 	}
-	if err := c.rotateBrain(ctx, r, sel.Backend, RotateReasonContext); err != nil {
-		slog.Warn("autopilot guardian: planned rotation failed", "run", r.runID, "err", err)
-		r.state = StateDegraded
+	if !c.admitRotationLocked(r, sel.Backend, RotateReasonContext) {
 		return
 	}
+	c.launchRecovery(r.runID)
 	r.tier = sel.Tier
 	r.state = StateActive
 	r.plannedRotateNextAt = now.Add(c.guardian.HeartbeatTimeout)

@@ -22,10 +22,11 @@ var (
 // RunRecord is the durable lifecycle authority for an autopilot run. Runtime
 // fields on Plan remain mirrors used for recovery and owner-facing writeback.
 type RunRecord struct {
-	RunID    string `json:"run_id"`
-	Name     string `json:"name"`
-	Repo     string `json:"repo"`
-	PlanFile string `json:"plan_file"`
+	PersistRevision uint64 `json:"persist_revision,omitempty"`
+	RunID           string `json:"run_id"`
+	Name            string `json:"name"`
+	Repo            string `json:"repo"`
+	PlanFile        string `json:"plan_file"`
 	// PlanID and ProjectID are stamped at Register time by the daemon when this
 	// run is created from a plan; they are empty for other autopilot runs.
 	PlanID            string    `json:"plan_id,omitempty"`
@@ -46,9 +47,10 @@ type RunRecord struct {
 // RunStore serializes compound read-modify-write operations over the single
 // autopilot_runs Scriva collection.
 type RunStore struct {
-	mu  sync.Mutex
-	db  *scriva.DB
-	col runDocs
+	persistenceLocks sync.Map // run-scoped ordering for snapshots and ledger writes
+	mu               sync.Mutex
+	db               *scriva.DB
+	col              runDocs
 	// release runs on Close; nil for a shared-handle store, whose DB is owned
 	// and closed by whoever opened the wardendb handle.
 	release func() error

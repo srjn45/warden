@@ -365,10 +365,10 @@ type Server struct {
 func (s *Server) SetAutopilotController(c *autopilot.Controller) {
 	s.autopilot = c
 	if c != nil {
-		c.SetRuntime(autopilotRuntime{s: s})
 		if s.plans != nil {
 			c.SetPlanSource(s.plans)
 		}
+		c.SetRuntime(autopilotRuntime{s: s})
 		_ = c.RecoverLiveAutopilots(context.Background())
 	}
 	// Wire the approval-routing seam (autopilot.md §8): while a run is active, an

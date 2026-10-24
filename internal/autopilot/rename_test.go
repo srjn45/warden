@@ -74,7 +74,7 @@ func TestRetargetRejectsActiveRun(t *testing.T) {
 	repo := t.TempDir()
 	plan := writePlan(t, repo, "ship.yaml", "ship it")
 	c := NewController(ControllerConfig{DataDir: t.TempDir(), BaseDir: repo, Resolver: &fakeResolver{backendID: "a", tier: "free"}}, &fakeEnv{})
-	c.SetRuntime(newFakeRuntime())
+	setRuntimeAndWait(t, c, newFakeRuntime())
 	t.Cleanup(func() { require.NoError(t, c.Close()) })
 
 	st, err := c.Register(context.Background(), RegisterRequest{Name: "ship", PlanFile: plan})

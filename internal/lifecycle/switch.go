@@ -497,9 +497,26 @@ func (l *Lifecycle) launchSuccessor(ctx context.Context, agent *agentstore.Agent
 	}
 
 	// Recreate the tmux session in the SAME worktree.
-	if err := l.newAgentSession(ctx, "", agent.ID, agent.Workdir); err != nil {
+	var launchEnv []string
+	launchID := ""
+	if agent.Role == "autopilot" || agent.AutopilotSlot == store.AutopilotSlotManager {
+		var err error
+		launchID, err = store.NewSessionID()
+		if err != nil {
+			return err
+		}
+		launchEnv = []string{
+			"WARDEN_AUTOPILOT_RUN_ID=" + agent.AutopilotRunID, "WARDEN_PLAN_ID=" + agent.PlanID,
+			"WARDEN_PROJECT_ID=" + agent.ProjectID, "WARDEN_REPO=" + agent.Repo,
+			"WARDEN_ROLE=" + agent.Role, "WARDEN_BACKEND=" + b.ID(),
+			"WARDEN_AI_CLI_SESSION_ID=" + agent.AICLISessionID, "WARDEN_MANAGER_LAUNCH_ID=" + launchID,
+		}
+	}
+	if err := l.newAgentSession(ctx, "", agent.ID, agent.Workdir, launchEnv...); err != nil {
 		return err
 	}
+	agent.Runtime = l.stampRuntime(l.Proc(), agent.ID, "tmux")
+	agent.Runtime.LaunchID = launchID
 
 	// The continuation prompt points the successor at the handoff file and restates
 	// the goal + next step, so even a backend that cannot read AGENTS.md still picks

@@ -87,7 +87,7 @@ func landingSetup(t *testing.T) (*Controller, *landingRT, string) {
 	c, runID := enabledGuardianController(t, g, clock, cyclicResolver("a", "free"), testGuardian())
 	rt := &landingRT{guardianFake: g, host: &fakeLandingHost{live: map[string]PRInfo{}, gate: map[string]GateState{}},
 		owners: map[string]LandOwner{}}
-	c.SetRuntime(rt)
+	setRuntimeAndWait(t, c, rt)
 	c.mu.Lock()
 	r := c.runs[runID]
 	r.integrationBranch, r.defaultBranch, r.state = "autopilot/x", "main", StateActive

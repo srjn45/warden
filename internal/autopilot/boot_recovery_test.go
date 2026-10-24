@@ -2,6 +2,7 @@ package autopilot
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -26,7 +27,7 @@ func TestSetRuntimeContentOnlyBootRecovery(t *testing.T) {
 		Resolver: &fakeResolver{backendID: "antigravity", tier: "free"},
 	}, env)
 	rt1 := newFakeRuntime()
-	c1.SetRuntime(rt1)
+	setRuntimeAndWait(t, c1, rt1)
 	r, err := c1.Register(context.Background(), RegisterRequest{PlanFile: plan})
 	require.NoError(t, err)
 	_, err = c1.StartRun(context.Background(), r.RunID)
@@ -45,9 +46,9 @@ func TestSetRuntimeContentOnlyBootRecovery(t *testing.T) {
 	}, env)
 	t.Cleanup(func() { require.NoError(t, c2.Close()) })
 	rt2 := newFakeRuntime()
-	c2.SetRuntime(rt2)
+	setRuntimeAndWait(t, c2, rt2)
 
-	require.Len(t, rt2.spawned, 1, "content-only failure must not block brain spawn at boot")
+	require.Eventually(t, func() bool { return c2.Status().Runs[0].State == StateActive }, time.Second, 10*time.Millisecond)
 	st := c2.Status()
 	require.Len(t, st.Runs, 1)
 	require.Equal(t, StateActive, st.Runs[0].State)
@@ -73,7 +74,7 @@ func TestSetRuntimeStructuralBootRecoveryBlocks(t *testing.T) {
 		BaseDir:  repo,
 		Resolver: &fakeResolver{backendID: "antigravity", tier: "free"},
 	}, env)
-	c1.SetRuntime(newFakeRuntime())
+	setRuntimeAndWait(t, c1, newFakeRuntime())
 	r, err := c1.Register(context.Background(), RegisterRequest{PlanFile: plan})
 	require.NoError(t, err)
 	_, err = c1.StartRun(context.Background(), r.RunID)
@@ -89,9 +90,10 @@ func TestSetRuntimeStructuralBootRecoveryBlocks(t *testing.T) {
 	}, env)
 	t.Cleanup(func() { require.NoError(t, c2.Close()) })
 	rt2 := newFakeRuntime()
-	c2.SetRuntime(rt2)
+	setRuntimeAndWait(t, c2, rt2)
 
 	require.Empty(t, rt2.spawned, "structural failure must not spawn a brain")
+	require.Eventually(t, func() bool { return c2.Status().Runs[0].State == StateDegraded }, time.Second, 10*time.Millisecond)
 	st := c2.Status()
 	require.Len(t, st.Runs, 1)
 	require.Equal(t, StateDegraded, st.Runs[0].State)
@@ -117,7 +119,7 @@ func TestWatchPlanDegradedContentRecovery(t *testing.T) {
 	}, env)
 	t.Cleanup(func() { require.NoError(t, c.Close()) })
 	rt := newFakeRuntime()
-	c.SetRuntime(rt)
+	setRuntimeAndWait(t, c, rt)
 
 	reg, err := c.Register(context.Background(), RegisterRequest{PlanFile: planPath})
 	require.NoError(t, err)
@@ -167,7 +169,7 @@ func TestWatchPlanDegradedStructuralThenFix(t *testing.T) {
 	}, env)
 	t.Cleanup(func() { require.NoError(t, c.Close()) })
 	rt := newFakeRuntime()
-	c.SetRuntime(rt)
+	setRuntimeAndWait(t, c, rt)
 
 	reg, err := c.Register(context.Background(), RegisterRequest{PlanFile: planPath})
 	require.NoError(t, err)
@@ -204,6 +206,56 @@ func TestWatchPlanDegradedStructuralThenFix(t *testing.T) {
 	require.Empty(t, st.Runs[0].PreflightWarnings, "clean preflight clears warnings")
 }
 
+// TestWatchPlanSpawnFailureHonorsBackoff proves that the file watcher is not a
+// second spawn loop.  A runtime failure records the normal guardian backoff and
+// an unchanged definition produces no further SpawnBrain calls; touching the
+// definition is the explicit early-recovery admission.
+func TestWatchPlanSpawnFailureHonorsBackoffUntilDefinitionRepair(t *testing.T) {
+	repo := t.TempDir()
+	planPath := filepath.Join(repo, "plan.yaml")
+	require.NoError(t, os.WriteFile(planPath, []byte("version: 1\ngoal: ship it\n"), 0o644))
+	c := NewController(ControllerConfig{
+		DataDir: t.TempDir(), BaseDir: repo,
+		Resolver: &fakeResolver{backendID: "antigravity", tier: "free"},
+		Guardian: GuardianParams{BackoffMin: time.Hour, BackoffMax: time.Hour},
+	}, &fakeEnv{repoOf: func(string) (string, error) { return repo, nil }})
+	t.Cleanup(func() { require.NoError(t, c.Close()) })
+	rt := newFakeRuntime()
+	rt.spawnErr = fmt.Errorf("tmux unavailable")
+	setRuntimeAndWait(t, c, rt)
+	reg, err := c.Register(context.Background(), RegisterRequest{PlanFile: planPath})
+	require.NoError(t, err)
+
+	c.mu.Lock()
+	run := c.runs[reg.RunID]
+	run.state, run.brain, run.plan = StateDegraded, nil, Plan{}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go c.watchPlan(ctx, run, 10*time.Millisecond)
+	c.mu.Unlock()
+
+	require.Eventually(t, func() bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return !run.backoffNextRetry.IsZero()
+	}, time.Second, 10*time.Millisecond)
+	c.mu.Lock()
+	calls := rt.spawnCalls
+	nextRetry := run.backoffNextRetry
+	c.mu.Unlock()
+	time.Sleep(60 * time.Millisecond)
+	require.Equal(t, calls, rt.spawnCalls, "unchanged spawn failure must honor next_retry_at")
+	require.True(t, nextRetry.After(time.Now()))
+
+	// A mere file edit does not prove a runtime spawn failure was repaired.  It
+	// must retain the guardian's backoff rather than becoming a watcher retry.
+	rt.spawnErr = nil
+	require.NoError(t, os.WriteFile(planPath, []byte("version: 1\ngoal: repaired\n"), 0o644))
+	time.Sleep(60 * time.Millisecond)
+	require.Equal(t, calls, rt.spawnCalls, "file edits never bypass spawn-error backoff")
+	require.Nil(t, run.brain)
+}
+
 // TestSpawnBrainEmptyPlanGuardReloads proves spawnBrain reloads from disk when
 // r.plan.Goal is empty but a valid plan file exists — closing the guardian's
 // blind-spawn hole.
@@ -215,7 +267,7 @@ func TestSpawnBrainEmptyPlanGuardReloads(t *testing.T) {
 		BaseDir:  repo,
 		Resolver: &fakeResolver{backendID: "antigravity", tier: "free"},
 	}, &fakeEnv{})
-	c.SetRuntime(rt)
+	setRuntimeAndWait(t, c, rt)
 
 	r := &run{
 		runID:             "ap-guard-reload",
@@ -250,7 +302,7 @@ func TestSpawnBrainEmptyPlanGuardMissingFile(t *testing.T) {
 		BaseDir:  repo,
 		Resolver: &fakeResolver{backendID: "antigravity", tier: "free"},
 	}, &fakeEnv{})
-	c.SetRuntime(rt)
+	setRuntimeAndWait(t, c, rt)
 
 	r := &run{
 		runID:             "ap-guard-missing",

@@ -186,7 +186,7 @@ func TestFinalizingRestartReadsRecordedPRBeforeEnsure(t *testing.T) {
 
 func TestAwaitingMergeGuardianSkipsRun(t *testing.T) {
 	c, rt, id, _ := awaitingSetup(t)
-	c.guardianTick(context.Background())
+	guardianTickAndWait(t, c, context.Background())
 	c.overwatchTick(context.Background())
 	c.mu.Lock()
 	defer c.mu.Unlock()

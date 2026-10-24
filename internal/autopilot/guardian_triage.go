@@ -107,7 +107,11 @@ func (c *Controller) triageStall(ctx context.Context, gr GuardianRuntime, r *run
 	}
 	snap := &triageResult{run: r, manager: r.brain.AgentID, stage: r.healStage}
 	r.triage.inFlight = true
-	go c.runTriage(ctx, fn, in, snap)
+	if c.recoveryDeferred {
+		c.runTriage(ctx, fn, in, snap)
+	} else {
+		go c.runTriage(ctx, fn, in, snap)
+	}
 	return triageOutcome{deferred: true}
 }
 

@@ -169,6 +169,9 @@ func (c *Controller) StartFromPlan(ctx context.Context, req PlanStartRequest) (P
 	}
 
 	runID := PlanBoundRunID(repo, req.PlanID)
+	if c.recoveryOwners[runID] != nil {
+		return PlanStartResult{}, fmt.Errorf("%w: recovery dependency or cleanup still in flight", ErrRunConflict)
+	}
 	if existing, ok := c.runs[runID]; ok {
 		switch existing.state {
 		case StateActive, StateStarting, StateHealing, StateDegraded, StatePaused:
@@ -372,33 +375,96 @@ func (c *Controller) LiveAutopilots(ctx context.Context) ([]*autopilotstore.Auto
 // across a daemon restart without re-Registering plan files.
 func (c *Controller) RecoverLiveAutopilots(ctx context.Context) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.live == nil {
+	live := c.live
+	if live == nil || c.liveBootInFlight {
+		c.mu.Unlock()
 		return nil
 	}
-	all, err := c.live.List(ctx)
-	if err != nil {
+	select {
+	case c.recoverySem <- struct{}{}:
+	default:
+		c.recoveryStats.CapacityRefusals++
+		c.mu.Unlock()
+		return nil
+	}
+	c.liveBootInFlight = true
+	c.recoveryStats.InFlight++
+	c.mu.Unlock()
+	workCtx, cancel := context.WithTimeout(ctx, recoveryDeadline)
+	done := make(chan error, 1)
+	go func() {
+		defer func() {
+			cancel()
+			c.mu.Lock()
+			c.liveBootInFlight = false
+			c.recoveryStats.InFlight--
+			c.mu.Unlock()
+			<-c.recoverySem
+		}()
+		all, err := live.List(workCtx)
+		if err != nil {
+			done <- err
+			return
+		}
+		for _, a := range all {
+			if a == nil || a.PlanID == "" || workCtx.Err() != nil {
+				continue
+			}
+			c.mu.Lock()
+			r := c.runs[a.ID]
+			if r == nil {
+				name := strings.TrimPrefix(a.Name, "AP:")
+				scope := a.Diagnostics.SlotScope
+				if scope == "" {
+					scope, err = c.allocateSlotScopeLocked(name, a.ID)
+				}
+				if err != nil {
+					c.mu.Unlock()
+					done <- err
+					return
+				}
+				r = &run{runID: a.ID, planID: a.PlanID, projectID: a.ProjectID, name: name,
+					repo: a.Diagnostics.Repo, absPlanFile: a.Diagnostics.PlanFile, planFile: a.Diagnostics.PlanFile,
+					state:     RunState(firstNonEmpty(a.Diagnostics.State, string(StateActive))),
+					slotScope: scope, integrationBranch: a.Diagnostics.IntegrationBranch, resolvedGate: firstNonEmpty(a.Diagnostics.Gate, c.gate), tried: map[string]bool{}}
+				c.runs[a.ID] = r
+				_ = c.claims.claim(a.ID, scope)
+			}
+			if r.recoveryInFlight {
+				c.mu.Unlock()
+				continue
+			}
+			if c.runtime != nil {
+				admitted := c.admitRecoveryLocked(r)
+				c.mu.Unlock()
+				if admitted {
+					c.launchRecovery(a.ID)
+				}
+				continue
+			}
+			// The inert controller still supports synchronous task projection. Hydrate a
+			// private copy so even a context-ignoring Plan store cannot hold c.mu.
+			snapshot, source, generation := cloneGuardianRun(r), c.planSource, r.recoveryGeneration
+			c.mu.Unlock()
+			local := &Controller{planSource: source}
+			if err := local.hydratePlanFromSource(workCtx, snapshot); err != nil {
+				done <- err
+				return
+			}
+			c.mu.Lock()
+			if current := c.runs[a.ID]; current == r && current.recoveryGeneration == generation && workCtx.Err() == nil {
+				current.plan = snapshot.plan
+			}
+			c.mu.Unlock()
+		}
+		done <- nil
+	}()
+	select {
+	case err := <-done:
 		return err
+	case <-workCtx.Done():
+		return workCtx.Err()
 	}
-	for _, a := range all {
-		if a == nil || a.PlanID == "" {
-			continue
-		}
-		if _, ok := c.runs[a.ID]; ok {
-			c.hydratePlanTasksLocked(ctx, c.runs[a.ID])
-			continue
-		}
-		name := strings.TrimPrefix(a.Name, "AP:")
-		if name == "" {
-			name = a.Name
-		}
-		absPlan := a.Diagnostics.PlanFile
-		repo := a.Diagnostics.Repo
-		_, _ = c.adoptLiveLocked(ctx, a, absPlan, repo, name, PlanStartRequest{
-			PlanID: a.PlanID, ProjectID: a.ProjectID, Name: name, Repo: repo, PlanFile: absPlan,
-		})
-	}
-	return nil
 }
 
 // SpawnOnDemandBrain creates a short-lived role=brain Agent for consultation,

@@ -164,7 +164,7 @@ func enabledGuardianController(t *testing.T, fake *guardianFake, clock *fakeCloc
 		Guardian: g,
 	}, &fakeEnv{})
 	c.setClock(clock.now)
-	c.SetRuntime(fake)
+	setRuntimeAndWait(t, c, fake)
 	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, st.Runs, 1)
@@ -201,23 +201,23 @@ func TestGuardianWedgeWalksLadder(t *testing.T) {
 
 	// Within the heartbeat timeout: healthy, no action.
 	clock.t = t0.Add(5 * time.Minute)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	require.Empty(t, fake.nudges, "healthy brain is left alone")
 
 	// Past the timeout with no activity: stage 1 — nudge (no kill).
 	clock.t = t0.Add(11 * time.Minute)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	require.Len(t, fake.nudges, 1, "wedge ⇒ nudge")
 	require.Empty(t, fake.killed)
 
 	// Inside the post-nudge grace window: no further escalation.
 	clock.t = t0.Add(15 * time.Minute)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	require.Len(t, fake.nudges, 1, "escalation waits out the grace window")
 
 	// Grace elapsed, still wedged: stage 2 — restart on the SAME backend (in-place HotSwap).
 	clock.t = t0.Add(22 * time.Minute)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	require.Empty(t, fake.killed, "in-place rotation does not terminate the slot")
 	require.Len(t, fake.spawned, 1, "in-place rotation does not mint a new session")
 	require.Len(t, fake.rotated, 1)
@@ -228,7 +228,7 @@ func TestGuardianWedgeWalksLadder(t *testing.T) {
 
 	// Still wedged after the restart's grace: stage 3 — rotate DOWN the ladder (same slot).
 	clock.t = t0.Add(33 * time.Minute)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	require.Empty(t, fake.killed)
 	require.Len(t, fake.spawned, 1)
 	require.Len(t, fake.rotated, 2)
@@ -239,7 +239,7 @@ func TestGuardianWedgeWalksLadder(t *testing.T) {
 
 	// Ladder exhausted: stage 4 — backoff (never parks, always reschedules).
 	clock.t = t0.Add(44 * time.Minute)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	bo := c.Status().Runs[0].Backoff
 	require.NotNil(t, bo, "exhausted ladder ⇒ backoff")
 	require.Equal(t, 1, bo.Stage)
@@ -256,7 +256,7 @@ func TestGuardianSupervisesNeverEnabledRepo(t *testing.T) {
 	fake := newGuardianFake()
 	c, _ := enabledGuardianController(t, fake, clock, cyclicResolver("a", "free"), testGuardian())
 	clock.t = t0.Add(11 * time.Minute)
-	c.guardianTick(context.Background())
+	guardianTickAndWait(t, c, context.Background())
 	require.Len(t, fake.nudges, 1, "wedged run in a never-enabled repo is nudged")
 }
 
@@ -271,14 +271,14 @@ func TestGuardianRecoversOnHeartbeat(t *testing.T) {
 
 	// Wedge → nudge.
 	clock.t = t0.Add(11 * time.Minute)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	require.Len(t, fake.nudges, 1)
 	require.Equal(t, StateHealing, c.runs[runID].state)
 
 	// The brain acts (fresh heartbeat) → the ladder resets to healthy.
 	fake.activity[runID] = clock.t
 	clock.t = t0.Add(12 * time.Minute)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	require.Equal(t, stageHealthy, c.runs[runID].healStage, "a heartbeat recovers the brain")
 	require.Equal(t, StateActive, c.runs[runID].state)
 	require.Nil(t, c.Status().Runs[0].Backoff)
@@ -295,7 +295,7 @@ func TestGuardianBackoffCapAndNeverParks(t *testing.T) {
 	g.BackoffMax = 8 * time.Minute
 	c := NewController(ControllerConfig{Resolver: cyclicResolver("a", "free"), Guardian: g}, &fakeEnv{})
 	c.setClock(clock.now)
-	c.SetRuntime(fake)
+	setRuntimeAndWait(t, c, fake)
 
 	r := &run{runID: "ap-x", tried: map[string]bool{}}
 	wantWaits := []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute, 8 * time.Minute, 8 * time.Minute}
@@ -320,7 +320,7 @@ func TestGuardianBackoffWakesAtEarliestReset(t *testing.T) {
 	g.BackoffMax = 6 * time.Hour
 	c := NewController(ControllerConfig{Resolver: cyclicResolver("a", "free"), Guardian: g}, &fakeEnv{})
 	c.setClock(clock.now)
-	c.SetRuntime(fake)
+	setRuntimeAndWait(t, c, fake)
 
 	c.MarkBackendLimited("a", t0.Add(20*time.Minute)) // ...but a backend frees in 20m
 	r := &run{runID: "ap-x", tried: map[string]bool{}}
@@ -345,7 +345,7 @@ func TestGuardianResolverExhaustedEntersBackoff(t *testing.T) {
 	clock.t = t0.Add(11 * time.Minute)
 	c.runs[runID].healStage = stageRotated
 	c.runs[runID].healNextAt = clock.t // due now (a real rotated run always has a next step)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 
 	require.NotNil(t, c.Status().Runs[0].Backoff, "exhausted resolver ⇒ backoff")
 	require.NotEmpty(t, c.Status().Runs[0].Backoff.LastError, "backoff carries an error message")
@@ -364,7 +364,7 @@ func TestGuardianPlannedRotationOnContext(t *testing.T) {
 	fake.activity[runID] = t0.Add(3 * time.Minute)
 	fake.ctxLevel["brain-1"] = "critical"
 	clock.t = t0.Add(4 * time.Minute)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	require.Empty(t, fake.killed, "planned rotation hot-swaps the slot in place")
 	require.Len(t, fake.spawned, 1, "planned rotation does not mint a new session")
 	require.Len(t, fake.rotated, 1)
@@ -376,13 +376,13 @@ func TestGuardianPlannedRotationOnContext(t *testing.T) {
 	// immediate re-rotation. Context is still keyed by the stable slot id.
 	fake.activity[runID] = clock.t
 	fake.ctxLevel["brain-1"] = "critical"
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	require.Len(t, fake.rotated, 1, "cooldown prevents thrashing")
 
 	// Past the cooldown, it rotates again — still the same slot.
 	clock.t = t0.Add(20 * time.Minute)
 	fake.activity[runID] = clock.t
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	require.Len(t, fake.rotated, 2, "planned rotation resumes after the cooldown")
 	require.Equal(t, "brain-1", fake.rotated[1].AgentID)
 	require.Len(t, fake.spawned, 1)
@@ -399,7 +399,7 @@ func TestGuardianHonorsKillSwitch(t *testing.T) {
 
 	c.Disable(ctx, "") // deprecated: pauses the repo's runs
 	clock.t = t0.Add(30 * time.Minute)
-	c.guardianTick(ctx) // wedged by the clock, but paused ⇒ no heal
+	guardianTickAndWait(t, c, ctx) // wedged by the clock, but paused ⇒ no heal
 	require.Empty(t, fake.nudges, "a paused run heals nothing")
 
 	// A runtime that does not implement GuardianRuntime is never guardian-managed.
@@ -408,11 +408,11 @@ func TestGuardianHonorsKillSwitch(t *testing.T) {
 	plainRT := newFakeRuntime()
 	c2 := NewController(ControllerConfig{Plans: []string{plan}, BaseDir: dir, Resolver: cyclicResolver("a", "free"), Guardian: testGuardian()}, &fakeEnv{})
 	c2.setClock(clock.now)
-	c2.SetRuntime(plainRT)
+	setRuntimeAndWait(t, c2, plainRT)
 	_, err := c2.Enable(ctx, "")
 	require.NoError(t, err)
 	clock.t = t0.Add(90 * time.Minute)
-	c2.guardianTick(ctx) // must be a no-op — no GuardianRuntime
+	guardianTickAndWait(t, c2, ctx) // must be a no-op — no GuardianRuntime
 	require.Empty(t, plainRT.killed, "a non-guardian runtime is never healed")
 }
 
@@ -445,7 +445,7 @@ func TestGuardianHealStagesHotSwap(t *testing.T) {
 			res:  cyclicResolver("a", "free"),
 			setup: func(c *Controller, fake *guardianFake, runID string, clock *fakeClock) {
 				clock.t = t0.Add(11 * time.Minute)
-				c.guardianTick(ctx)
+				guardianTickAndWait(t, c, ctx)
 			},
 			want: want{nudges: 1, spawned: 1, stage: stageNudged, id: "brain-1"},
 		},
@@ -456,7 +456,7 @@ func TestGuardianHealStagesHotSwap(t *testing.T) {
 				clock.t = t0.Add(11 * time.Minute)
 				c.runs[runID].healStage = stageNudged
 				c.runs[runID].healNextAt = clock.t // due now
-				c.guardianTick(ctx)
+				guardianTickAndWait(t, c, ctx)
 			},
 			want: want{rotated: 1, backend: "a", reason: RotateReasonHeal, spawned: 1, stage: stageRestarted, id: "brain-1"},
 		},
@@ -468,7 +468,7 @@ func TestGuardianHealStagesHotSwap(t *testing.T) {
 				c.runs[runID].healStage = stageRestarted
 				c.runs[runID].healNextAt = clock.t // due now
 				c.runs[runID].tried = map[string]bool{"a": true}
-				c.guardianTick(ctx)
+				guardianTickAndWait(t, c, ctx)
 			},
 			want: want{rotated: 1, backend: "b", reason: RotateReasonHeal, spawned: 1, stage: stageRotated, id: "brain-1"},
 		},
@@ -479,7 +479,7 @@ func TestGuardianHealStagesHotSwap(t *testing.T) {
 				clock.t = t0.Add(11 * time.Minute)
 				c.runs[runID].healStage = stageRotated
 				c.runs[runID].healNextAt = clock.t // due now
-				c.guardianTick(ctx)
+				guardianTickAndWait(t, c, ctx)
 			},
 			want: want{spawned: 1, stage: stageBackoff, id: "brain-1", backoff: true},
 		},
@@ -490,7 +490,7 @@ func TestGuardianHealStagesHotSwap(t *testing.T) {
 				fake.activity[runID] = t0.Add(3 * time.Minute)
 				fake.ctxLevel["brain-1"] = "critical"
 				clock.t = t0.Add(4 * time.Minute)
-				c.guardianTick(ctx)
+				guardianTickAndWait(t, c, ctx)
 			},
 			want: want{rotated: 1, backend: "a", reason: RotateReasonContext, spawned: 1, stage: stageHealthy, id: "brain-1"},
 		},
@@ -502,7 +502,7 @@ func TestGuardianHealStagesHotSwap(t *testing.T) {
 				c.runs[runID].brain = nil
 				c.runs[runID].healStage = stageRestarted
 				c.runs[runID].healNextAt = clock.t // due now
-				c.guardianTick(ctx)
+				guardianTickAndWait(t, c, ctx)
 			},
 			want: want{spawned: 2, rotated: 0, stage: stageRotated, id: "brain-2"},
 		},
@@ -570,7 +570,7 @@ func TestGuardianRotationLeavesLiveWorkersUntouched(t *testing.T) {
 	clock.t = t0.Add(11 * time.Minute)
 	c.runs[runID].healStage = stageNudged
 	c.runs[runID].healNextAt = clock.t // due now
-	c.guardianTick(context.Background())
+	guardianTickAndWait(t, c, context.Background())
 
 	require.Len(t, fake.rotated, 1)
 	require.Equal(t, mgrID, fake.rotated[0].AgentID)
@@ -652,7 +652,7 @@ func TestGuardianMissingManagerSession(t *testing.T) {
 			c, runID := enabledGuardianController(t, fake, clock, cyclicResolver("a", "free"), testGuardian())
 			tc.setup(fake, runID)
 			clock.t = t0.Add(tc.after)
-			c.guardianTick(ctx)
+			guardianTickAndWait(t, c, ctx)
 
 			require.Len(t, fake.spawned, tc.wantSpawned)
 			require.Len(t, fake.nudges, tc.wantNudges)
@@ -680,7 +680,7 @@ func TestGuardianMissingManagerStatusWhileEmpty(t *testing.T) {
 	fake.spawnErrOn["a"] = fmt.Errorf("backend down")
 
 	clock.t = t0.Add(time.Minute)
-	c.guardianTick(context.Background())
+	guardianTickAndWait(t, c, context.Background())
 
 	st := c.Status().Runs[0]
 	require.Nil(t, st.Brain, "no manager id that resolves to no session")
@@ -703,14 +703,14 @@ func TestGuardianFailedHotSwapReachesRespawn(t *testing.T) {
 	fake.onRotate = func(id string) { fake.missing[id] = true } // the failed swap lost the session
 
 	clock.t = t0.Add(11 * time.Minute)
-	c.guardianTick(ctx) // stage 1: nudge
+	guardianTickAndWait(t, c, ctx) // stage 1: nudge
 	clock.t = t0.Add(22 * time.Minute)
-	c.guardianTick(ctx) // stage 2: restart fails, session lost
+	guardianTickAndWait(t, c, ctx) // stage 2: restart fails, session lost
 	require.Len(t, fake.spawned, 1)
 
 	fake.rotateErr = nil
 	clock.t = t0.Add(23 * time.Minute) // well inside the post-restart grace window
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	require.Len(t, fake.spawned, 2, "lost manager respawned next tick, not after another timeout")
 	require.Equal(t, "brain-2", c.Status().Runs[0].Brain.AgentID)
 	require.Equal(t, StateActive, c.Status().Runs[0].State)
@@ -730,7 +730,7 @@ func TestGuardianNoDoubleManager(t *testing.T) {
 	}
 	for _, off := range []time.Duration{11, 22, 33} { // nudge, restart, rotate
 		clock.t = t0.Add(off * time.Minute)
-		c.guardianTick(ctx)
+		guardianTickAndWait(t, c, ctx)
 	}
 	require.Len(t, fake.spawned, 1, "only ever one manager session")
 	require.Equal(t, "brain-1", c.Status().Runs[0].Brain.AgentID)
@@ -739,7 +739,7 @@ func TestGuardianNoDoubleManager(t *testing.T) {
 	fake.missing["brain-1"] = true
 	for i := 0; i < 3; i++ {
 		clock.t = clock.t.Add(time.Minute)
-		c.guardianTick(ctx)
+		guardianTickAndWait(t, c, ctx)
 	}
 	require.Len(t, fake.spawned, 2)
 }
@@ -762,7 +762,7 @@ func TestOverwatchWakeNotFoundClearsManager(t *testing.T) {
 	require.Equal(t, StateHealing, c.runs[runID].state)
 	require.Len(t, fake.audits, 1)
 
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	require.Len(t, fake.spawned, 2)
 	require.Equal(t, "brain-2", c.Status().Runs[0].Brain.AgentID)
 }
@@ -780,7 +780,7 @@ func TestGuardianManagerLossCauseAudited(t *testing.T) {
 	before := len(fake.spawned)
 
 	clock.t = t0.Add(time.Second)
-	c.guardianTick(context.Background())
+	guardianTickAndWait(t, c, context.Background())
 
 	require.Len(t, fake.spawned, before+1)
 	require.Empty(t, fake.nudges, "no nudge to a dead pane")
@@ -799,8 +799,46 @@ func TestGuardianPausedStoppedDoNotRespawn(t *testing.T) {
 		c.runs[runID].state = st
 		before := len(fake.spawned)
 		clock.t = t0.Add(time.Minute)
-		c.guardianTick(context.Background())
+		guardianTickAndWait(t, c, context.Background())
 		require.Len(t, fake.spawned, before, string(st))
 		require.Empty(t, fake.audits, string(st))
 	}
+}
+
+// Wait under the controller mutex: completion publishes runtime effects before
+// clearing the admission flag, so subsequent semantic assertions are synchronized.
+func waitRecoveryIdle(t *testing.T, c *Controller) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		for _, r := range c.runs {
+			if r.recoveryInFlight {
+				return false
+			}
+		}
+		return true
+	}, 3*time.Second, time.Millisecond)
+}
+
+func guardianTickAndWait(t *testing.T, c *Controller, ctx context.Context) {
+	t.Helper()
+	c.guardianTick(ctx)
+	waitRecoveryIdle(t, c)
+}
+
+func setRuntimeAndWait(t *testing.T, c *Controller, rt Runtime) {
+	t.Helper()
+	c.SetRuntime(rt)
+	c.mu.Lock()
+	done := c.bootDone
+	c.mu.Unlock()
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Fatal("boot reconciliation did not finish")
+		}
+	}
+	waitRecoveryIdle(t, c)
 }
