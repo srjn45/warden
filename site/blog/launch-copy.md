@@ -27,12 +27,13 @@ Alt titles if you want to A/B:
 > Warden is a single Go binary that spawns each agent in its own isolated git
 > worktree (so parallel agents don't collide on the same tree), then gives you
 > one cockpit — a tmux TUI or a self-hosted web dashboard — to watch and talk to
-> all of them. It drives multiple agent backends (Claude Code by default), prices
+> all of them. It drives multiple agent backends (Claude Code by default; Codex, Antigravity, Cursor, Aider and more), prices
 > each agent's real model usage in dollars with a budget gate, and exposes the
 > whole fleet as MCP tools so an orchestrator agent session can drive the others.
 >
-> It's a local daemon writing to a file-based JSON store. No database, no SaaS,
-> no telemetry — runs on your laptop or a box you SSH into. Apache-2.0.
+> It's a local daemon with a single embedded database (warden-db) on disk. No
+> external database to run, no SaaS, no telemetry — runs on your laptop or a box
+> you SSH into. Apache-2.0.
 >
 > Happy to answer anything about the architecture (single-writer daemon, loopback
 > REST API, the worktree isolation, how cost/token accounting works). What I'd
@@ -75,7 +76,7 @@ on the front page.
 >   context with an A/B benchmark.
 > - **It drives Claude itself** — `warden mcp` exposes the fleet as MCP tools, so
 >   an orchestrator session can spawn and coordinate the other agents.
-> - **No SaaS, no telemetry** — local daemon + JSON file store. Apache-2.0.
+> - **No SaaS, no telemetry** — local daemon + one embedded database. Apache-2.0.
 >
 > Repo: https://github.com/srjn45/warden
 > Docs: https://srjn45.github.io/warden/
@@ -92,19 +93,19 @@ than hotlinking — Reddit-native media gets far more reach.
 
 **Title:**
 
-    Warden – self-hosted orchestrator for Claude Code AI agents. One Go binary, JSON file store, no telemetry.
+    Warden – self-hosted orchestrator for coding agents (Claude Code, Codex & more). One Go binary, embedded DB, no telemetry.
 
 **Body:**
 
-> If you're running Claude Code (or any agentic coding setup) and you've started
+> If you're running Claude Code, Codex or another agentic coding CLI and you've started
 > running more than one at a time, warden gives you a single cockpit for the
 > whole fleet — spawn, monitor, talk to, and tear down agents, each in its own
 > isolated git worktree.
 >
 > The selfhosted-relevant bits:
 > - **One static Go binary.** No runtime, no container required.
-> - **Local daemon + file-based JSON store.** No Postgres, no Redis, no cloud
->   account. The web dashboard is embedded and served over a loopback REST API.
+> - **Local daemon + one embedded database (warden-db).** No Postgres, no Redis,
+>   no cloud account. The web dashboard is embedded and served over a loopback REST API.
 > - **Nothing leaves the machine.** No SaaS, no telemetry, Apache-2.0. Run it on
 >   your laptop or a homelab box you SSH/Tailscale into.
 > - Tracks real cost in dollars per agent with a budget gate, so an agent can't
@@ -130,9 +131,9 @@ than hotlinking — Reddit-native media gets far more reach.
 > a few of the design decisions might be interesting:
 >
 > - **Single-writer daemon.** One `warden daemon` process is the only writer to
->   an on-disk JSON session store, serving a loopback REST API + a background
+>   a single embedded database (warden-db), serving a loopback REST API + a background
 >   poller. All the other subcommands (`ls`, `start`, `attach`, `send`, …) are
->   thin HTTP clients. No DB, which keeps the whole thing a single binary.
+>   thin HTTP clients. The DB is embedded (ScrivaDB), so it is still a single binary.
 > - **One binary, multiple faces.** The same binary is the daemon, the CLI, a
 >   tmux-composited TUI, an embedded web SPA, and a stdio MCP server.
 > - **Worktree isolation** for parallel write agents so they don't fight over one
@@ -174,7 +175,7 @@ than hotlinking — Reddit-native media gets far more reach.
 > Not at your terminal? Same fleet as a self-hosted web dashboard with per-agent
 > and fleet-total CPU/memory + real cost.
 >
-> No SaaS. No telemetry. One Go binary + a JSON file store.
+> No SaaS. No telemetry. One Go binary + one embedded database.
 >
 > [web-monitor.gif]
 
