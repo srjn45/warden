@@ -202,6 +202,10 @@ type Session struct {
 	genSeq    uint64
 	lastInput map[string]uint64   // client -> highest applied fenced input id
 	once      map[string]struct{} // OnceKeys already issued (guarded by writer.mu)
+	// seqMu serializes automatic multi-part writes.  It intentionally does not
+	// cover human Input: a human can always preempt a sequence during its gap,
+	// and the per-part HumanSeq fence then drops the remaining automatic input.
+	seqMu sync.Mutex
 }
 
 // Start launches cfg.Argv on a new PTY and starts journaling. The first event
@@ -885,6 +889,9 @@ func (s *Session) WriteSequence(ctx context.Context, q ptyevent.Sequence) error 
 	if len(q.Parts) == 0 {
 		return nil
 	}
+	// Take this snapshot before waiting for another sequence.  In particular, a
+	// warden decision is about the screen at call time, not the later time when
+	// it reaches the front of the automatic-input queue.
 	s.mu.Lock()
 	issued := s.lease.HumanSeq
 	if q.OnceKey != "" {
@@ -898,6 +905,12 @@ func (s *Session) WriteSequence(ctx context.Context, q ptyevent.Sequence) error 
 		s.once[q.OnceKey] = struct{}{}
 	}
 	s.mu.Unlock()
+
+	// Do not hold s.mu here: human input must remain able to preempt a queued or
+	// in-progress automatic sequence.  This only excludes other automatic
+	// sequences, so their paste/submit parts cannot interleave.
+	s.seqMu.Lock()
+	defer s.seqMu.Unlock()
 	written := false
 	release := func() {
 		if q.OnceKey != "" && !written {
