@@ -94,6 +94,7 @@ func (rt autopilotRuntime) SpawnBrain(ctx context.Context, spec autopilot.BrainS
 	}
 	req := SpawnRequest{
 		Ticket:         slotID,
+		Repo:           spec.Repo,
 		Cwd:            spec.Repo,
 		Prompt:         spec.Prompt,
 		Role:           autopilotBrainRole,

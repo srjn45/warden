@@ -37,7 +37,7 @@ func (a *lifecycleAdapter) InspectManagerSlot(ctx context.Context, slot string) 
 	}
 	return managerSlotObservation{TmuxSession: m.TmuxSession, RunID: m.RunID, PlanID: m.PlanID,
 		ProjectID: m.ProjectID, Repo: m.Repo, Workdir: m.Workdir, Role: m.Role,
-		Backend: m.Backend, AICLISessionID: m.AICLISessionID}, nil
+		Backend: m.Backend, AICLISessionID: m.AICLISessionID, LaunchID: m.LaunchID}, nil
 }
 
 // Spawn translates the daemon's wire DTO into the lifecycle request, normalizing

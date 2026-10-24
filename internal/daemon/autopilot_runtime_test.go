@@ -72,7 +72,7 @@ func TestSpawnBrainRefusesUnverifiedLiveSlotWithoutLaunchingRival(t *testing.T) 
 	spec := autopilot.BrainSpec{RunID: "ap-voyage", SlotScope: "voyage", Repo: "/repo/voyage", PlanID: "plan-voyage", ProjectID: "project-voyage", Backend: "claude"}
 	srv := &Server{store: fs, life: fl, managerSlotInspector: managerSlotInspectorFunc(func(_ context.Context, slot string) (managerSlotObservation, error) {
 		return managerSlotObservation{TmuxSession: slot, RunID: "ap-foreign", PlanID: spec.PlanID, ProjectID: spec.ProjectID,
-			Repo: spec.Repo, Workdir: spec.Repo, Role: autopilotBrainRole, Backend: "claude", AICLISessionID: "session-foreign"}, nil
+			Repo: spec.Repo, Workdir: spec.Repo, Role: autopilotBrainRole, Backend: "claude", AICLISessionID: "session-foreign", LaunchID: "launch-foreign"}, nil
 	})}
 	_, err := (autopilotRuntime{s: srv}).SpawnBrain(context.Background(), spec)
 	require.ErrorIs(t, err, errManagerAdoptionRefused)

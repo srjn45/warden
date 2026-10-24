@@ -27,6 +27,7 @@ type managerSlotObservation struct {
 	Role           string
 	Backend        string
 	AICLISessionID string
+	LaunchID       string
 }
 
 type managerSlotInspector interface {
@@ -99,6 +100,7 @@ func (rt autopilotRuntime) adoptVerifiedMissingManager(ctx context.Context, sess
 		AutopilotRunID: spec.RunID, AutopilotSlot: store.AutopilotSlotManager,
 		Tags:   []string{"autopilot", "run:" + spec.RunID},
 		Status: store.StatusWorking, CreatedAt: now, UpdatedAt: now,
+		Runtime: &store.SessionRuntime{Kind: "tmux", LaunchID: obs.LaunchID},
 	}
 	if err := rt.s.store.Insert(ctx, sess); err != nil {
 		if errors.Is(err, agentstore.ErrExists) { // another verifier won; never replace it.
@@ -129,7 +131,7 @@ func verifyManagerSlotObservation(obs managerSlotObservation, spec autopilot.Boo
 	if obs.Role != autopilotBrainRole {
 		return "manager role missing or conflicting"
 	}
-	if obs.Backend == "" || obs.AICLISessionID == "" {
+	if obs.Backend == "" || obs.LaunchID == "" {
 		return "backend or session identity missing"
 	}
 	for _, s := range sessions {

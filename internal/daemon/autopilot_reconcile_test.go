@@ -21,7 +21,7 @@ func verifiedManagerObservation(spec autopilot.BootReconcileRun) managerSlotObse
 	return managerSlotObservation{
 		TmuxSession: spec.ManagerSlotID, RunID: spec.RunID, PlanID: spec.PlanID,
 		ProjectID: spec.ProjectID, Repo: spec.Repo, Workdir: spec.Repo,
-		Role: autopilotBrainRole, Backend: "codex", AICLISessionID: "backend-session-1",
+		Role: autopilotBrainRole, Backend: "codex", AICLISessionID: "backend-session-1", LaunchID: "launch-1",
 	}
 }
 
@@ -124,7 +124,7 @@ func TestReconcileSessionsRefusesForeignOrAmbiguousMissingManager(t *testing.T) 
 	}{
 		{name: "foreign run", mutate: func(o *managerSlotObservation) { o.RunID = "ap-other" }},
 		{name: "ambiguous project", mutate: func(o *managerSlotObservation) { o.ProjectID = "project-other" }},
-		{name: "missing continuity", mutate: func(o *managerSlotObservation) { o.AICLISessionID = "" }},
+		{name: "missing continuity", mutate: func(o *managerSlotObservation) { o.LaunchID = "" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st := newFakeStore()
