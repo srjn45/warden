@@ -1,7 +1,16 @@
 ---
 const base = import.meta.env.BASE_URL;
 const installCmd = 'curl -fsSL https://raw.githubusercontent.com/srjn45/warden/main/scripts/install.sh | bash';
-const backends = ['Claude', 'Codex', 'Antigravity', 'Cursor', 'OpenCode', 'Aider', 'Crush', 'Goose'];
+const backends = [
+  { id: 'claude', label: 'Claude', mark: 'claude.svg' },
+  { id: 'codex', label: 'Codex' },
+  { id: 'antigravity', label: 'Antigravity' },
+  { id: 'cursor', label: 'Cursor' },
+  { id: 'opencode', label: 'OpenCode' },
+  { id: 'aider', label: 'Aider' },
+  { id: 'crush', label: 'Crush' },
+  { id: 'goose', label: 'Goose' },
+];
 ---
 <section class="section hero">
   <div class="wrap">
@@ -17,7 +26,14 @@ const backends = ['Claude', 'Codex', 'Antigravity', 'Cursor', 'OpenCode', 'Aider
     </div>
     <p class="hero-note">Needs only curl. See <a href={`${base}start/install/`}>install options</a>.</p>
     <ul class="backend-strip" aria-label="Supported agent backends">
-      {backends.map((b) => <li>{b}</li>)}
+      {backends.map((backend) => (
+        <li>
+          {backend.mark ? (
+            <img class="backend-mark" src={`${base}brand/${backend.mark}`} alt="" aria-hidden="true" />
+          ) : <span class="backend-letter" aria-hidden="true">{backend.label.charAt(0)}</span>}
+          {backend.label}
+        </li>
+      ))}
     </ul>
     <img class="hero-media" src={`${base}media/hero.gif`} alt="warden start and warden ls in a terminal" loading="eager" />
   </div>

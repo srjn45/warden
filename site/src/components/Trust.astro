@@ -5,7 +5,7 @@ const points = [
   { title: 'Loopback by default', body: 'The daemon listens on 127.0.0.1:8765. Nothing is exposed to your network unless you bind it.' },
   { title: 'Token-gated remote access', body: 'Binding a non-loopback address is refused unless a bearer token is set. An optional read-only token gives view-only access.' },
   { title: 'Trust prompts handled', body: 'The one-time "trust this folder?" prompt is answered for each agent (trust_workspace, on by default) and recorded as an event; turn it off to review each in the approvals inbox.' },
-  { title: 'No telemetry', body: 'One binary and a local store. By default nothing leaves your machine; webhooks, Slack alerts and remote access send data only where you configure them.' },
+  { title: 'No warden telemetry', body: 'Warden keeps its own state locally and has no SaaS telemetry. Your selected AI CLI still contacts its provider; webhooks, Slack alerts and remote access send data only where you configure them.' },
   { title: 'Apache-2.0', body: 'Open source under the Apache License 2.0. Self-host it on a laptop or a box.' },
 ];
 ---
