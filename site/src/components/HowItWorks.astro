@@ -1,0 +1,39 @@
+---
+// Claims map to docs/FEATURES.md §34 and the canonical `wd plan` CLI flow.
+const steps = [
+  {
+    n: '1',
+    title: 'Plan',
+    cmd: 'wd plan create --name <name> --goal <goal> --task <id>:<prompt>',
+    body: 'Create a plan with a goal, constraints, and at least one task. Review or edit it while it is pending, then start it in Autopilot mode.',
+  },
+  {
+    n: '2',
+    title: 'Run',
+    cmd: 'wd plan run <id> --mode autopilot',
+    body: 'A manager delegates tasks to worker agents, each in its own isolated git worktree. Watch and steer them from the TUI or web cockpit, and pause any time.',
+  },
+  {
+    n: '3',
+    title: 'Land',
+    cmd: 'wd plan show <id> --watch',
+    body: 'The daemon gates each worker PR and lands it on a per-plan integration branch. When the run is ready, it opens one final PR to the default branch for you to merge.',
+  },
+];
+---
+<section class="section" id="how-it-works">
+  <div class="wrap">
+    <h2 class="hiw-title">How it works</h2>
+    <p class="hiw-lead">Plan → Run → Land. The loop Autopilot drives for you.</p>
+    <ol class="hiw-steps">
+      {steps.map((s) => (
+        <li class="tile hiw-step">
+          <span class="hiw-num" aria-hidden="true">{s.n}</span>
+          <h3>{s.title}</h3>
+          <p>{s.body}</p>
+          <code class="hiw-cmd">{s.cmd}</code>
+        </li>
+      ))}
+    </ol>
+  </div>
+</section>

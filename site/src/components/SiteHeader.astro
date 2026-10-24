@@ -15,7 +15,10 @@ const gh = 'https://github.com/srjn45/warden';
     </a>
     <div class="nav-links">
       <a class="hide-sm" href="#features">Features</a>
-      <a class="hide-sm" href="#pipeline">How it works</a>
+      <a class="hide-sm" href="#autopilot-and-plans">Autopilot</a>
+      <a class="hide-sm" href="#how-it-works">How it works</a>
+      <a class="hide-sm" href="#pipeline">Pipelines</a>
+      <a class="hide-sm" href="#trust">Trust</a>
       <a href={`${base}start/what-is-warden/`}>Docs</a>
       <a href={`${base}blog/`}>Blog</a>
       <a class="hide-sm" href={gh}>GitHub</a>
@@ -47,5 +50,8 @@ const gh = 'https://github.com/srjn45/warden';
     padding: 7px 14px; border-radius: 7px;
   }
   .nav-cta:hover { color: #06210f !important; }
+  @media (prefers-color-scheme: light) {
+    .nav { background: rgba(255, 255, 255, 0.82); }
+  }
   @media (max-width: 720px) { .nav-links .hide-sm { display: none; } }
 </style>
