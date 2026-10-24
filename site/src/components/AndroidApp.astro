@@ -2,25 +2,25 @@
 const base = import.meta.env.BASE_URL;
 const apk = 'https://github.com/srjn45/warden-android-app/releases/latest/download/warden-latest.apk';
 ---
-<section class="section" style="text-align:center">
+<section class="section android">
   <div class="wrap">
-    <h2 style="margin-bottom:6px">📱 Drive your fleet from your phone</h2>
-    <p style="color:var(--muted);font-size:1.1rem;max-width:640px;margin:0 auto 22px">
-      A native Android app for warden — spawn, watch, and talk to agents, plus a
-      full terminal and on-screen key bar, over Tailscale or your LAN.
+    <h2 class="android-title">Drive your fleet from your phone</h2>
+    <p class="android-sub">
+      A companion Android app for warden: spawn, watch, and talk to agents, with a
+      full terminal and on-screen key bar. It connects to your own daemon over your
+      LAN or a VPN such as Tailscale, using the same token auth as the web cockpit.
     </p>
-    <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-bottom:22px">
-      <img src={`${base}media/warden-app-hosts.png`} alt="warden Android app — host picker and navigation"
-        style="height:460px;max-width:100%;border:1px solid var(--border);border-radius:12px" loading="lazy" />
-      <img src={`${base}media/warden-app-agents.png`} alt="warden Android app — live agent list grouped by directory"
-        style="height:460px;max-width:100%;border:1px solid var(--border);border-radius:12px" loading="lazy" />
+    <div class="android-shots">
+      <img src={`${base}media/warden-app-hosts.png`} alt="warden Android app — host picker and navigation" loading="lazy" />
+      <img src={`${base}media/warden-app-agents.png`} alt="warden Android app — live agent list grouped by directory" loading="lazy" />
     </div>
     <p>
-      <a href={apk} style="background:var(--accent);color:#06210f;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600">Download the Android APK</a>
+      <a class="btn btn-primary" href={apk}>Download the Android APK</a>
     </p>
-    <p style="color:var(--muted);font-size:0.85rem;margin-top:10px;max-width:520px;margin-left:auto;margin-right:auto">
-      Sideloading: Android will ask you to allow installs from your browser the
-      first time — that's expected. A Play Store listing is on the way.
+    <p class="android-note">
+      Sideload install: Android will ask you to allow installs from your browser
+      the first time. That's expected. There is no Play Store listing yet. Prefer a
+      browser? The web cockpit is mobile-responsive too.
     </p>
   </div>
 </section>
