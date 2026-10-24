@@ -12,6 +12,8 @@ type BootReconcileRun struct {
 	RunID         string
 	SlotScope     string
 	Repo          string
+	PlanID        string
+	ProjectID     string
 	LegacyBrainID string
 	ManagerSlotID string
 }
@@ -88,6 +90,8 @@ func (c *Controller) bootReconcileSpecsLocked() []BootReconcileRun {
 			RunID:         r.runID,
 			SlotScope:     r.slotScope,
 			Repo:          r.repo,
+			PlanID:        r.planID,
+			ProjectID:     r.projectID,
 			ManagerSlotID: ManagerSlotID(r.slotScope),
 		}
 		if c.store != nil {

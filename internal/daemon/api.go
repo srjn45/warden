@@ -108,6 +108,11 @@ type sessionsResponse struct {
 type Server struct {
 	store agentstore.AgentStore
 	life  Lifecycle
+	// managerSlotInspector is deliberately narrow: it observes launch metadata
+	// for the one deterministic autopilot manager slot.  It never attaches to,
+	// renames, or terminates a tmux session. Production wiring may provide a
+	// tmux-backed implementation; nil means recovery safely refuses adoption.
+	managerSlotInspector managerSlotInspector
 	// promptNamer optionally overrides the lifecycle SpawnNameRunner for
 	// prepareSpawnName (tests inject a stub; production leaves it nil).
 	promptNamer  agentname.BackendRunner

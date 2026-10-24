@@ -24,6 +24,22 @@ func NewLifecycleAdapter(lc *lifecycle.Lifecycle, st agentstore.AgentStore) Life
 	return &lifecycleAdapter{lc: lc, store: st}
 }
 
+// InspectManagerSlot is deliberately read-only. It makes the lifecycle adapter
+// the production verifier for boot adoption without widening the general
+// Lifecycle interface (and therefore without burdening ordinary test doubles).
+func (a *lifecycleAdapter) InspectManagerSlot(ctx context.Context, slot string) (managerSlotObservation, error) {
+	m, err := a.lc.InspectManagerSlot(ctx, slot)
+	if err != nil {
+		if errors.Is(err, lifecycle.ErrManagerSlotMissing) {
+			return managerSlotObservation{}, errManagerSlotMissing
+		}
+		return managerSlotObservation{}, err
+	}
+	return managerSlotObservation{TmuxSession: m.TmuxSession, RunID: m.RunID, PlanID: m.PlanID,
+		ProjectID: m.ProjectID, Repo: m.Repo, Workdir: m.Workdir, Role: m.Role,
+		Backend: m.Backend, AICLISessionID: m.AICLISessionID}, nil
+}
+
 // Spawn translates the daemon's wire DTO into the lifecycle request, normalizing
 // the type so unknown types collapse to "other" (no worktree). In free-form mode
 // (no Type — prompted or interactive) the Type is left empty so the doc stays

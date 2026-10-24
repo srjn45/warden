@@ -999,6 +999,46 @@ type Lifecycle struct {
 	readPSI func() (string, error)
 }
 
+// ManagerSlotMetadata is the immutable launch identity recovered from a live
+// tmux session. It is intentionally not a general adoption API.
+type ManagerSlotMetadata struct {
+	TmuxSession, RunID, PlanID, ProjectID, Repo, Workdir, Role, Backend, AICLISessionID string
+}
+
+// ErrManagerSlotMissing distinguishes an absent deterministic slot (where a
+// normal first launch is allowed) from a live slot whose evidence is unreadable.
+var ErrManagerSlotMissing = errors.New("manager slot missing")
+
+// InspectManagerSlot reads a manager pane's session-scoped launch environment
+// and current path. It performs no attach, send-keys, rename, or teardown.
+func (l *Lifecycle) InspectManagerSlot(ctx context.Context, slot string) (ManagerSlotMetadata, error) {
+	if strings.TrimSpace(slot) == "" {
+		return ManagerSlotMetadata{}, errors.New("manager slot is required")
+	}
+	if _, err := l.run.Run(ctx, "", "tmux", "has-session", "-t", slot); err != nil {
+		return ManagerSlotMetadata{}, fmt.Errorf("%w: %v", ErrManagerSlotMissing, err)
+	}
+	env, err := l.run.Run(ctx, "", "tmux", "show-environment", "-t", slot)
+	if err != nil {
+		return ManagerSlotMetadata{}, fmt.Errorf("inspect manager slot environment: %w", err)
+	}
+	path, err := l.run.Run(ctx, "", "tmux", "display-message", "-p", "-t", slot, "#{pane_current_path}")
+	if err != nil {
+		return ManagerSlotMetadata{}, fmt.Errorf("inspect manager slot path: %w", err)
+	}
+	values := map[string]string{}
+	for _, line := range strings.Split(env, "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if ok {
+			values[key] = value
+		}
+	}
+	return ManagerSlotMetadata{TmuxSession: slot, RunID: values["WARDEN_AUTOPILOT_RUN_ID"],
+		PlanID: values["WARDEN_PLAN_ID"], ProjectID: values["WARDEN_PROJECT_ID"],
+		Repo: values["WARDEN_REPO"], Workdir: strings.TrimSpace(path), Role: values["WARDEN_ROLE"],
+		Backend: values["WARDEN_BACKEND"], AICLISessionID: values["WARDEN_AI_CLI_SESSION_ID"]}, nil
+}
+
 // recordOffload reports a fully-offloaded local-model call to the savings hook (if
 // any): the whole prompt left warden's Claude spend, so rawTokens is the prompt's
 // estimated size and keptTokens is 0. agent may be "" (an unattributed call).
@@ -2104,7 +2144,16 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, agent *
 		}
 	}
 
-	if err := l.newAgentSession(ctx, "", agent.ID, req.Cwd); err != nil {
+	launchEnv := []string(nil)
+	if req.AutopilotRunID != "" {
+		launchEnv = []string{
+			"WARDEN_AUTOPILOT_RUN_ID=" + req.AutopilotRunID, "WARDEN_PLAN_ID=" + req.PlanID,
+			"WARDEN_PROJECT_ID=" + req.ProjectID, "WARDEN_REPO=" + req.Repo,
+			"WARDEN_ROLE=" + req.Role, "WARDEN_BACKEND=" + agent.AiCli,
+			"WARDEN_AI_CLI_SESSION_ID=" + agent.AICLISessionID,
+		}
+	}
+	if err := l.newAgentSession(ctx, "", agent.ID, req.Cwd, launchEnv...); err != nil {
 		return nil, err
 	}
 	agent.Runtime = l.stampRuntime(l.Proc(), agent.ID, "tmux")
@@ -2193,7 +2242,16 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, agent *age
 			return nil, err
 		}
 	}
-	if err := l.newAgentSession(ctx, req.Repo, agent.ID, workdir); err != nil {
+	launchEnv := []string(nil)
+	if req.AutopilotRunID != "" {
+		launchEnv = []string{
+			"WARDEN_AUTOPILOT_RUN_ID=" + req.AutopilotRunID, "WARDEN_PLAN_ID=" + req.PlanID,
+			"WARDEN_PROJECT_ID=" + req.ProjectID, "WARDEN_REPO=" + req.Repo,
+			"WARDEN_ROLE=" + req.Role, "WARDEN_BACKEND=" + agent.AiCli,
+			"WARDEN_AI_CLI_SESSION_ID=" + agent.AICLISessionID,
+		}
+	}
+	if err := l.newAgentSession(ctx, req.Repo, agent.ID, workdir, launchEnv...); err != nil {
 		// new-session failed, so no tmux session exists; only undo a worktree we made.
 		l.cleanupFailedSpawn(agent, false, worktreeCreated)
 		return nil, err

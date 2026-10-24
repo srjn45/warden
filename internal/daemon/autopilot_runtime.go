@@ -69,16 +69,40 @@ func (rt autopilotRuntime) SpawnBrain(ctx context.Context, spec autopilot.BrainS
 		}
 	} else if !errors.Is(err, agentstore.ErrNotFound) {
 		return autopilot.BrainHandle{}, err
+	} else if rt.s.managerSlotInspector == nil {
+		// Unit-only/minimal runtimes have no tmux observer. Production NewServer
+		// wires one; preserving this fallback keeps a first launch possible.
+	} else {
+		sessions, listErr := rt.s.store.List(ctx)
+		if listErr != nil {
+			return autopilot.BrainHandle{}, fmt.Errorf("verify missing manager slot: %w", listErr)
+		}
+		adopted, adoptErr := rt.adoptVerifiedMissingManager(ctx, sessions, autopilot.BootReconcileRun{
+			RunID: spec.RunID, SlotScope: spec.SlotScope, Repo: spec.Repo, PlanID: spec.PlanID,
+			ProjectID: spec.ProjectID, ManagerSlotID: slotID,
+		})
+		if adoptErr != nil {
+			return autopilot.BrainHandle{}, adoptErr
+		}
+		if adopted {
+			existing, getErr := rt.s.store.Get(ctx, slotID)
+			if getErr != nil {
+				return autopilot.BrainHandle{}, getErr
+			}
+			return autopilot.BrainHandle{AgentID: existing.ID, Backend: existing.AiCli}, nil
+		}
 	}
 	req := SpawnRequest{
-		Ticket:    slotID,
-		Cwd:       spec.Repo,
-		Prompt:    spec.Prompt,
-		Role:      autopilotBrainRole,
-		Backend:   spec.Backend,
-		Tags:      spec.Tags,
-		PlanID:    spec.PlanID,
-		ProjectID: spec.ProjectID,
+		Ticket:         slotID,
+		Cwd:            spec.Repo,
+		Prompt:         spec.Prompt,
+		Role:           autopilotBrainRole,
+		Backend:        spec.Backend,
+		Tags:           spec.Tags,
+		PlanID:         spec.PlanID,
+		ProjectID:      spec.ProjectID,
+		AutopilotRunID: spec.RunID,
+		AutopilotSlot:  store.AutopilotSlotManager,
 	}
 	if code, msg := rt.s.validateSpawnRequest(ctx, req); code != 0 {
 		return autopilot.BrainHandle{}, errors.New(msg)

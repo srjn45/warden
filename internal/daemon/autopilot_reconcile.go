@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -10,6 +12,29 @@ import (
 	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/srjn45/warden/internal/store"
 )
+
+// managerSlotObservation is authenticated launch metadata obtained without
+// changing the observed pane. Every field is required for adoption; keeping
+// this seam read-only prevents a duplicate-session error from becoming an
+// implicit permission to mutate an arbitrary tmux session.
+type managerSlotObservation struct {
+	TmuxSession    string
+	RunID          string
+	PlanID         string
+	ProjectID      string
+	Repo           string
+	Workdir        string
+	Role           string
+	Backend        string
+	AICLISessionID string
+}
+
+type managerSlotInspector interface {
+	InspectManagerSlot(context.Context, string) (managerSlotObservation, error)
+}
+
+var errManagerAdoptionRefused = errors.New("manager adoption refused")
+var errManagerSlotMissing = errors.New("manager slot missing")
 
 // ReconcileSessions migrates legacy autopilot sessions at daemon boot (WP12):
 // adopt live agent-<hex> managers into slot ids and stamp worker back-ref fields
@@ -24,11 +49,101 @@ func (rt autopilotRuntime) ReconcileSessions(ctx context.Context, runs []autopil
 	}
 	var errs []error
 	for _, spec := range runs {
+		if _, err := rt.adoptVerifiedMissingManager(ctx, sessions, spec); err != nil && !errors.Is(err, errManagerAdoptionRefused) {
+			errs = append(errs, err)
+		}
 		errs = append(errs, rt.migrateLegacyManager(ctx, sessions, spec))
 		errs = append(errs, rt.reconcileWorkerBackRefs(ctx, sessions, spec))
 	}
 	rt.s.notify()
 	return errors.Join(errs...)
+}
+
+// adoptVerifiedMissingManager restores only a record that was lost while its
+// deterministic manager pane survived. It is intentionally all-or-nothing:
+// evidence that is absent, stale, foreign, or ambiguous leaves the pane and
+// all other sessions untouched. In particular it does not spawn, terminate,
+// rename, or attach to tmux.
+func (rt autopilotRuntime) adoptVerifiedMissingManager(ctx context.Context, sessions []*agentstore.Agent, spec autopilot.BootReconcileRun) (bool, error) {
+	if rt.s.managerSlotInspector == nil || spec.ManagerSlotID == "" {
+		return false, fmt.Errorf("%w: launch metadata verifier unavailable", errManagerAdoptionRefused)
+	}
+	if _, err := rt.s.store.Get(ctx, spec.ManagerSlotID); err == nil {
+		return false, nil
+	} else if !errors.Is(err, agentstore.ErrNotFound) {
+		return false, err
+	}
+
+	// Bound an external metadata observation even if boot reconciliation was
+	// called with a background context.
+	verifyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	obs, err := rt.s.managerSlotInspector.InspectManagerSlot(verifyCtx, spec.ManagerSlotID)
+	if err != nil {
+		if errors.Is(err, errManagerSlotMissing) {
+			return false, nil
+		}
+		slog.Warn("autopilot: manager adoption refused", "slot", spec.ManagerSlotID, "reason", "metadata unavailable", "err", err)
+		return false, fmt.Errorf("%w: metadata unavailable: %v", errManagerAdoptionRefused, err)
+	}
+	if reason := verifyManagerSlotObservation(obs, spec, sessions); reason != "" {
+		slog.Warn("autopilot: manager adoption refused", "slot", spec.ManagerSlotID, "reason", reason)
+		return false, fmt.Errorf("%w: %s", errManagerAdoptionRefused, reason)
+	}
+	now := time.Now().UTC()
+	sess := &agentstore.Agent{
+		ID: obs.TmuxSession, Name: obs.TmuxSession, TmuxSession: obs.TmuxSession,
+		AiCli: obs.Backend, AICLISessionID: obs.AICLISessionID,
+		Repo: obs.Repo, Workdir: obs.Workdir, Role: autopilotBrainRole,
+		PlanID: spec.PlanID, ProjectID: spec.ProjectID,
+		AutopilotRunID: spec.RunID, AutopilotSlot: store.AutopilotSlotManager,
+		Tags:   []string{"autopilot", "run:" + spec.RunID},
+		Status: store.StatusWorking, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := rt.s.store.Insert(ctx, sess); err != nil {
+		if errors.Is(err, agentstore.ErrExists) { // another verifier won; never replace it.
+			return false, nil
+		}
+		return false, fmt.Errorf("adopt verified manager slot %s: %w", spec.ManagerSlotID, err)
+	}
+	slog.Info("autopilot: adopted verified manager slot", "run", spec.RunID, "slot", spec.ManagerSlotID)
+	return true, nil
+}
+
+func verifyManagerSlotObservation(obs managerSlotObservation, spec autopilot.BootReconcileRun, sessions []*agentstore.Agent) string {
+	if obs.TmuxSession != spec.ManagerSlotID {
+		return "tmux slot identity mismatch"
+	}
+	if obs.RunID != spec.RunID {
+		return "foreign run ownership"
+	}
+	if obs.PlanID == "" || obs.PlanID != spec.PlanID {
+		return "plan ownership missing or conflicting"
+	}
+	if obs.ProjectID == "" || obs.ProjectID != spec.ProjectID {
+		return "project ownership missing or conflicting"
+	}
+	if obs.Repo == "" || obs.Repo != spec.Repo || obs.Workdir != spec.Repo {
+		return "repository or workdir ownership missing or conflicting"
+	}
+	if obs.Role != autopilotBrainRole {
+		return "manager role missing or conflicting"
+	}
+	if obs.Backend == "" || obs.AICLISessionID == "" {
+		return "backend or session identity missing"
+	}
+	for _, s := range sessions {
+		if s == nil || !guardianSessionLive(s.Status) {
+			continue
+		}
+		if s.ID == spec.ManagerSlotID || s.TmuxSession == spec.ManagerSlotID {
+			return "competing manager record"
+		}
+		if s.AutopilotRunID == spec.RunID && s.AutopilotSlot == store.AutopilotSlotManager {
+			return "competing manager record for run"
+		}
+	}
+	return ""
 }
 
 func (rt autopilotRuntime) migrateLegacyManager(ctx context.Context, sessions []*agentstore.Agent, spec autopilot.BootReconcileRun) error {
