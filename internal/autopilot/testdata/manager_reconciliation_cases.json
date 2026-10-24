@@ -1,0 +1,72 @@
+[
+  {
+    "name": "live_registered",
+    "slot_scope": "payments",
+    "run_id": "ap-payments",
+    "plan_id": "plan-payments",
+    "project_id": "/repo/payments",
+    "tmux_session": "payments-autopilot",
+    "tmux_alive": true,
+    "record": "registered_live",
+    "metadata": "verified",
+    "expected_disposition": "retain_registered",
+    "expected_run_transition": "unchanged",
+    "expected_ledger_transition": "manager_reconciled"
+  },
+  {
+    "name": "live_unregistered",
+    "slot_scope": "payments",
+    "run_id": "ap-payments",
+    "plan_id": "plan-payments",
+    "project_id": "/repo/payments",
+    "tmux_session": "payments-autopilot",
+    "tmux_alive": true,
+    "record": "absent",
+    "metadata": "verified",
+    "expected_disposition": "adopt_verified",
+    "expected_run_transition": "active",
+    "expected_ledger_transition": "manager_adopted"
+  },
+  {
+    "name": "dead_slot",
+    "slot_scope": "payments",
+    "run_id": "ap-payments",
+    "plan_id": "plan-payments",
+    "project_id": "/repo/payments",
+    "tmux_session": "payments-autopilot",
+    "tmux_alive": false,
+    "record": "registered_live",
+    "metadata": "unavailable",
+    "expected_disposition": "mark_missing",
+    "expected_run_transition": "degraded_backoff",
+    "expected_ledger_transition": "manager_missing"
+  },
+  {
+    "name": "foreign_session",
+    "slot_scope": "payments",
+    "run_id": "ap-payments",
+    "plan_id": "plan-payments",
+    "project_id": "/repo/payments",
+    "tmux_session": "payments-autopilot",
+    "tmux_alive": true,
+    "record": "absent",
+    "metadata": "foreign_run",
+    "expected_disposition": "refuse_foreign",
+    "expected_run_transition": "degraded",
+    "expected_ledger_transition": "verification_failed"
+  },
+  {
+    "name": "ambiguous_session",
+    "slot_scope": "payments",
+    "run_id": "ap-payments",
+    "plan_id": "plan-payments",
+    "project_id": "/repo/payments",
+    "tmux_session": "payments-autopilot",
+    "tmux_alive": true,
+    "record": "absent",
+    "metadata": "conflicting_project",
+    "expected_disposition": "refuse_ambiguous",
+    "expected_run_transition": "degraded",
+    "expected_ledger_transition": "verification_failed"
+  }
+]
