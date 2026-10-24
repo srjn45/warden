@@ -73,6 +73,91 @@ func TestSequenceHumanRaceDropsRest(t *testing.T) {
 	}
 }
 
+// Concurrent automatic sequences must reserve their whole paste/submit unit:
+// without the sequence gate the second paste can land in the first sequence's
+// gap and the first Enter submits both lines together.
+func TestSequenceAutomaticPartsDoNotInterleave(t *testing.T) {
+	r := startFake(t, seqOwnership())
+	r.waitOutput("ready")
+	ctx, cancel := context.WithTimeout(context.Background(), waitFor)
+	defer cancel()
+
+	first := make(chan error, 1)
+	go func() {
+		first <- r.s.WriteSequence(ctx, ptyevent.Sequence{Origin: ptyevent.OriginOperator,
+			Parts: pasteSubmit("say first", 200*time.Millisecond)})
+	}()
+	// Let the first paste land and remain in its deliberate gap before issuing
+	// the second sequence. Its paste must wait until first's Enter is written.
+	time.Sleep(60 * time.Millisecond)
+	second := make(chan error, 1)
+	go func() {
+		second <- r.s.WriteSequence(ctx, ptyevent.Sequence{Origin: ptyevent.OriginWarden, Reason: "seed",
+			Parts: pasteSubmit("say second", 0)})
+	}()
+	if err := <-first; err != nil {
+		t.Fatalf("first sequence: %v", err)
+	}
+	if err := <-second; err != nil {
+		t.Fatalf("second sequence: %v", err)
+	}
+	r.waitOutput("first\r\n")
+	r.waitOutput("second\r\n")
+
+	var automatic []string
+	for _, ev := range kinds(r.events(), ptyevent.KindInput) {
+		if ev.Input.Origin != ptyevent.OriginHuman {
+			automatic = append(automatic, string(ev.Input.Data))
+		}
+	}
+	want := []string{"say first", "\n", "say second", "\n"}
+	if len(automatic) != len(want) {
+		t.Fatalf("automatic inputs = %#v, want %#v", automatic, want)
+	}
+	for i := range want {
+		if automatic[i] != want[i] {
+			t.Fatalf("automatic inputs = %#v, want %#v", automatic, want)
+		}
+	}
+}
+
+// A warden decision records the human fence when it is made, before waiting
+// behind another automatic sequence.  A human keystroke while it waits makes
+// that decision stale; it must not be re-based to the later queue time.
+func TestSequenceQueuedWardenUsesDecisionTimeHumanFence(t *testing.T) {
+	r := startFake(t, seqOwnership())
+	r.waitOutput("ready")
+	ctx, cancel := context.WithTimeout(context.Background(), waitFor)
+	defer cancel()
+
+	first := make(chan error, 1)
+	go func() {
+		first <- r.s.WriteSequence(ctx, ptyevent.Sequence{Origin: ptyevent.OriginOperator,
+			Parts: pasteSubmit("say first", 300*time.Millisecond)})
+	}()
+	time.Sleep(60 * time.Millisecond) // first paste is in; its sequence owns seqMu
+	warden := make(chan error, 1)
+	go func() {
+		warden <- r.s.WriteSequence(ctx, ptyevent.Sequence{Origin: ptyevent.OriginWarden, Reason: "resume",
+			Parts: pasteSubmit("say stale", 0)})
+	}()
+	time.Sleep(30 * time.Millisecond) // warden has taken its decision-time fence
+	if arb, err := r.s.Input(Write{Origin: ptyevent.OriginHuman, ClientID: "c1", Data: []byte("say human")}); err != nil || arb.Verdict != ptyevent.VerdictWrite {
+		t.Fatalf("human preemption = %+v, %v", arb, err)
+	}
+	if err := <-first; !errors.Is(err, ErrPreempted) {
+		t.Fatalf("first sequence after human preemption = %v, want ErrPreempted", err)
+	}
+	if err := <-warden; !errors.Is(err, ErrPreempted) {
+		t.Fatalf("queued stale warden decision = %v, want ErrPreempted", err)
+	}
+	for _, ev := range kinds(r.events(), ptyevent.KindInput) {
+		if string(ev.Input.Data) == "say stale" {
+			t.Fatal("stale queued warden input reached the PTY")
+		}
+	}
+}
+
 // A warden sequence issued before a human typed is stale once they have: it is
 // dropped even though the human later went quiet. An operator send, being
 // explicit, simply waits its turn.
