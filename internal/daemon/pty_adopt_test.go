@@ -60,13 +60,17 @@ func (r *adoptRig) restart() {
 }
 
 func (r *adoptRig) spawnAgent(id string) int {
+	return r.spawnAgentCommand(id, "exec sleep 1000")
+}
+
+func (r *adoptRig) spawnAgentCommand(id, command string) int {
 	r.t.Helper()
 	r.mgr.SetAgentDirectReady(true)
 	h, ok := r.mgr.Host().(interface {
 		LaunchCommand(context.Context, string, string, []string, ...string) error
 	})
 	require.True(r.t, ok)
-	require.NoError(r.t, h.LaunchCommand(context.Background(), id, r.t.TempDir(), []string{"/bin/sh", "-c", "exec sleep 1000"}))
+	require.NoError(r.t, h.LaunchCommand(context.Background(), id, r.t.TempDir(), []string{"/bin/sh", "-c", command}))
 	d := r.mgr.Direct(id)
 	require.NotNil(r.t, d)
 	holderPID, holderStart, proto, ok := r.mgr.HolderMeta(id)
@@ -75,6 +79,19 @@ func (r *adoptRig) spawnAgent(id string) int {
 		ID: id, TmuxSession: id, Workdir: r.t.TempDir(), Status: store.StatusWorking,
 		Runtime: &store.SessionRuntime{Kind: "direct", PinnedMode: "on", HolderPID: holderPID, HolderStart: holderStart, Proto: proto},
 	}))
+	return d.PID()
+}
+
+func (r *adoptRig) launchUnrecordedAgent(id, command string) int {
+	r.t.Helper()
+	r.mgr.SetAgentDirectReady(true)
+	h, ok := r.mgr.Host().(interface {
+		LaunchCommand(context.Context, string, string, []string, ...string) error
+	})
+	require.True(r.t, ok)
+	require.NoError(r.t, h.LaunchCommand(context.Background(), id, r.t.TempDir(), []string{"/bin/sh", "-c", command}))
+	d := r.mgr.Direct(id)
+	require.NotNil(r.t, d)
 	return d.PID()
 }
 
@@ -204,6 +221,72 @@ func TestRecoverPTYAdoptsLiveHolderAgentAfterRollback(t *testing.T) {
 	rec, err := r.agents.Get(ctx, "agent-keep")
 	require.NoError(t, err)
 	require.Equal(t, store.StatusWorking, rec.Status)
+}
+
+// A crash after the holder creates the child but before agent-record persistence
+// leaves an unknown holder. Retrying that launch must adopt the same child, not
+// run the task/seed command a second time.
+func TestAgentLaunchAdoptsUnrecordedHolderWithoutDuplicateTaskStart(t *testing.T) {
+	r := newAdoptRig(t)
+	ctx := context.Background()
+	starts := filepath.Join(r.t.TempDir(), "starts")
+	pid := r.launchUnrecordedAgent("agent-unrecorded", "printf first-start >>"+starts+"; printf conversation-marker; exec sleep 1000")
+	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+
+	r.restart()
+	r.mgr.SetAgentDirectReady(true)
+	h, ok := r.mgr.Host().(interface {
+		LaunchCommand(context.Context, string, string, []string, ...string) error
+	})
+	require.True(t, ok)
+	require.NoError(t, h.LaunchCommand(ctx, "agent-unrecorded", r.t.TempDir(), []string{"/bin/sh", "-c", "printf replacement-start >>" + starts + "; exec sleep 1000"}))
+	d := r.mgr.Direct("agent-unrecorded")
+	require.NotNil(t, d)
+	require.Equal(t, pid, d.PID(), "retry must adopt the original child")
+	require.Eventually(t, func() bool { return strings.Contains(d.Screen(), "conversation-marker") }, 5*time.Second, 10*time.Millisecond)
+	data, err := os.ReadFile(starts)
+	require.NoError(t, err)
+	require.Equal(t, "first-start", string(data), "task must start exactly once")
+	require.Empty(t, r.life.restored, "adoption must not invoke lifecycle restore")
+}
+
+// Output written by a direct agent while the daemon is absent is retained in
+// the kernel PTY buffer for a bounded burst and appears after holder adoption.
+// This is deliberately not a claim of unbounded/lossless offline output: once
+// the kernel buffer fills, the child receives normal PTY backpressure.
+func TestRecoverPTYAgentRetainsBoundedOfflineOutput(t *testing.T) {
+	r := newAdoptRig(t)
+	ctx := context.Background()
+	pid := r.spawnAgentCommand("agent-offline-output", "sleep 0.1; printf offline-agent-output; exec sleep 1000")
+	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+
+	r.mgr.Close() // simulate daemon absence; the holder retains the PTY master
+	time.Sleep(250 * time.Millisecond)
+	r.restart()
+	r.srv.recoverPTY(ctx)
+	d := r.mgr.Direct("agent-offline-output")
+	require.NotNil(t, d)
+	require.Equal(t, pid, d.PID(), "adoption must retain the original child")
+	require.Eventually(t, func() bool { return strings.Contains(d.Screen(), "offline-agent-output") }, 5*time.Second, 10*time.Millisecond)
+}
+
+// An agent that exits while the daemon is absent is adopted only to collect its
+// real lifecycle result; recovery never starts another provider process.
+func TestRecoverPTYAgentExitWhileDaemonDownIsNotRelaunched(t *testing.T) {
+	r := newAdoptRig(t)
+	ctx := context.Background()
+	pid := r.spawnAgentCommand("agent-offline-exit", "sleep 0.1; exit 7")
+
+	r.mgr.Close()
+	time.Sleep(250 * time.Millisecond)
+	r.restart()
+	r.srv.recoverPTY(ctx)
+	require.Eventually(t, func() bool {
+		rec, err := r.agents.Get(ctx, "agent-offline-exit")
+		return err == nil && rec.Status == store.StatusOrphaned
+	}, 5*time.Second, 10*time.Millisecond)
+	require.Empty(t, r.life.restored, "offline exit must not start a replacement")
+	_ = pid // retained as an explicit same-child fixture identity
 }
 
 // A direct agent without a verifiable holder is unsafe to restart: preserve

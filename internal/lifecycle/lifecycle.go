@@ -2075,6 +2075,10 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, agent *
 		return nil, fmt.Errorf("fork requires a typed (worktree-backed) spawn; free-form fork is not supported")
 	}
 	agent.Workdir = req.Cwd
+	b := l.launchBackend(agent)
+	if err := l.rejectDirectPromptSeeder(agent.ID, b); err != nil {
+		return nil, err
+	}
 
 	// launchPrompt is the trailing claude argument. Empty for an interactive
 	// agent (open claude and wait); for an autonomous agent it reads the prompt
@@ -2108,7 +2112,6 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, agent *
 	if mode == "" {
 		mode = l.config().GetDefaultPermissionMode()
 	}
-	b := l.launchBackend(agent)
 	// For a backend with no system-prompt flag but an AGENTS.md rules file (Codex),
 	// deliver the same pipeline/collab addendum by writing it into the workdir before
 	// launch. A flag-based backend (Claude) skips this — its hints ride the launch
@@ -2156,6 +2159,10 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, agent *age
 	// (ensureWorktree). Reject a fork that would not get its own worktree.
 	if req.ForkFrom != "" && !wantWorktree(req) {
 		return nil, fmt.Errorf("fork requires its own worktree; spawn a worktree-backed type without --in-repo")
+	}
+	b := l.backendFor(agent.AiCli)
+	if err := l.rejectDirectPromptSeeder(agent.ID, b); err != nil {
+		return nil, err
 	}
 	workdir := req.Repo
 	worktreeCreated := false
@@ -2210,7 +2217,6 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, agent *age
 	if mode == "" {
 		mode = l.config().GetDefaultPermissionMode()
 	}
-	b := l.backendFor(agent.AiCli)
 	// For a backend with no system-prompt flag but an AGENTS.md rules file (Codex),
 	// deliver the same pipeline/collab/git addendum by writing it into the worktree
 	// (created above) before launch. A flag-based backend (Claude) skips this — its
@@ -2333,6 +2339,21 @@ type directLauncher interface {
 func (l *Lifecycle) planAgentDirect(id string) bool {
 	d, ok := l.Proc().(directLauncher)
 	return ok && d.PlanAgentDirect(id)
+}
+
+// rejectDirectPromptSeeder fences adapters that can receive their first task
+// only through post-launch input. A direct child may have received that input
+// just before a crash, so retrying/re-delivering it is ambiguous and can start
+// the task twice. Keep these adapters on the established tmux path until the
+// authority controller owns durable seed delivery.
+func (l *Lifecycle) rejectDirectPromptSeeder(id string, b agentbackend.Backend) error {
+	if !l.planAgentDirect(id) {
+		return nil
+	}
+	if _, ok := b.(agentbackend.PromptSeeder); ok {
+		return fmt.Errorf("%w: backend %s requires post-launch prompt seeding", ErrDirectPromptSeederUnsupported, b.ID())
+	}
+	return nil
 }
 
 // agentDirect reports whether id's launch was deferred to a direct PTY.
@@ -2480,6 +2501,9 @@ func (l *Lifecycle) resumeInTmuxWithHints(ctx context.Context, b agentbackend.Ba
 // on the operator recovery paths (RestoreSession / archived Recover) — not
 // here — so internal relaunch of errored/rate_limited sessions keeps working.
 func (l *Lifecycle) Restore(ctx context.Context, agent *agentstore.Agent) error {
+	if agent != nil && agent.Runtime != nil && agent.Runtime.Kind == "direct" {
+		return ErrDirectLifecycleUnsupported
+	}
 	// A legacy record with no binding remains explicitly unbound: restore cannot
 	// safely reconstruct the account/profile that originally launched it.
 	if agent.QuotaBinding != nil && l.CapacityResolver != nil {
@@ -2537,6 +2561,9 @@ func (l *Lifecycle) Restore(ctx context.Context, agent *agentstore.Agent) error 
 // the role stays persisted (it applies on the next fresh launch) rather than
 // stranding the agent.
 func (l *Lifecycle) SwitchRole(ctx context.Context, agent *agentstore.Agent) error {
+	if agent != nil && agent.Runtime != nil && agent.Runtime.Kind == "direct" {
+		return ErrDirectLifecycleUnsupported
+	}
 	b := l.backendFor(agent.AiCli)
 	if !b.Capabilities().Resume {
 		return fmt.Errorf("backend %s does not support resume — cannot re-inject a role on a running agent (the role is saved and applies on the next fresh launch)", b.ID())
@@ -2688,6 +2715,15 @@ var (
 	ErrNoWorktree          = errors.New("session has no worktree")
 	ErrWorktreeAgentAlive  = errors.New("agent is still running; terminate it before removing its worktree")
 	ErrTmuxGone            = errors.New("tmux session not found")
+	// ErrDirectPromptSeederUnsupported reports an adapter that cannot safely
+	// receive an initial task on a direct child yet. The error is returned before
+	// any session or child is created.
+	ErrDirectPromptSeederUnsupported = errors.New("direct prompt-seeding backend is not supported yet")
+	// ErrDirectLifecycleUnsupported fences a direct agent from legacy lifecycle
+	// operations that would otherwise probe, kill, or resume a nonexistent tmux
+	// pane.  Direct restore/relaunch authority is intentionally introduced only
+	// with the durable controller work; callers must leave the live child alone.
+	ErrDirectLifecycleUnsupported = errors.New("direct agent lifecycle operation is not supported yet; leave the direct session running")
 )
 
 // CleanupTarget carries the fields Cleanup needs (filled from the store doc).
@@ -2876,6 +2912,9 @@ func (l *Lifecycle) loadBuffer(ctx context.Context, buf, text string) error {
 // Enter: Claude Code's select prompts treat the digit itself as select-and-
 // confirm, so an extra Enter could double-submit.
 func (l *Lifecycle) SendKeys(ctx context.Context, tmuxSession, key string) error {
+	if l.hostedDirectly(tmuxSession) {
+		return l.Proc().SendKeys(ctx, tmuxSession, key)
+	}
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", tmuxSession, key); err != nil {
 		return fmt.Errorf("tmux send-keys %q: %w: %s", key, err, out)
 	}
@@ -2954,6 +2993,11 @@ func (l *Lifecycle) seedInteractivePrompt(b agentbackend.Backend, agent *agentst
 // reports false when the backend does not take its prompt as typed input (it
 // seeds on the launch line), in which case nothing was sent.
 func (l *Lifecycle) RedeliverPrompt(agent *agentstore.Agent) bool {
+	if agent != nil && agent.Runtime != nil && agent.Runtime.Kind == "direct" {
+		// The initial post-launch write may already have reached the child. Until
+		// seed delivery has durable ownership, fail closed instead of replaying it.
+		return false
+	}
 	b := l.backendFor(agent.AiCli)
 	if _, ok := b.(agentbackend.PromptSeeder); !ok {
 		return false
@@ -3314,6 +3358,10 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 		BaseBranch: req.BaseBranch,
 		Tags:       store.NormalizeTags(req.Tags),
 	}
+	b := l.backendFor(agent.AiCli)
+	if err := l.rejectDirectPromptSeeder(agent.ID, b); err != nil {
+		return nil, err
+	}
 	cid, err := store.NewSessionID()
 	if err != nil {
 		return nil, err
@@ -3371,7 +3419,6 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 	if mode == "" {
 		mode = l.config().GetDefaultPermissionMode()
 	}
-	b := l.backendFor(agent.AiCli)
 	// For a backend with no system-prompt flag but an AGENTS.md rules file (Codex),
 	// deliver the same collab addendum by writing it into the workdir before launch.
 	// A flag-based backend (Claude) skips this — its hint rides the launch line below.
