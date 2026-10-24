@@ -1391,11 +1391,18 @@ func (Antigravity) ParseRateLimitReset(pane string) (time.Time, bool) {
 	if t, ok := rlParseRelativeReset(pane, now); ok {
 		return t, true
 	}
+	return antigravityParseClockReset(pane, now)
+}
+
+// antigravityParseClockReset parses an absolute clock reset against now's
+// location. It advances by a calendar day, not a fixed 24 hours: the latter
+// moves a wall-clock reset one hour earlier over a daylight-saving transition.
+func antigravityParseClockReset(pane string, now time.Time) (time.Time, bool) {
 	if m := antigravityResetsAtRe.FindStringSubmatch(pane); len(m) == 3 {
 		if h, min, ok := rlParseClock(m[1], m[2]); ok {
 			result := time.Date(now.Year(), now.Month(), now.Day(), h, min, 0, 0, now.Location())
 			if result.Before(now) {
-				result = result.Add(24 * time.Hour)
+				result = result.AddDate(0, 0, 1)
 			}
 			return result, true
 		}
