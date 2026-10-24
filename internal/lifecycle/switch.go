@@ -137,6 +137,12 @@ func (l *Lifecycle) HotSwap(ctx context.Context, agent *agentstore.Agent, req Sw
 	if agent == nil {
 		return nil, fmt.Errorf("hot-swap: nil agent")
 	}
+	if agent.Runtime != nil && agent.Runtime.Kind == "direct" {
+		// A direct child has no tmux pane to retire.  Until the durable authority
+		// controller can fence provider readiness and task seeding, reject rather
+		// than killing it and starting an unowned replacement.
+		return nil, ErrDirectLifecycleUnsupported
+	}
 	if fi, err := os.Stat(agent.Workdir); err != nil || !fi.IsDir() {
 		return nil, ErrWorkdirMissing
 	}
@@ -525,10 +531,13 @@ func (l *Lifecycle) launchSuccessor(ctx context.Context, agent *agentstore.Agent
 		hintSpec{persona != "", persona},
 		hintSpec{true, handoffGuidance(handoffPath, h)},
 	)
-	launch := base + hints + l.guardSettings(b, agent.ID) + l.promptArg(b, promptFile) + l.exitSuffix(agent.ID)
-	if out, err := l.run.Run(ctx, agent.Workdir, "tmux", "send-keys", "-t", agent.ID, launch, "Enter"); err != nil {
+	// Go through the shared host-aware launch seam.  A successor is still a new
+	// agent process (even though it inherits the worktree), so on the explicitly
+	// enabled direct runtime it must not recreate a tmux-only control path.
+	launch := base + hints + l.guardSettings(b, agent.ID) + l.promptArg(b, promptFile) + l.agentExitSuffix(agent.ID)
+	if err := l.launchAgent(ctx, "", agent, launch); err != nil {
 		l.killSession(agent.ID)
-		return fmt.Errorf("tmux send-keys: %w: %s", err, out)
+		return fmt.Errorf("launch successor: %w", err)
 	}
 	l.seedInteractivePrompt(b, agent, continuationPrompt(handoffPath, h, req))
 	return nil

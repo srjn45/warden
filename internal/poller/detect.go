@@ -178,7 +178,7 @@ func parseResetClockTime(pane string) (time.Time, bool) {
 	// A clock-time earlier than now is the NEXT occurrence, not one already past —
 	// roll to tomorrow so we never schedule an immediate retry loop.
 	if result.Before(now) {
-		result = result.Add(24 * time.Hour)
+		result = result.AddDate(0, 0, 1)
 	}
 	return result, true
 }
@@ -308,7 +308,7 @@ func parseResetGenericTime(pane string) (time.Time, bool) {
 	// Roll a past clock-time forward so the zone-less fallback never returns a
 	// time before now; the scheduler's buffer absorbs any cross-zone skew.
 	if result.Before(now) {
-		result = result.Add(24 * time.Hour)
+		result = result.AddDate(0, 0, 1)
 	}
 	return result, true
 }

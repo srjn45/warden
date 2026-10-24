@@ -6,6 +6,7 @@ import (
 
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/autopilot"
+	"github.com/srjn45/warden/internal/lifecycle"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
@@ -54,6 +55,14 @@ func TestRedeliverPromptFallsBackToInput(t *testing.T) {
 
 	rt2 := evidenceRT(t, &fakeLife{}, &agentstore.Agent{ID: "w2", TmuxSession: "w2"})
 	require.Error(t, rt2.RedeliverPrompt(context.Background(), "w2"), "no recorded prompt")
+}
+
+func TestRedeliverPromptRejectsDirectAgentWithoutInput(t *testing.T) {
+	life := &redeliverLife{fakeLife: &fakeLife{}, ok: false}
+	rt := evidenceRT(t, life, &agentstore.Agent{ID: "w1", TmuxSession: "w1", Prompt: "do it", Runtime: &store.SessionRuntime{Kind: "direct"}})
+	require.ErrorIs(t, rt.RedeliverPrompt(context.Background(), "w1"), lifecycle.ErrDirectLifecycleUnsupported)
+	require.Empty(t, life.lastInput, "direct prompt must not be replayed")
+	require.Nil(t, life.seeded, "direct prompt must not invoke a seeder")
 }
 
 func TestResolvePromptAndResumeUnavailable(t *testing.T) {

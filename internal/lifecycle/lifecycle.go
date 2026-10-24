@@ -856,6 +856,9 @@ func shellQuoteArg(s string) string {
 
 type Lifecycle struct {
 	run Runner
+	// pendingDirect holds the cwd/env of agents whose launch is deferred to a
+	// direct PTY (newAgentSession → launchAgent), keyed by agent id.
+	pendingDirect sync.Map
 	// proc is the shared tmux/process host used by Agent and Terminal pane ops.
 	// Constructed from run in New; tests that swap run after New also get a
 	// matching Host via Proc() which rebuilds from the live Runner.
@@ -2072,6 +2075,10 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, agent *
 		return nil, fmt.Errorf("fork requires a typed (worktree-backed) spawn; free-form fork is not supported")
 	}
 	agent.Workdir = req.Cwd
+	b := l.launchBackend(agent)
+	if err := l.rejectDirectPromptSeeder(agent.ID, b); err != nil {
+		return nil, err
+	}
 
 	// launchPrompt is the trailing claude argument. Empty for an interactive
 	// agent (open claude and wait); for an autonomous agent it reads the prompt
@@ -2105,7 +2112,6 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, agent *
 	if mode == "" {
 		mode = l.config().GetDefaultPermissionMode()
 	}
-	b := l.launchBackend(agent)
 	// For a backend with no system-prompt flag but an AGENTS.md rules file (Codex),
 	// deliver the same pipeline/collab addendum by writing it into the workdir before
 	// launch. A flag-based backend (Claude) skips this — its hints ride the launch
@@ -2133,11 +2139,11 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, agent *
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: agent.AICLISessionID, Name: agent.ID, Model: l.launchModel(b, req.Model), Mode: mode, Network: launchNetwork(agent),
 		LogFile: l.sessionLogFile(b, agent.ID),
-	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(agent.ID)
-	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", agent.ID, launch, "Enter"); err != nil {
+	}) + hints + l.promptArg(b, promptFile) + l.agentExitSuffix(agent.ID)
+	if err := l.launchAgent(ctx, "", agent, launch); err != nil {
 		// The session exists but launch failed — don't orphan it. No worktree here.
 		l.cleanupFailedSpawn(agent, true, false)
-		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
+		return nil, err
 	}
 	l.seedInteractivePrompt(b, agent, req.Prompt)
 	return agent, nil
@@ -2153,6 +2159,10 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, agent *age
 	// (ensureWorktree). Reject a fork that would not get its own worktree.
 	if req.ForkFrom != "" && !wantWorktree(req) {
 		return nil, fmt.Errorf("fork requires its own worktree; spawn a worktree-backed type without --in-repo")
+	}
+	b := l.backendFor(agent.AiCli)
+	if err := l.rejectDirectPromptSeeder(agent.ID, b); err != nil {
+		return nil, err
 	}
 	workdir := req.Repo
 	worktreeCreated := false
@@ -2207,7 +2217,6 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, agent *age
 	if mode == "" {
 		mode = l.config().GetDefaultPermissionMode()
 	}
-	b := l.backendFor(agent.AiCli)
 	// For a backend with no system-prompt flag but an AGENTS.md rules file (Codex),
 	// deliver the same pipeline/collab/git addendum by writing it into the worktree
 	// (created above) before launch. A flag-based backend (Claude) skips this — its
@@ -2240,10 +2249,10 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, agent *age
 		hintSpec{l.config().GetGitConventions(), gitConventionsGuidance},
 		hintSpec{l.config().GetMemoryInject(), mem},
 		hintSpec{peers != "", peers})
-	launch := base + hints + l.guardSettings(b, agent.ID) + l.promptArg(b, promptFile) + l.exitSuffix(agent.ID)
-	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", agent.ID, launch, "Enter"); err != nil {
+	launch := base + hints + l.guardSettings(b, agent.ID) + l.promptArg(b, promptFile) + l.agentExitSuffix(agent.ID)
+	if err := l.launchAgent(ctx, req.Repo, agent, launch); err != nil {
 		l.cleanupFailedSpawn(agent, true, worktreeCreated)
-		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
+		return nil, err
 	}
 	l.seedInteractivePrompt(b, agent, req.Prompt)
 	return agent, nil
@@ -2259,6 +2268,7 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, agent *age
 // every case preserving the spawn-before-reap ordering (cleanup runs only after
 // the failing step returns).
 func (l *Lifecycle) cleanupFailedSpawn(agent *agentstore.Agent, killTmux, worktreeCreated bool) {
+	l.pendingDirect.Delete(agent.ID)
 	if killTmux {
 		l.killSession(agent.ID)
 	}
@@ -2304,7 +2314,84 @@ const agentHistoryLimit = 50000
 // Agents and terminals share this path via tmuxproc.Host.
 func (l *Lifecycle) newAgentSession(ctx context.Context, runDir, id, cwd string, env ...string) error {
 	_ = runDir // retained for call-site compatibility; Host always targets the default server
+	if l.planAgentDirect(id) {
+		// Host-aware launch: the agent's CLI IS the session's process, so there
+		// is no shell/pane to create first. The launch step (launchAgent)
+		// starts it with this cwd/env.
+		l.pendingDirect.Store(id, directPending{cwd: cwd, env: append([]string(nil), env...)})
+		return nil
+	}
 	return l.Proc().NewSession(ctx, id, cwd, env...)
+}
+
+type directPending struct {
+	cwd string
+	env []string
+}
+
+// directLauncher is the optional host seam for direct AI-agent launches (see
+// ptyhost.routed.PlanAgentDirect/LaunchCommand).
+type directLauncher interface {
+	PlanAgentDirect(name string) bool
+	LaunchCommand(ctx context.Context, name, cwd string, argv []string, env ...string) error
+}
+
+func (l *Lifecycle) planAgentDirect(id string) bool {
+	d, ok := l.Proc().(directLauncher)
+	return ok && d.PlanAgentDirect(id)
+}
+
+// rejectDirectPromptSeeder fences adapters that can receive their first task
+// only through post-launch input. A direct child may have received that input
+// just before a crash, so retrying/re-delivering it is ambiguous and can start
+// the task twice. Keep these adapters on the established tmux path until the
+// authority controller owns durable seed delivery.
+func (l *Lifecycle) rejectDirectPromptSeeder(id string, b agentbackend.Backend) error {
+	if !l.planAgentDirect(id) {
+		return nil
+	}
+	if _, ok := b.(agentbackend.PromptSeeder); ok {
+		return fmt.Errorf("%w: backend %s requires post-launch prompt seeding", ErrDirectPromptSeederUnsupported, b.ID())
+	}
+	return nil
+}
+
+// agentDirect reports whether id's launch was deferred to a direct PTY.
+func (l *Lifecycle) agentDirect(id string) bool {
+	_, ok := l.pendingDirect.Load(id)
+	return ok
+}
+
+// agentExitSuffix is exitSuffix for tmux launches only: a directly hosted
+// agent is its own process, so its real exit status is the session's.
+func (l *Lifecycle) agentExitSuffix(id string) string {
+	if l.agentDirect(id) {
+		return ""
+	}
+	return l.exitSuffix(id)
+}
+
+// launchAgent runs the composed native launch line for id: on a direct PTY as
+// `sh -c <line>` (the line carries the unchanged native CLI args, model and
+// permission flags; sh execs it as the session's own process group), else by
+// typing it into the tmux pane (unchanged legacy path).
+func (l *Lifecycle) launchAgent(ctx context.Context, runDir string, agent *agentstore.Agent, line string) error {
+	id := agent.ID
+	if v, ok := l.pendingDirect.LoadAndDelete(id); ok {
+		p := v.(directPending)
+		argv := []string{"/bin/sh", "-c", line}
+		if err := l.Proc().(directLauncher).LaunchCommand(ctx, id, p.cwd, argv, p.env...); err != nil {
+			return fmt.Errorf("direct agent launch: %w", err)
+		}
+		// Restamp now that the holder/process identity exists (pre-launch the
+		// stamp could only say "tmux").
+		agent.Runtime = l.stampRuntime(l.Proc(), id, "direct")
+		return nil
+	}
+	if out, err := l.run.Run(ctx, runDir, "tmux", "send-keys", "-t", id, line, "Enter"); err != nil {
+		return fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
+	}
+	return nil
 }
 
 // RestoreTerminal recreates a lost terminal pane in its original workdir and
@@ -2414,6 +2501,9 @@ func (l *Lifecycle) resumeInTmuxWithHints(ctx context.Context, b agentbackend.Ba
 // on the operator recovery paths (RestoreSession / archived Recover) — not
 // here — so internal relaunch of errored/rate_limited sessions keeps working.
 func (l *Lifecycle) Restore(ctx context.Context, agent *agentstore.Agent) error {
+	if agent != nil && agent.Runtime != nil && agent.Runtime.Kind == "direct" {
+		return ErrDirectLifecycleUnsupported
+	}
 	// A legacy record with no binding remains explicitly unbound: restore cannot
 	// safely reconstruct the account/profile that originally launched it.
 	if agent.QuotaBinding != nil && l.CapacityResolver != nil {
@@ -2471,6 +2561,9 @@ func (l *Lifecycle) Restore(ctx context.Context, agent *agentstore.Agent) error 
 // the role stays persisted (it applies on the next fresh launch) rather than
 // stranding the agent.
 func (l *Lifecycle) SwitchRole(ctx context.Context, agent *agentstore.Agent) error {
+	if agent != nil && agent.Runtime != nil && agent.Runtime.Kind == "direct" {
+		return ErrDirectLifecycleUnsupported
+	}
 	b := l.backendFor(agent.AiCli)
 	if !b.Capabilities().Resume {
 		return fmt.Errorf("backend %s does not support resume — cannot re-inject a role on a running agent (the role is saved and applies on the next fresh launch)", b.ID())
@@ -2622,6 +2715,15 @@ var (
 	ErrNoWorktree          = errors.New("session has no worktree")
 	ErrWorktreeAgentAlive  = errors.New("agent is still running; terminate it before removing its worktree")
 	ErrTmuxGone            = errors.New("tmux session not found")
+	// ErrDirectPromptSeederUnsupported reports an adapter that cannot safely
+	// receive an initial task on a direct child yet. The error is returned before
+	// any session or child is created.
+	ErrDirectPromptSeederUnsupported = errors.New("direct prompt-seeding backend is not supported yet")
+	// ErrDirectLifecycleUnsupported fences a direct agent from legacy lifecycle
+	// operations that would otherwise probe, kill, or resume a nonexistent tmux
+	// pane.  Direct restore/relaunch authority is intentionally introduced only
+	// with the durable controller work; callers must leave the live child alone.
+	ErrDirectLifecycleUnsupported = errors.New("direct agent lifecycle operation is not supported yet; leave the direct session running")
 )
 
 // CleanupTarget carries the fields Cleanup needs (filled from the store doc).
@@ -2733,6 +2835,21 @@ var inputSubmitDelay = 150 * time.Millisecond
 // (newlines stay content; per-session name avoids clobbering across concurrent
 // sends) and then presses Enter as a SEPARATE keystroke after a short settle.
 func (l *Lifecycle) Input(ctx context.Context, tmuxSession, text string) error {
+	if l.hostedDirectly(tmuxSession) {
+		// Direct PTY: bracketed paste through the runtime's operator writer.
+		h := l.Proc()
+		if err := h.SendKeys(ctx, tmuxSession, "-l", "\x1b[200~"+text+"\x1b[201~"); err != nil {
+			return err
+		}
+		if inputSubmitDelay > 0 {
+			select {
+			case <-time.After(inputSubmitDelay):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		return h.SendKeys(ctx, tmuxSession, "Enter")
+	}
 	buf := "warden-input-" + tmuxSession
 	if err := l.loadBuffer(ctx, buf, text); err != nil {
 		return err
@@ -2795,6 +2912,9 @@ func (l *Lifecycle) loadBuffer(ctx context.Context, buf, text string) error {
 // Enter: Claude Code's select prompts treat the digit itself as select-and-
 // confirm, so an extra Enter could double-submit.
 func (l *Lifecycle) SendKeys(ctx context.Context, tmuxSession, key string) error {
+	if l.hostedDirectly(tmuxSession) {
+		return l.Proc().SendKeys(ctx, tmuxSession, key)
+	}
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", tmuxSession, key); err != nil {
 		return fmt.Errorf("tmux send-keys %q: %w: %s", key, err, out)
 	}
@@ -2873,6 +2993,11 @@ func (l *Lifecycle) seedInteractivePrompt(b agentbackend.Backend, agent *agentst
 // reports false when the backend does not take its prompt as typed input (it
 // seeds on the launch line), in which case nothing was sent.
 func (l *Lifecycle) RedeliverPrompt(agent *agentstore.Agent) bool {
+	if agent != nil && agent.Runtime != nil && agent.Runtime.Kind == "direct" {
+		// The initial post-launch write may already have reached the child. Until
+		// seed delivery has durable ownership, fail closed instead of replaying it.
+		return false
+	}
 	b := l.backendFor(agent.AiCli)
 	if _, ok := b.(agentbackend.PromptSeeder); !ok {
 		return false
@@ -2923,7 +3048,7 @@ func (l *Lifecycle) waitPaneReady(ctx context.Context, tmuxSession, marker strin
 	tick := time.NewTicker(promptSeedPollInterval)
 	defer tick.Stop()
 	for {
-		out, err := l.run.Run(ctx, "", "tmux", "capture-pane", "-p", "-t", tmuxSession)
+		out, err := l.capturePane(ctx, tmuxSession)
 		if err == nil && strings.Contains(out, marker) {
 			select {
 			case <-time.After(promptSeedSettle):
@@ -2940,10 +3065,33 @@ func (l *Lifecycle) waitPaneReady(ctx context.Context, tmuxSession, marker strin
 	}
 }
 
+func (l *Lifecycle) hostedDirectly(id string) bool {
+	d, ok := l.Proc().(interface{ HostedDirectly(string) bool })
+	return ok && d.HostedDirectly(id)
+}
+
+// capturePane reads the visible pane/screen through the host that owns id.
+func (l *Lifecycle) capturePane(ctx context.Context, id string) (string, error) {
+	if l.hostedDirectly(id) {
+		return l.Proc().CapturePane(ctx, id)
+	}
+	return l.run.Run(ctx, "", "tmux", "capture-pane", "-p", "-t", id)
+}
+
 // Output returns the last `lines` rows of the agent's tmux pane.
 func (l *Lifecycle) Output(ctx context.Context, tmuxSession string, lines int) (string, error) {
 	if lines <= 0 {
 		lines = 200
+	}
+	if l.hostedDirectly(tmuxSession) {
+		out, err := l.Proc().CapturePane(ctx, tmuxSession)
+		if err != nil {
+			return "", err
+		}
+		if rows := strings.Split(out, "\n"); len(rows) > lines {
+			out = strings.Join(rows[len(rows)-lines:], "\n")
+		}
+		return out, nil
 	}
 	out, err := l.run.Run(ctx, "", "tmux", "capture-pane", "-p", "-t", tmuxSession, "-S", "-"+strconv.Itoa(lines))
 	if err != nil {
@@ -3210,6 +3358,10 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 		BaseBranch: req.BaseBranch,
 		Tags:       store.NormalizeTags(req.Tags),
 	}
+	b := l.backendFor(agent.AiCli)
+	if err := l.rejectDirectPromptSeeder(agent.ID, b); err != nil {
+		return nil, err
+	}
 	cid, err := store.NewSessionID()
 	if err != nil {
 		return nil, err
@@ -3267,7 +3419,6 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 	if mode == "" {
 		mode = l.config().GetDefaultPermissionMode()
 	}
-	b := l.backendFor(agent.AiCli)
 	// For a backend with no system-prompt flag but an AGENTS.md rules file (Codex),
 	// deliver the same collab addendum by writing it into the workdir before launch.
 	// A flag-based backend (Claude) skips this — its hint rides the launch line below.
@@ -3293,10 +3444,10 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
 		SessionID: agent.AICLISessionID, Name: id, Model: l.launchModel(b, req.Model), Mode: mode, Network: launchNetwork(agent),
 		LogFile: l.sessionLogFile(b, id),
-	}) + hints + l.promptArg(b, promptFile) + l.exitSuffix(id)
-	if out, err := l.run.Run(ctx, req.Repo, "tmux", "send-keys", "-t", id, launch, "Enter"); err != nil {
+	}) + hints + l.promptArg(b, promptFile) + l.agentExitSuffix(id)
+	if err := l.launchAgent(ctx, req.Repo, agent, launch); err != nil {
 		l.cleanupFailedSpawn(agent, true, worktreeCreated)
-		return nil, fmt.Errorf("tmux send-keys claude: %w: %s", err, out)
+		return nil, err
 	}
 	l.seedInteractivePrompt(b, agent, req.Prompt)
 	return agent, nil
