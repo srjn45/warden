@@ -37,7 +37,7 @@ The direct path is safe to exercise only through the explicit test seam:
 | Fork | Fork uses typed spawn, so a fresh child reaches the common seam and retains its dedicated worktree rule. | Source/child transcript pinning and at-most-once retry authority remain 02b-04 work. |
 | Handoff/rotation/backend/model switch | A live `Runtime.Kind=direct` agent is rejected before any handoff write, tmux probe, kill, or replacement launch. | `TestHotSwapRejectsExistingDirectAgent` proves no replacement child or tmux control action. |
 | Restore/restart/role/permission changes | Restore and role switch reject a live direct record before legacy tmux control; stop remains process-host based. Fresh spawn preserves the native backend mode and permission flags unchanged. | `TestDirectAgentRejectsLegacyLifecycleOperations` proves the explicit fence. |
-| Attach/UI and process-group stop | The attach API resolves a direct session; holder-backed direct fixtures prove direct agent + terminal work without tmux. | Add end-to-end direct-agent attach/control ownership tests when the authority controller is introduced. |
+| Attach/UI and process-group stop | The direct-agent fixture exercises HTTP input/output, legacy attach resize, viewer close, and host process-group stop without tmux. | 02b-04 must add controller-lease fencing to these already-proven transport operations; it must not reintroduce a tmux fallback. |
 | Worktree/history cleanup | Failed fresh launches use the shared cleanup helper and only remove a worktree created by that launch. Adoption never creates or deletes the pre-existing worktree. | Retain this invariant in the 02b-04 retry controller. |
 
 ## Failure, retry, and recovery evidence
@@ -58,6 +58,10 @@ adds authority:
   relaunch. Its direct-agent fixtures retain a bounded offline output burst and
   record an offline nonzero exit without relaunch. `internal/ptyholder/auth_test.go`
   rejects stale credentials and recycled PID identity.
+- `internal/daemon/pty_runtime_test.go`: a direct agent accepts HTTP input and
+  output, legacy attach resize, and viewer close without stopping the child;
+  host stop then owns its process group. This is fixture transport coverage,
+  not authorization to enable direct agents in production.
 
 Prompt delivery is launch-line based where native adapters support it and
 post-launch seeding only for `PromptSeeder` adapters. The current fixture
@@ -85,9 +89,10 @@ offline capture.
    provider credentials, and env scopes byte-for-byte equivalent to the tmux
    path.  Unsupported adapters must return a typed capability result, never a
    silent runtime-label change.
-4. Exercise attach, resize/input controller lease, and supported
-   process-group stop against a fixture direct agent; verify all cleanup paths
-   leave unrelated worktrees, sessions, and history untouched.
+4. Add controller-lease fencing around the already-covered direct-agent attach,
+   resize/input, viewer-close, and supported process-group-stop operations;
+   verify all cleanup paths leave unrelated worktrees, sessions, and history
+   untouched.
 5. Add guardian race tests that prove a recovery/adoption cannot cause a second
    manager or worker spawn.  Keep direct activation default-off until these
    tests and the authority implementation land.

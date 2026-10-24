@@ -222,6 +222,58 @@ func TestDirectTerminalInputOutputAndLegacyAttach(t *testing.T) {
 	}
 }
 
+// Direct agents share the host-backed transport with terminals, but must be
+// exercised as agents: attach/input/resize work without tmux, closing a viewer
+// leaves the child alive, and the host stop owns the process group.
+func TestDirectAgentInputAttachResizeViewerCloseAndStop(t *testing.T) {
+	_, m, ts, fs := ptyServer(t, ptyhost.ModeOn)
+	ctx := context.Background()
+	m.SetAgentDirectReady(true)
+	h, ok := m.Host().(interface {
+		LaunchCommand(context.Context, string, string, []string, ...string) error
+	})
+	require.True(t, ok)
+	require.NoError(t, h.LaunchCommand(ctx, "A-direct", t.TempDir(), []string{"/bin/sh", "-c", "exec /bin/sh"}))
+	d := m.Direct("A-direct")
+	require.NotNil(t, d)
+	pid := d.PID()
+	require.NoError(t, fs.Insert(ctx, &agentstore.Agent{ID: "A-direct", TmuxSession: "A-direct", Runtime: &store.SessionRuntime{Kind: "direct", PinnedMode: "on"}}))
+
+	body, _ := json.Marshal(map[string]string{"text": "echo direct-agent-$((40+2))"})
+	resp, err := http.Post(ts.URL+"/api/v1/sessions/A-direct/input", "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Eventually(t, func() bool {
+		resp, err := http.Get(ts.URL + "/api/v1/sessions/A-direct/output")
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return strings.Contains(string(b), "direct-agent-42")
+	}, 10*time.Second, 50*time.Millisecond)
+
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ts.URL, "http")+"/api/v1/sessions/A-direct/attach", nil)
+	require.NoError(t, err)
+	require.NoError(t, conn.Write(ctx, websocket.MessageText, []byte(`{"cols":91,"rows":27}`)))
+	require.NoError(t, conn.Write(ctx, websocket.MessageBinary, []byte("stty size\r")))
+	rctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	var got strings.Builder
+	for !strings.Contains(got.String(), "27 91") {
+		_, data, err := conn.Read(rctx)
+		require.NoError(t, err, "got so far: %q", got.String())
+		got.Write(data)
+	}
+	require.NoError(t, conn.Close(websocket.StatusNormalClosure, "viewer done"))
+	require.True(t, procAlive(pid), "viewer close must not stop the direct agent")
+	require.True(t, m.Host().HasSession(ctx, "A-direct"), "viewer close must preserve the host session")
+
+	require.NoError(t, m.Host().KillSession(ctx, "A-direct"))
+	require.Eventually(t, func() bool { return !procAlive(pid) }, 5*time.Second, 10*time.Millisecond)
+}
+
 // When a direct terminal's shell exits, the stream consumer and the terminal
 // watcher both see it; the shared compare-and-swap means exactly one
 // running → exited transition (with the shell's exit status), whoever wins.
