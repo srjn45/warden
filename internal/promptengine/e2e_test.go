@@ -88,7 +88,7 @@ type recWriter struct {
 	wrote [][]byte
 }
 
-func (w *recWriter) WriteInput(_ context.Context, d []byte, _ ptyevent.Origin, _ string) error {
+func (w *recWriter) WriteInput(_ context.Context, d []byte, _ ptyevent.Origin, _ string, _ uint64) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.wrote = append(w.wrote, append([]byte(nil), d...))
@@ -450,5 +450,14 @@ func TestTmuxKeys(t *testing.T) {
 	}
 	if _, err := tmuxKeys([]byte("\x03")); err == nil {
 		t.Fatalf("control bytes must be refused")
+	}
+}
+
+func TestAutopilotRunIDPreservesLegacyOwnershipTag(t *testing.T) {
+	if got := autopilotRunID(&agentstore.Agent{Tags: []string{"autopilot", "run:ap-legacy"}}); got != "ap-legacy" {
+		t.Fatalf("legacy run tag = %q", got)
+	}
+	if got := autopilotRunID(&agentstore.Agent{AutopilotRunID: "ap-canonical", Tags: []string{"run:ap-stale"}}); got != "ap-canonical" {
+		t.Fatalf("canonical run id must win, got %q", got)
 	}
 }

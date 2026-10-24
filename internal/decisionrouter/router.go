@@ -368,7 +368,7 @@ func (r *Router) Route(ctx context.Context, req RouteRequest) (RouteResult, erro
 
 	// Write keystrokes to terminal
 	if req.InputWriter != nil {
-		if err := req.InputWriter.WriteInput(ctx, bytesToSend, ptyevent.OriginWarden, decID); err != nil {
+		if err := req.InputWriter.WriteInput(ctx, bytesToSend, ptyevent.OriginWarden, decID, live.HumanSeq); err != nil {
 			return res, fmt.Errorf("failed to write keystrokes: %w", err)
 		}
 		res.Delivered = true
@@ -479,6 +479,16 @@ func globMatch(pat, s string) bool {
 }
 
 func (r *Router) routeToBrainConsult(ctx context.Context, req RouteRequest, p *ptyevent.Prompt) ptyevent.Decision {
+	// A run id alone is not plan context. Never let Tier-1 invent a strategic
+	// answer from a pane or a stale repo export when the canonical plan/task
+	// cannot be resolved for this direct agent.
+	if strings.TrimSpace(req.PlanGoal) == "" || strings.TrimSpace(req.ActiveTask) == "" {
+		return ptyevent.Decision{
+			Action: ptyevent.ActionNeedsAttention,
+			Rule:   "canonical-plan-context-missing",
+			Reason: "autopilot strategic prompt has no canonical plan goal and active task",
+		}
+	}
 	if r.consultor == nil {
 		return ptyevent.Decision{
 			Action: ptyevent.ActionNeedsAttention,

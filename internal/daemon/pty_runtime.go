@@ -51,7 +51,7 @@ func (s *Server) SetPTYRuntime(m *ptyhost.Manager) {
 			s.store,
 			backendResolver,
 			stateclassifier.NewOSProcessInspector(),
-			nil,
+			stateclassifier.NewFileTranscriptInspector(),
 		)
 		s.classifier.OnTransition = func(name string, ch *ptyevent.StateChange) {
 			s.notify()
