@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/srjn45/warden/internal/agentstore"
+	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,6 +31,44 @@ func TestFreeFormManagerLaunchPersistsVerifiableIdentity(t *testing.T) {
 	require.Contains(t, launch, "WARDEN_REPO="+repo)
 	require.Contains(t, launch, "WARDEN_AUTOPILOT_RUN_ID=ap-payments")
 	require.Contains(t, launch, "WARDEN_MANAGER_LAUNCH_ID="+agent.Runtime.LaunchID)
+}
+
+func TestManagerSuccessorHasFreshVerifiableLaunchIdentity(t *testing.T) {
+	runner := &FakeRunner{}
+	l := New(runner, &FakeConfig{})
+	l.PromptsDir = t.TempDir()
+	l.SwapVerifyWindow = -1
+	repo := t.TempDir()
+	a := &agentstore.Agent{ID: "payments-autopilot", TmuxSession: "payments-autopilot", Workdir: repo, Repo: repo,
+		Role: "autopilot", AiCli: "claude", AutopilotRunID: "ap-payments", AutopilotSlot: store.AutopilotSlotManager,
+		PlanID: "plan-payments", ProjectID: "project-payments", Runtime: &store.SessionRuntime{Kind: "tmux", LaunchID: "retired"}}
+	res, err := l.HotSwap(context.Background(), a, SwapRequest{Backend: "codex", Prompt: "continue"})
+	require.NoError(t, err)
+	require.NotEmpty(t, res.Agent.Runtime.LaunchID)
+	require.NotEqual(t, "retired", res.Agent.Runtime.LaunchID)
+	var launch []string
+	for _, call := range runner.Calls {
+		if len(call.Argv) > 2 && call.Argv[0] == "tmux" && call.Argv[1] == "new-session" {
+			launch = call.Argv
+		}
+	}
+	for _, value := range []string{"WARDEN_AUTOPILOT_RUN_ID=ap-payments", "WARDEN_PLAN_ID=plan-payments",
+		"WARDEN_PROJECT_ID=project-payments", "WARDEN_ROLE=autopilot", "WARDEN_BACKEND=codex",
+		"WARDEN_REPO=" + repo, "WARDEN_MANAGER_LAUNCH_ID=" + res.Agent.Runtime.LaunchID} {
+		require.Contains(t, launch, value)
+	}
+}
+
+func TestDirectManagerLaunchRetainsOwnershipTokenWhenRestamped(t *testing.T) {
+	host := &directStubHost{plan: true}
+	l := New(nil, nil)
+	l.SetProcessHost(host)
+	a := &agentstore.Agent{ID: "payments-autopilot", Runtime: &store.SessionRuntime{Kind: "tmux", LaunchID: "owned-token"}}
+	require.NoError(t, l.newAgentSession(context.Background(), "", a.ID, t.TempDir(), "WARDEN_MANAGER_LAUNCH_ID=owned-token"))
+	require.NoError(t, l.launchAgent(context.Background(), "", a, "claude"))
+	require.Equal(t, "direct", a.Runtime.Kind)
+	require.Equal(t, "owned-token", a.Runtime.LaunchID)
+	require.Contains(t, host.env, "WARDEN_MANAGER_LAUNCH_ID=owned-token")
 }
 
 type managerSlotRunner struct {

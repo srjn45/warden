@@ -26,7 +26,7 @@ func TestSlotSpawnFirstStartCreatesSlotIds(t *testing.T) {
 		Resolver:          &fakeResolver{backendID: "a", tier: "free"},
 		RunStore:          runStore,
 	}, env)
-	c.SetRuntime(rt)
+	setRuntimeAndWait(t, c, rt)
 
 	r, err := c.Register(context.Background(), RegisterRequest{Name: "ship", PlanFile: plan})
 	require.NoError(t, err)
@@ -63,7 +63,7 @@ func TestSlotSpawnSecondStartAdopts(t *testing.T) {
 		Resolver:          &fakeResolver{backendID: "a", tier: "free"},
 	}, env)
 	rt1 := newFakeRuntime()
-	c1.SetRuntime(rt1)
+	setRuntimeAndWait(t, c1, rt1)
 	r, err := c1.Register(context.Background(), RegisterRequest{Name: "ship", PlanFile: plan})
 	require.NoError(t, err)
 	_, err = c1.StartRun(context.Background(), r.RunID)
@@ -78,7 +78,7 @@ func TestSlotSpawnSecondStartAdopts(t *testing.T) {
 		Resolver:          &fakeResolver{backendID: "a", tier: "free"},
 	}, env)
 	rt2 := newFakeRuntime()
-	c2.SetRuntime(rt2)
+	setRuntimeAndWait(t, c2, rt2)
 	t.Cleanup(func() { require.NoError(t, c2.Close()) })
 
 	require.Equal(t, firstBrain, c2.Status().Runs[0].Brain.AgentID)

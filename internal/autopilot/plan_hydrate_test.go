@@ -57,17 +57,19 @@ func TestPlanBoundRecoveryIgnoresBrokenYAMLExport(t *testing.T) {
 	t0 := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 	clock := &fakeClock{t: t0}
 	fake := newGuardianFake()
-	src := &fakePlanSource{plans: map[string]*planstore.Plan{planID: dbPlan(planID)}}
+	verified := dbPlan(planID)
+	verified.ProjectID, verified.AutopilotRunID = repo, runID
+	src := &fakePlanSource{plans: map[string]*planstore.Plan{planID: verified}}
 	c := NewController(ControllerConfig{
 		DataDir: data, BaseDir: repo, PlanSource: src, Gate: "local",
 		Resolver: cyclicResolver("a", "free"), Guardian: testGuardian(),
 	}, &fakeEnv{repoOf: func(string) (string, error) { return repo, nil }})
 	t.Cleanup(func() { _ = c.Close() })
 	c.setClock(clock.now)
-	c.SetRuntime(fake)
+	setRuntimeAndWait(t, c, fake)
 	require.NoError(t, c.RecoverLiveAutopilots(context.Background()))
 
-	require.Equal(t, StateActive, c.Status().Runs[0].State, "broken YAML export must not degrade a plan-bound run")
+	require.Eventually(t, func() bool { return c.Status().Runs[0].State == StateActive }, time.Second, 10*time.Millisecond, "broken YAML export must not degrade a plan-bound run")
 
 	// Manager session lost: the guardian tick must respawn it from the DB plan.
 	before := len(fake.spawned)
@@ -76,14 +78,55 @@ func TestPlanBoundRecoveryIgnoresBrokenYAMLExport(t *testing.T) {
 	fake.missing[c.runs[runID].brain.AgentID] = true
 	c.mu.Unlock()
 	clock.t = t0.Add(time.Minute)
-	c.guardianTick(context.Background())
+	guardianTickAndWait(t, c, context.Background())
 
-	require.Greater(t, len(fake.spawned), before, "guardian must respawn the manager")
+	require.Eventually(t, func() bool { return len(fake.spawned) > before }, time.Second, 10*time.Millisecond, "guardian must respawn the manager")
 	prompt := fake.spawned[len(fake.spawned)-1].Prompt
 	require.Contains(t, prompt, "relay-only hub goal")
 	require.Contains(t, prompt, "db-task-2")
 	require.NotContains(t, prompt, "plan not loadable")
 	require.NotEqual(t, StateDegraded, c.Status().Runs[0].State)
+}
+
+// TestPlanBoundRecoveryAllowsEmptyPersistedPlanFile makes the recovery
+// authority explicit: a verified PlanID plus repository/project metadata is
+// sufficient.  An absent export path is diagnostics only and must never force
+// recovery to consult arbitrary repository YAML.
+func TestPlanBoundRecoveryAllowsEmptyPersistedPlanFile(t *testing.T) {
+	repo := t.TempDir()
+	data := t.TempDir()
+	const planID = "plan-empty-export"
+	runID := PlanBoundRunID(repo, planID)
+	rs, err := NewRunStore(data)
+	require.NoError(t, err)
+	now := time.Now().UTC()
+	require.NoError(t, rs.Create(RunRecord{
+		RunID: runID, Name: "hub", Repo: repo, PlanFile: "", PlanID: planID,
+		ProjectID: repo, State: StateActive, SlotScope: "hub",
+		IntegrationBranch: "autopilot/hub", CreatedAt: now, UpdatedAt: now,
+	}))
+	require.NoError(t, rs.Close())
+
+	rt := newGuardianFake()
+	verified := dbPlan(planID)
+	verified.ProjectID, verified.AutopilotRunID = repo, runID
+	c := NewController(ControllerConfig{
+		DataDir: data, BaseDir: repo, PlanSource: &fakePlanSource{plans: map[string]*planstore.Plan{planID: verified}},
+		Gate: "local", Resolver: cyclicResolver("a", "free"), Guardian: testGuardian(),
+	}, &fakeEnv{repoOf: func(string) (string, error) { return repo, nil }})
+	t.Cleanup(func() { _ = c.Close() })
+	setRuntimeAndWait(t, c, rt)
+
+	require.Eventually(t, func() bool {
+		st := c.Status().Runs[0]
+		return st.State == StateActive && st.Brain != nil
+	}, time.Second, 10*time.Millisecond)
+	st := c.Status()
+	require.Len(t, st.Runs, 1)
+	require.Equal(t, StateActive, st.Runs[0].State)
+	require.NotNil(t, st.Runs[0].Brain)
+	require.Len(t, rt.spawned, 1)
+	require.Contains(t, rt.spawned[0].Prompt, "relay-only hub goal")
 }
 
 func TestSpawnBrainPlanSourceErrorNamesPlanID(t *testing.T) {
@@ -92,7 +135,7 @@ func TestSpawnBrainPlanSourceErrorNamesPlanID(t *testing.T) {
 		BaseDir: repo, PlanSource: errPlanSource{err: errors.New("db down")},
 		Resolver: &fakeResolver{backendID: "a", tier: "free"},
 	}, &fakeEnv{})
-	c.SetRuntime(newFakeRuntime())
+	setRuntimeAndWait(t, c, newFakeRuntime())
 	r := &run{runID: "ap-x", planID: "plan-err1", repo: repo, state: StateDegraded,
 		slotScope: "x", tried: map[string]bool{}}
 	c.mu.Lock()
@@ -110,7 +153,7 @@ func TestRotateBrainHydratesFromPlanSource(t *testing.T) {
 	c := NewController(ControllerConfig{
 		BaseDir: repo, PlanSource: src, Resolver: &fakeResolver{backendID: "a", tier: "free"},
 	}, &fakeEnv{})
-	c.SetRuntime(rt)
+	setRuntimeAndWait(t, c, rt)
 	r := &run{runID: "ap-rot", planID: "plan-rot1", repo: repo, state: StateActive,
 		slotScope: "rot", brain: &BrainHandle{AgentID: ManagerSlotID("rot")}, tried: map[string]bool{}}
 	c.mu.Lock()

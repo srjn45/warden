@@ -30,7 +30,10 @@ func newParkHarness(t *testing.T) *parkHarness {
 	r := c.runs[runID]
 	r.brain = nil
 	r.planID = "plan-park"
-	src := &fakePlanSource{plans: map[string]*planstore.Plan{"plan-park": {ID: "plan-park", Revision: 1, ContentHash: "sha256:one"}}}
+	delete(c.runs, runID)
+	r.runID = PlanBoundRunID(r.repo, r.planID)
+	c.runs[r.runID] = r
+	src := &fakePlanSource{plans: map[string]*planstore.Plan{"plan-park": {ID: "plan-park", ProjectID: r.repo, AutopilotRunID: r.runID, Revision: 1, ContentHash: "sha256:one"}}}
 	c.planSource = src
 	return &parkHarness{t: t, c: c, r: r, fake: fake, clock: clock, src: src}
 }
@@ -38,7 +41,7 @@ func newParkHarness(t *testing.T) *parkHarness {
 // tick advances past any backoff and runs one guardian pass.
 func (h *parkHarness) tick() {
 	h.clock.t = h.clock.t.Add(7 * time.Hour)
-	h.c.guardianTick(context.Background())
+	guardianTickAndWait(h.t, h.c, context.Background())
 }
 
 func (h *parkHarness) attention() string { return h.c.Status().Runs[0].NeedsAttention }
@@ -117,7 +120,7 @@ func TestParkExitsOnPlanChange(t *testing.T) {
 	h := parkRun(t)
 	h.tick()
 	require.NotEmpty(t, h.attention(), "unchanged plan stays parked")
-	h.src.plans["plan-park"] = &planstore.Plan{ID: "plan-park", Revision: 2, ContentHash: "sha256:two"}
+	h.src.plans["plan-park"] = &planstore.Plan{ID: "plan-park", ProjectID: h.r.repo, AutopilotRunID: h.r.runID, Revision: 2, ContentHash: "sha256:two"}
 	h.tick()
 	require.Empty(t, h.attention())
 	require.NotNil(t, h.c.runs[h.r.runID].brain, "healing retried and respawned the manager")

@@ -2466,7 +2466,12 @@ func (l *Lifecycle) launchAgent(ctx context.Context, runDir string, agent *agent
 		}
 		// Restamp now that the holder/process identity exists (pre-launch the
 		// stamp could only say "tmux").
+		launchID := ""
+		if agent.Runtime != nil {
+			launchID = agent.Runtime.LaunchID
+		}
 		agent.Runtime = l.stampRuntime(l.Proc(), id, "direct")
+		agent.Runtime.LaunchID = launchID
 		return nil
 	}
 	if out, err := l.run.Run(ctx, runDir, "tmux", "send-keys", "-t", id, line, "Enter"); err != nil {

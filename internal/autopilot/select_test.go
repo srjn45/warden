@@ -3,6 +3,7 @@ package autopilot
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 // fakeResolver is a minimal router.Resolver-shaped stub for select/guardian tests.
 // It returns a fixed BackendID or an error on each call, and counts invocations.
 type fakeResolver struct {
+	mu        sync.Mutex
 	backendID string
 	tier      backendstore.ModelTier
 	err       error
@@ -21,6 +23,8 @@ type fakeResolver struct {
 }
 
 func (f *fakeResolver) Resolve(_ context.Context, opts router.ResolveOptions) (*router.Resolution, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls++
 	if f.err != nil {
 		return nil, f.err
@@ -34,12 +38,15 @@ func (f *fakeResolver) Resolve(_ context.Context, opts router.ResolveOptions) (*
 // the "subscription" backend (after the free one is added to the exclude map and
 // selectBrain detects that and returns no selection, triggering the next round).
 type roundRobinResolver struct {
+	mu       sync.Mutex
 	backends []string
 	tiers    []backendstore.ModelTier
 	i        int
 }
 
 func (r *roundRobinResolver) Resolve(_ context.Context, _ router.ResolveOptions) (*router.Resolution, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if len(r.backends) == 0 {
 		return nil, router.ErrNoCandidate
 	}
@@ -125,7 +132,7 @@ func TestSelectWorkerBackendUsesResolver(t *testing.T) {
 		BaseDir:  dir,
 		Resolver: r,
 	}, &fakeEnv{})
-	c.SetRuntime(rt)
+	setRuntimeAndWait(t, c, rt)
 
 	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
@@ -148,7 +155,7 @@ func TestSelectWorkerBackendNoResolver(t *testing.T) {
 		Plans:   []string{plan},
 		BaseDir: dir,
 	}, &fakeEnv{})
-	c.SetRuntime(rt)
+	setRuntimeAndWait(t, c, rt)
 
 	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)

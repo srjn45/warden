@@ -133,8 +133,12 @@ func (f *fakeLife) Spawn(_ context.Context, req SpawnRequest) (*agentstore.Agent
 		ID: id, TmuxSession: id, Name: req.Name, Type: typ, Ticket: req.Ticket, Repo: req.Repo,
 		Prompt: req.Prompt, Status: store.StatusSpawning, Role: req.Role, Workdir: req.Cwd,
 		PermissionMode: req.PermissionMode, Tags: req.Tags, AiCli: aiCli,
-		ProjectID: req.ProjectID, // mirror lifecycle: an explicit project_id is stamped at spawn
-		PlanID:    req.PlanID,
+		ProjectID:      req.ProjectID, // mirror lifecycle: an explicit project_id is stamped at spawn
+		PlanID:         req.PlanID,
+		AutopilotRunID: req.AutopilotRunID, AutopilotSlot: req.AutopilotSlot,
+	}
+	if req.AutopilotSlot == store.AutopilotSlotManager {
+		f.spawned.Runtime = &store.SessionRuntime{Kind: "tmux", LaunchID: "test-manager-launch"}
 	}
 	return f.spawned, nil
 }

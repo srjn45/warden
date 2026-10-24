@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -14,6 +15,7 @@ import (
 // the plan file's own directory as the repo, gh auth is OK, and the
 // integration branch is absent so preflight auto-creates it.
 type fakeEnv struct {
+	mu            sync.Mutex
 	repoOf        func(dir string) (string, error) // nil ⇒ repo == dir
 	defaultBranch string                           // "" ⇒ "main"
 	defaultErr    error
@@ -46,6 +48,8 @@ func (f *fakeEnv) DefaultBranch(_ context.Context, _ string) (string, error) {
 }
 
 func (f *fakeEnv) BranchExists(_ context.Context, repo, branch string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.existsErr != nil {
 		return false, f.existsErr
 	}
@@ -53,6 +57,8 @@ func (f *fakeEnv) BranchExists(_ context.Context, repo, branch string) (bool, er
 }
 
 func (f *fakeEnv) CreateBranch(_ context.Context, repo, branch, base string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.createErr != nil {
 		return f.createErr
 	}

@@ -38,7 +38,7 @@ func newSeedController(t *testing.T) (*Controller, *seedFake, *fakeClock, string
 	clock := &fakeClock{t: t0}
 	fake := &seedFake{guardianFake: newGuardianFake(), status: map[string]string{}}
 	c, runID := enabledGuardianController(t, fake.guardianFake, clock, cyclicResolver("a", "free"), testGuardian())
-	c.SetRuntime(fake) // swap in the SeedRuntime-capable wrapper
+	setRuntimeAndWait(t, c, fake) // swap in the SeedRuntime-capable wrapper
 	return c, fake, clock, runID
 }
 
@@ -49,13 +49,13 @@ func TestGuardianRedeliversDigestOnFailedSeed(t *testing.T) {
 	fake.status[id] = store.SeedFailed
 	fake.activity[runID] = clock.t // heartbeat is fresh: only the seed is wrong
 
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	require.Len(t, fake.redelivered, 1, "digest re-delivered exactly once")
 	require.Contains(t, fake.redelivered[0], "Autopilot run digest")
 	require.Equal(t, StateActive, c.runs[runID].state, "a successful re-delivery leaves the run active")
 	require.Contains(t, fake.audits, "autopilot.seed_redelivered:"+id)
 
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	require.Len(t, fake.redelivered, 1, "delivered now: no second re-delivery")
 }
 
@@ -67,7 +67,7 @@ func TestGuardianEscalatesWhenRedeliveryFails(t *testing.T) {
 	fake.redeliverEr = errors.New("tmux paste-buffer: no server running")
 	fake.activity[runID] = clock.t
 
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	r := c.runs[runID]
 	require.Equal(t, StateDegraded, r.state, "run must not stay active with a promptless manager")
 	require.Equal(t, stageBackoff, r.healStage, "escalated onto the existing heal ladder")
@@ -75,7 +75,7 @@ func TestGuardianEscalatesWhenRedeliveryFails(t *testing.T) {
 	require.NotEmpty(t, fake.escalations, "operator notified through the existing escalation path")
 
 	n := len(fake.escalations)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	require.Len(t, fake.escalations, n, "escalated once, not every tick")
 }
 

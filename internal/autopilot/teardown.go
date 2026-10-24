@@ -18,6 +18,7 @@ func (c *Controller) TeardownLive(ctx context.Context, id string) error {
 	defer c.mu.Unlock()
 
 	if r, ok := c.runs[id]; ok {
+		c.invalidateRecoveryLocked(r)
 		if r.state != StateStopped && r.state != StateComplete && r.state != StateDisabled {
 			c.stopRunLocked(ctx, r)
 			r.state = StateStopped

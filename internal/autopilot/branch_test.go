@@ -107,7 +107,7 @@ func TestTwoPlansInOneRepoResolveDistinctBranches(t *testing.T) {
 		RunStore:          runStore,
 		Resolver:          &fakeResolver{backendID: "a", tier: "free"},
 	}, &fakeEnv{})
-	c.SetRuntime(newFakeRuntime())
+	setRuntimeAndWait(t, c, newFakeRuntime())
 
 	st, err := c.ReconcileConfiguredPlans(context.Background(), dir)
 	require.NoError(t, err)

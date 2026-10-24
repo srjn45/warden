@@ -69,20 +69,22 @@ func TestReloadPlanIfChanged(t *testing.T) {
 // tests: it records spawns/terminations and serves an in-memory ledger + digest
 // sources.
 type fakeRuntime struct {
-	store    *fakeStore
-	sources  fakeSources
-	spawned  []BrainSpec
-	rotated  []RotateBrainSpec
-	killed   []string
-	notified []string
-	spawnErr error
-	nextID   int
-	installs int // times InstallDefaultAutoApprovePolicy was called
+	store      *fakeStore
+	sources    fakeSources
+	spawned    []BrainSpec
+	rotated    []RotateBrainSpec
+	killed     []string
+	notified   []string
+	spawnErr   error
+	spawnCalls int
+	nextID     int
+	installs   int // times InstallDefaultAutoApprovePolicy was called
 }
 
 func newFakeRuntime() *fakeRuntime { return &fakeRuntime{store: newFakeStore()} }
 
 func (r *fakeRuntime) SpawnBrain(_ context.Context, spec BrainSpec) (BrainHandle, error) {
+	r.spawnCalls++
 	if r.spawnErr != nil {
 		return BrainHandle{}, r.spawnErr
 	}
@@ -125,7 +127,7 @@ func TestControllerSpawnsAndTearsDownBrain(t *testing.T) {
 		BaseDir:           dir,
 		Resolver:          &fakeResolver{backendID: "antigravity", tier: "free"},
 	}, &fakeEnv{})
-	c.SetRuntime(rt)
+	setRuntimeAndWait(t, c, rt)
 
 	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
@@ -179,7 +181,7 @@ func TestControllerInstallsDefaultPolicyOnEnable(t *testing.T) {
 		BaseDir:  dir,
 		Resolver: &fakeResolver{backendID: "antigravity", tier: "free"},
 	}, &fakeEnv{})
-	c.SetRuntime(rt)
+	setRuntimeAndWait(t, c, rt)
 
 	_, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
@@ -199,7 +201,7 @@ func TestActiveBrainForRun(t *testing.T) {
 		BaseDir:  dir,
 		Resolver: &fakeResolver{backendID: "antigravity", tier: "free"},
 	}, &fakeEnv{})
-	c.SetRuntime(rt)
+	setRuntimeAndWait(t, c, rt)
 
 	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
@@ -224,7 +226,7 @@ func TestControllerBrainSpawnFailureDegrades(t *testing.T) {
 	rt := newFakeRuntime()
 	rt.spawnErr = fmt.Errorf("backend unavailable")
 	c := NewController(ControllerConfig{Plans: []string{plan}, BaseDir: dir}, &fakeEnv{})
-	c.SetRuntime(rt)
+	setRuntimeAndWait(t, c, rt)
 
 	// A spawn failure does not fail the whole switch — the run is degraded and the
 	// guardian (S5) heals it.
