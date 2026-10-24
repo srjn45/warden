@@ -1,24 +1,23 @@
 ---
-// Claims map to docs/FEATURES.md §34 (34.1 plan file, 34.2 topology, 34.7 land,
-// 34.8 integration branch) and the `wd plan` / `wd autopilot land` CLI.
+// Claims map to docs/FEATURES.md §34 and the canonical `wd plan` CLI flow.
 const steps = [
   {
     n: '1',
     title: 'Plan',
-    cmd: 'wd plan run <id> --mode autopilot',
-    body: 'Write the goal (and optional constraints and tasks) as a plan. If the task list is empty, the manager breaks the goal down for you.',
+    cmd: 'wd plan create --name <name> --goal <goal> --task <id>:<prompt>',
+    body: 'Create a plan with a goal, constraints, and at least one task. Review or edit it while it is pending, then start it in Autopilot mode.',
   },
   {
     n: '2',
     title: 'Run',
-    cmd: 'wd plan pause <id>',
+    cmd: 'wd plan run <id> --mode autopilot',
     body: 'A manager delegates tasks to worker agents, each in its own isolated git worktree. Watch and steer them from the TUI or web cockpit, and pause any time.',
   },
   {
     n: '3',
     title: 'Land',
-    cmd: 'wd autopilot land <branch>',
-    body: 'Each worker PR is gated by CI or your local .warden/check.yml checks, then merged into a per-plan integration branch. Nothing is auto-merged to main — you review and fast-forward it.',
+    cmd: 'wd plan show <id> --watch',
+    body: 'The daemon gates each worker PR and lands it on a per-plan integration branch. When the run is ready, it opens one final PR to the default branch for you to merge.',
   },
 ];
 ---

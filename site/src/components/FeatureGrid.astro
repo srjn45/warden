@@ -4,7 +4,7 @@ const base = import.meta.env.BASE_URL;
 ---
 <section class="section" id="features">
   <div class="wrap">
-    <h2 style="text-align:center">Everything warden does</h2>
+    <h2 class="section-title">Everything warden does</h2>
     {featureGroups.map((g) => (
       <div class="fg" id={g.id}>
         <h3 class="fg-title">{g.title}</h3>
@@ -21,17 +21,3 @@ const base = import.meta.env.BASE_URL;
     ))}
   </div>
 </section>
-
-<style>
-  .fg { margin-top: 28px; scroll-margin-top: 70px; }
-  .fg-title { margin: 0; font-size: 1.15rem; }
-  .fg-blurb { margin: 4px 0 12px; color: var(--muted); }
-  .fg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; }
-  .fg-card {
-    display: flex; flex-direction: column; gap: 4px;
-    background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
-    padding: 14px; text-decoration: none; color: var(--fg); min-width: 0;
-  }
-  .fg-card span { color: var(--muted); font-size: 0.9rem; overflow-wrap: anywhere; }
-  .fg-card:hover { border-color: var(--accent); }
-</style>
