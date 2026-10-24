@@ -32,7 +32,8 @@ func TestFreeFormManagerLaunchPersistsVerifiableIdentity(t *testing.T) {
 }
 
 type managerSlotRunner struct {
-	calls [][]string
+	calls   [][]string
+	display string
 }
 
 func (r *managerSlotRunner) Run(_ context.Context, _ string, name string, args ...string) (string, error) {
@@ -43,10 +44,19 @@ func (r *managerSlotRunner) Run(_ context.Context, _ string, name string, args .
 	case "show-environment":
 		return "WARDEN_AUTOPILOT_RUN_ID=ap-payments\nWARDEN_PLAN_ID=plan-payments\nWARDEN_PROJECT_ID=project-payments\nWARDEN_REPO=/repo/payments\nWARDEN_ROLE=autopilot\nWARDEN_BACKEND=claude\nWARDEN_AI_CLI_SESSION_ID=claude-session\nWARDEN_MANAGER_LAUNCH_ID=launch-1\n", nil
 	case "display-message":
-		return "/repo/payments\n", nil
+		if r.display != "" {
+			return r.display, nil
+		}
+		return "payments-autopilot\t/repo/payments\n", nil
 	default:
 		return "", fmt.Errorf("unexpected command %v", args)
 	}
+}
+
+func TestInspectManagerSlotRefusesPrefixNeighbor(t *testing.T) {
+	l := &Lifecycle{run: &managerSlotRunner{display: "payments-autopilot-old\t/repo/payments\n"}}
+	_, err := l.InspectManagerSlot(context.Background(), "payments-autopilot")
+	require.ErrorContains(t, err, "identity")
 }
 
 func TestInspectManagerSlotReadsOnlyLaunchIdentity(t *testing.T) {
@@ -60,8 +70,8 @@ func TestInspectManagerSlotReadsOnlyLaunchIdentity(t *testing.T) {
 		Role: "autopilot", Backend: "claude", AICLISessionID: "claude-session", LaunchID: "launch-1",
 	}, got)
 	require.Equal(t, [][]string{
-		{"tmux", "has-session", "-t", "payments-autopilot"},
-		{"tmux", "show-environment", "-t", "payments-autopilot"},
-		{"tmux", "display-message", "-p", "-t", "payments-autopilot", "#{pane_current_path}"},
+		{"tmux", "has-session", "-t", "=payments-autopilot"},
+		{"tmux", "show-environment", "-t", "=payments-autopilot"},
+		{"tmux", "display-message", "-p", "-t", "=payments-autopilot", "#{session_name}\t#{pane_current_path}"},
 	}, runner.calls)
 }

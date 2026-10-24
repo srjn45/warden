@@ -1015,7 +1015,8 @@ func (l *Lifecycle) InspectManagerSlot(ctx context.Context, slot string) (Manage
 	if strings.TrimSpace(slot) == "" {
 		return ManagerSlotMetadata{}, errors.New("manager slot is required")
 	}
-	if _, err := l.run.Run(ctx, "", "tmux", "has-session", "-t", slot); err != nil {
+	target := "=" + slot // tmux otherwise accepts prefixes/patterns.
+	if _, err := l.run.Run(ctx, "", "tmux", "has-session", "-t", target); err != nil {
 		// Only tmux's documented no-such-session exit status is absence. A
 		// deadline, transport, or executable failure is a refusal, never a spawn permit.
 		if strings.Contains(err.Error(), "exit status 1") {
@@ -1023,13 +1024,17 @@ func (l *Lifecycle) InspectManagerSlot(ctx context.Context, slot string) (Manage
 		}
 		return ManagerSlotMetadata{}, fmt.Errorf("inspect manager slot liveness: %w", err)
 	}
-	env, err := l.run.Run(ctx, "", "tmux", "show-environment", "-t", slot)
+	env, err := l.run.Run(ctx, "", "tmux", "show-environment", "-t", target)
 	if err != nil {
 		return ManagerSlotMetadata{}, fmt.Errorf("inspect manager slot environment: %w", err)
 	}
-	path, err := l.run.Run(ctx, "", "tmux", "display-message", "-p", "-t", slot, "#{pane_current_path}")
+	identity, err := l.run.Run(ctx, "", "tmux", "display-message", "-p", "-t", target, "#{session_name}\t#{pane_current_path}")
 	if err != nil {
 		return ManagerSlotMetadata{}, fmt.Errorf("inspect manager slot path: %w", err)
+	}
+	parts := strings.SplitN(strings.TrimSpace(identity), "\t", 2)
+	if len(parts) != 2 || parts[0] != slot || strings.TrimSpace(parts[1]) == "" {
+		return ManagerSlotMetadata{}, fmt.Errorf("inspect manager slot identity: expected %q, got %q", slot, identity)
 	}
 	values := map[string]string{}
 	for _, line := range strings.Split(env, "\n") {
@@ -1038,9 +1043,9 @@ func (l *Lifecycle) InspectManagerSlot(ctx context.Context, slot string) (Manage
 			values[key] = value
 		}
 	}
-	return ManagerSlotMetadata{TmuxSession: slot, RunID: values["WARDEN_AUTOPILOT_RUN_ID"],
+	return ManagerSlotMetadata{TmuxSession: parts[0], RunID: values["WARDEN_AUTOPILOT_RUN_ID"],
 		PlanID: values["WARDEN_PLAN_ID"], ProjectID: values["WARDEN_PROJECT_ID"],
-		Repo: values["WARDEN_REPO"], Workdir: strings.TrimSpace(path), Role: values["WARDEN_ROLE"],
+		Repo: values["WARDEN_REPO"], Workdir: strings.TrimSpace(parts[1]), Role: values["WARDEN_ROLE"],
 		Backend: values["WARDEN_BACKEND"], AICLISessionID: values["WARDEN_AI_CLI_SESSION_ID"],
 		LaunchID: values["WARDEN_MANAGER_LAUNCH_ID"]}, nil
 }
