@@ -653,6 +653,12 @@ func (rt autopilotRuntime) RedeliverPrompt(ctx context.Context, agentID string) 
 	if err != nil {
 		return err
 	}
+	if sess.Runtime != nil && sess.Runtime.Kind == "direct" {
+		// A previous post-launch write may have reached this child just before a
+		// crash. Do not fall back to Input: replay would ambiguously duplicate its
+		// first task until direct session authority persists seed delivery.
+		return lifecycle.ErrDirectLifecycleUnsupported
+	}
 	if strings.TrimSpace(sess.Prompt) == "" {
 		return errors.New("agent has no recorded prompt to redeliver")
 	}

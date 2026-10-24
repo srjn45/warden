@@ -142,6 +142,24 @@ func TestHotSwapExplicitBackend(t *testing.T) {
 	require.False(t, res.ResolverUsed)
 }
 
+// A backend/model switch, handoff, or rotation all converge on HotSwap. An
+// already-live direct agent must be rejected until the authority controller can
+// fence its provider readiness and task seeding; it must not be killed or
+// silently replaced through the legacy tmux control path.
+func TestHotSwapRejectsExistingDirectAgent(t *testing.T) {
+	lc, fr, sess := newSwapLC(t)
+	writeClaudeTranscript(t, lc, sess)
+	lc.SwapVerifyWindow = -1
+	h := &directStubHost{plan: true, alive: true}
+	lc.SetProcessHost(h)
+	sess.Runtime = &store.SessionRuntime{Kind: "direct"}
+
+	_, err := lc.HotSwap(context.Background(), sess, SwapRequest{Backend: "codex", Model: "gpt-5-codex"})
+	require.ErrorIs(t, err, ErrDirectLifecycleUnsupported)
+	require.False(t, h.launched, "unsafe swap must not launch a replacement")
+	require.Empty(t, fr.Calls, "unsafe swap must not touch the retiring session")
+}
+
 // TestHotSwapContinuationPromptContent: the seeded prompt orients the successor —
 // names the handoff file, restates the goal and next step.
 func TestHotSwapContinuationPromptContent(t *testing.T) {

@@ -655,12 +655,16 @@ func (r routed) LaunchCommand(ctx context.Context, name, cwd string, argv []stri
 	m.SetSessionRuntimePin(name, ModeOn)
 	m.forgetKind(name) // an agent never inherits a stale shell mark
 	if m.direct.Launcher != nil && m.direct.Launcher.Has(name) {
-		if err := m.direct.Adopt(ctx, name); err == nil {
-			if s := m.direct.Session(name); s != nil {
-				m.watchStream(name, s)
-			}
-			return nil
+		if err := m.direct.Adopt(ctx, name); err != nil {
+			// A holder record means a prior launch may already own a provider
+			// conversation.  Adoption uncertainty must fail closed: starting a new
+			// command here would duplicate that task.
+			return fmt.Errorf("ptyhost: adopt existing agent holder %s: %w", name, err)
 		}
+		if s := m.direct.Session(name); s != nil {
+			m.watchStream(name, s)
+		}
+		return nil
 	}
 	if err := m.direct.NewCommand(ctx, name, cwd, argv, append(append([]string{}, directEnv...), env...)...); err != nil {
 		m.forgetSession(name)

@@ -18,6 +18,19 @@ func (n *noTmux) Run(context.Context, string, string, ...string) (string, error)
 	return "", errors.New("tmux unavailable")
 }
 
+type uncertainAgentLauncher struct{ adopts, launches int }
+
+func (f *uncertainAgentLauncher) Has(string) bool { return true }
+func (f *uncertainAgentLauncher) Adopt(context.Context, string) (*ptyruntime.Adoption, error) {
+	f.adopts++
+	return nil, errors.New("holder authentication failed")
+}
+func (f *uncertainAgentLauncher) Launch(context.Context, string, []string, string, []string, uint16, uint16) (*ptyruntime.Adoption, error) {
+	f.launches++
+	return nil, errors.New("must not launch")
+}
+func (*uncertainAgentLauncher) Release(context.Context, string) {}
+
 func waitScreen(t *testing.T, m *Manager, name, want string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -112,4 +125,19 @@ func TestAgentAndShellLaunchDirectWithoutTmux(t *testing.T) {
 	}
 	_ = h.KillSession(ctx, "agent-1")
 	_ = h.KillSession(ctx, "term-1")
+}
+
+func TestAgentLaunchFailsClosedWhenExistingHolderCannotBeAdopted(t *testing.T) {
+	m := newManager(t, tmuxRunner{}, t.TempDir(), ModeOn)
+	defer m.Close()
+	m.SetAgentDirectReady(true)
+	fake := &uncertainAgentLauncher{}
+	m.direct.Launcher = fake
+	err := m.Host().(routed).LaunchCommand(context.Background(), "agent-uncertain", t.TempDir(), []string{"/bin/sh", "-c", "true"})
+	if err == nil || !strings.Contains(err.Error(), "adopt existing agent holder") {
+		t.Fatalf("LaunchCommand error = %v, want failed-closed adoption error", err)
+	}
+	if fake.adopts != 1 || fake.launches != 0 {
+		t.Fatalf("adopt/launch = %d/%d, want 1/0", fake.adopts, fake.launches)
+	}
 }
