@@ -34,13 +34,14 @@ func TestFreeFormManagerLaunchPersistsVerifiableIdentity(t *testing.T) {
 type managerSlotRunner struct {
 	calls   [][]string
 	display string
+	hasErr  error
 }
 
 func (r *managerSlotRunner) Run(_ context.Context, _ string, name string, args ...string) (string, error) {
 	r.calls = append(r.calls, append([]string{name}, args...))
 	switch args[0] {
 	case "has-session":
-		return "", nil
+		return "", r.hasErr
 	case "show-environment":
 		return "WARDEN_AUTOPILOT_RUN_ID=ap-payments\nWARDEN_PLAN_ID=plan-payments\nWARDEN_PROJECT_ID=project-payments\nWARDEN_REPO=/repo/payments\nWARDEN_ROLE=autopilot\nWARDEN_BACKEND=claude\nWARDEN_AI_CLI_SESSION_ID=claude-session\nWARDEN_MANAGER_LAUNCH_ID=launch-1\n", nil
 	case "display-message":
@@ -50,6 +51,14 @@ func (r *managerSlotRunner) Run(_ context.Context, _ string, name string, args .
 		return "payments-autopilot\t/repo/payments\n", nil
 	default:
 		return "", fmt.Errorf("unexpected command %v", args)
+	}
+}
+
+func TestInspectManagerSlotDoesNotTreatUnknownExitStatusAsAbsent(t *testing.T) {
+	for _, err := range []error{context.DeadlineExceeded, fmt.Errorf("transport failed: exit status 1")} {
+		_, got := (&Lifecycle{run: &managerSlotRunner{hasErr: err}}).InspectManagerSlot(context.Background(), "payments-autopilot")
+		require.Error(t, got)
+		require.NotErrorIs(t, got, ErrManagerSlotMissing)
 	}
 }
 

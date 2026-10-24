@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -1019,7 +1020,8 @@ func (l *Lifecycle) InspectManagerSlot(ctx context.Context, slot string) (Manage
 	if _, err := l.run.Run(ctx, "", "tmux", "has-session", "-t", target); err != nil {
 		// Only tmux's documented no-such-session exit status is absence. A
 		// deadline, transport, or executable failure is a refusal, never a spawn permit.
-		if strings.Contains(err.Error(), "exit status 1") {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			return ManagerSlotMetadata{}, fmt.Errorf("%w: %v", ErrManagerSlotMissing, err)
 		}
 		return ManagerSlotMetadata{}, fmt.Errorf("inspect manager slot liveness: %w", err)

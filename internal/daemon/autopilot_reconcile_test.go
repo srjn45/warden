@@ -151,3 +151,14 @@ func TestReconcileSessionsRefusesUnavailableManagerMetadata(t *testing.T) {
 	_, err := st.Get(context.Background(), spec.ManagerSlotID)
 	require.ErrorIs(t, err, agentstore.ErrNotFound)
 }
+
+func TestVerifyManagerSlotObservationRefusesLegacyTagOrPlanOwnedManager(t *testing.T) {
+	spec := autopilot.BootReconcileRun{RunID: "ap-payments", ManagerSlotID: "payments-autopilot", PlanID: "plan-payments", ProjectID: "project-payments", Repo: "/repo/payments"}
+	obs := verifiedManagerObservation(spec)
+	for _, existing := range []*agentstore.Agent{
+		{ID: "agent-legacy-tag", TmuxSession: "legacy", Role: autopilotBrainRole, Status: store.StatusWorking, Tags: []string{"autopilot", "run:" + spec.RunID}},
+		{ID: "agent-legacy-plan", TmuxSession: "legacy-plan", Role: autopilotBrainRole, Status: store.StatusWorking, PlanID: spec.PlanID},
+	} {
+		require.Equal(t, "competing manager record for run", verifyManagerSlotObservation(obs, spec, []*agentstore.Agent{existing}))
+	}
+}

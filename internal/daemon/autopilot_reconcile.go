@@ -141,7 +141,8 @@ func verifyManagerSlotObservation(obs managerSlotObservation, spec autopilot.Boo
 		if s.ID == spec.ManagerSlotID || s.TmuxSession == spec.ManagerSlotID {
 			return "competing manager record"
 		}
-		if s.AutopilotRunID == spec.RunID && s.AutopilotSlot == store.AutopilotSlotManager {
+		if autopilot.IsManagerRecord(s) && (autopilot.SessionRunID(s) == spec.RunID ||
+			(s.Role == autopilotBrainRole && s.PlanID == spec.PlanID)) {
 			return "competing manager record for run"
 		}
 	}
