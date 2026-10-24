@@ -618,9 +618,11 @@ type routed struct {
 }
 
 // agentDirectReady is the internal readiness guard for direct AI-agent
-// launches. It defaults DISABLED: until the authority work (02b-04) lands, an
-// agent hosted on a direct PTY could be driven by legacy-only control or a
-// competing poller, so only an explicit SetAgentDirectReady(true) (never
+// launches. It defaults DISABLED. The state/approval/input authority half of
+// readiness is in place (the poller stands down for Runtime.Kind=="direct"
+// records and all non-human input goes through AuthoredInput's shared lease),
+// but the guard stays closed until the operator readiness gate (a separate
+// 02b-04 task) flips it, so only an explicit SetAgentDirectReady(true) (never
 // config-derived yet) lets mode `on` launch an agent directly.
 // SetAgentDirectReady flips the internal agent direct-launch guard.
 func (m *Manager) SetAgentDirectReady(v bool) { m.agentDirect.Store(v) }
@@ -786,6 +788,30 @@ func (r routed) CapturePane(ctx context.Context, name string) (string, error) {
 	}
 	return r.m.tmux.CapturePane(ctx, name)
 }
+
+// ErrNotManagedAI refuses automatic (warden-origin) input to a session warden
+// does not manage as an AI agent: a plain shell terminal, or a session that is
+// not hosted on a direct PTY. Nested AI CLIs launched by hand inside a shell are
+// covered by the first case — the shell is the managed session, never the CLI.
+var ErrNotManagedAI = errors.New("ptyhost: automatic input refused: not a directly hosted AI agent session")
+
+// AuthoredInput writes q through the session's shared input authority (human >
+// operator > warden, stale-automation fencing, once-only keys). A session that
+// is not hosted directly returns ErrNotDirect so the caller keeps its legacy
+// tmux path; warden-origin input to a shell terminal is refused outright.
+func (r routed) AuthoredInput(ctx context.Context, name string, q ptyevent.Sequence) error {
+	s := r.m.direct.Session(name)
+	if s == nil {
+		return ErrNotDirect
+	}
+	if q.Origin == ptyevent.OriginWarden && (r.terminal || r.m.IsTerminal(name)) {
+		return ErrNotManagedAI
+	}
+	return s.WriteSequence(ctx, q)
+}
+
+// ErrNotDirect: the session is not hosted on a direct PTY (legacy tmux).
+var ErrNotDirect = errors.New("ptyhost: session is not hosted directly")
 
 func (r routed) SendKeys(ctx context.Context, name string, keys ...string) error {
 	if r.m.direct.Session(name) != nil {

@@ -30,6 +30,7 @@ import (
 	"github.com/srjn45/warden/internal/memory"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/ptyevent"
+	"github.com/srjn45/warden/internal/ptyruntime"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/store"
@@ -855,6 +856,9 @@ func shellQuoteArg(s string) string {
 }
 
 type Lifecycle struct {
+	// seeding holds agent ids with a prompt seed in flight (dedupe).
+	seeding sync.Map
+
 	run Runner
 	// pendingDirect holds the cwd/env of agents whose launch is deferred to a
 	// direct PTY (newAgentSession → launchAgent), keyed by agent id.
@@ -2835,20 +2839,57 @@ var inputSubmitDelay = 150 * time.Millisecond
 // (newlines stay content; per-session name avoids clobbering across concurrent
 // sends) and then presses Enter as a SEPARATE keystroke after a short settle.
 func (l *Lifecycle) Input(ctx context.Context, tmuxSession, text string) error {
+	return l.InputAs(ctx, tmuxSession, text, InputAuthority{Origin: ptyevent.OriginOperator})
+}
+
+// InputAuthority says on whose behalf an input is written. The zero value is
+// an operator send. Automatic writers (initial seed, rate-limit resume, compact
+// resume) use OriginWarden with a Reason and a OnceKey so the shared input
+// authority can fence them behind a typing human and refuse a replay. It only
+// bites on directly hosted agents; a legacy tmux pane has no lease and keeps
+// its existing behaviour unchanged.
+type InputAuthority struct {
+	Origin  ptyevent.Origin
+	Reason  string
+	OnceKey string
+}
+
+// authoredHost is the optional Host capability of the direct PTY runtime.
+type authoredHost interface {
+	AuthoredInput(ctx context.Context, name string, q ptyevent.Sequence) error
+}
+
+// InputAs is Input with an explicit origin (see InputAuthority).
+func (l *Lifecycle) InputAs(ctx context.Context, tmuxSession, text string, a InputAuthority) error {
 	if l.hostedDirectly(tmuxSession) {
-		// Direct PTY: bracketed paste through the runtime's operator writer.
-		h := l.Proc()
-		if err := h.SendKeys(ctx, tmuxSession, "-l", "\x1b[200~"+text+"\x1b[201~"); err != nil {
-			return err
+		if a.Origin == "" {
+			a.Origin = ptyevent.OriginOperator
 		}
-		if inputSubmitDelay > 0 {
+		ah, ok := l.Proc().(authoredHost)
+		if !ok {
+			if a.Origin != ptyevent.OriginOperator {
+				return fmt.Errorf("direct agent %s: runtime lacks the shared input authority; refusing automatic input", tmuxSession)
+			}
+			h := l.Proc() // a bare Host: its SendKeys is already operator-origin
+			if err := h.SendKeys(ctx, tmuxSession, "-l", "\x1b[200~"+text+"\x1b[201~"); err != nil {
+				return err
+			}
 			select {
 			case <-time.After(inputSubmitDelay):
 			case <-ctx.Done():
 				return ctx.Err()
 			}
+			return h.SendKeys(ctx, tmuxSession, "Enter")
 		}
-		return h.SendKeys(ctx, tmuxSession, "Enter")
+		// One fenced unit: a human keystroke between the paste and the Enter drops
+		// the Enter instead of submitting their half-typed line.
+		return ah.AuthoredInput(ctx, tmuxSession, ptyevent.Sequence{
+			Origin: a.Origin, Reason: a.Reason, OnceKey: a.OnceKey,
+			Parts: []ptyevent.SeqPart{
+				{Data: []byte("\x1b[200~" + text + "\x1b[201~"), Gap: inputSubmitDelay},
+				{Data: []byte("\r")},
+			},
+		})
 	}
 	buf := "warden-input-" + tmuxSession
 	if err := l.loadBuffer(ctx, buf, text); err != nil {
@@ -2912,8 +2953,26 @@ func (l *Lifecycle) loadBuffer(ctx context.Context, buf, text string) error {
 // Enter: Claude Code's select prompts treat the digit itself as select-and-
 // confirm, so an extra Enter could double-submit.
 func (l *Lifecycle) SendKeys(ctx context.Context, tmuxSession, key string) error {
+	return l.SendKeysAs(ctx, tmuxSession, key, InputAuthority{Origin: ptyevent.OriginOperator})
+}
+
+// SendKeysAs is SendKeys with an explicit origin (see InputAuthority).
+func (l *Lifecycle) SendKeysAs(ctx context.Context, tmuxSession, key string, a InputAuthority) error {
 	if l.hostedDirectly(tmuxSession) {
-		return l.Proc().SendKeys(ctx, tmuxSession, key)
+		if a.Origin == "" {
+			a.Origin = ptyevent.OriginOperator
+		}
+		ah, ok := l.Proc().(authoredHost)
+		if !ok {
+			if a.Origin != ptyevent.OriginOperator {
+				return fmt.Errorf("direct agent %s: runtime lacks the shared input authority; refusing automatic input", tmuxSession)
+			}
+			return l.Proc().SendKeys(ctx, tmuxSession, key)
+		}
+		return ah.AuthoredInput(ctx, tmuxSession, ptyevent.Sequence{
+			Origin: a.Origin, Reason: a.Reason, OnceKey: a.OnceKey,
+			Parts: []ptyevent.SeqPart{{Data: ptyruntime.KeyBytes(key)}},
+		})
 	}
 	if out, err := l.run.Run(ctx, "", "tmux", "send-keys", "-t", tmuxSession, key); err != nil {
 		return fmt.Errorf("tmux send-keys %q: %w: %s", key, err, out)
@@ -2977,7 +3036,11 @@ func (l *Lifecycle) seedInteractivePrompt(b agentbackend.Backend, agent *agentst
 		}
 	}
 	id, backend, marker := agent.ID, b.ID(), ps.ReadyMarker()
+	if _, running := l.seeding.LoadOrStore(id, struct{}{}); running {
+		return // a seed for this agent is already in flight: never run two
+	}
 	go func() {
+		defer l.seeding.Delete(id)
 		out := SeedOutcome{AgentID: id, Backend: backend, PromptFile: file, Status: store.SeedDelivered}
 		if err := l.deliverSeed(id, text, marker); err != nil {
 			out.Status, out.Err = store.SeedFailed, err.Error()
@@ -3010,19 +3073,37 @@ func (l *Lifecycle) RedeliverPrompt(agent *agentstore.Agent) bool {
 // promptSeedAttempts times with a growing backoff. The readiness wait and each
 // paste get their own generous budget.
 func (l *Lifecycle) deliverSeed(id, text, marker string) error {
+	direct := l.hostedDirectly(id)
+	if direct && marker == "" {
+		// A directly hosted agent is seeded only on positive readiness evidence.
+		// With no ready marker the legacy path would wait a fixed delay and type —
+		// a quiet-output guess. Fail closed (the prompt file is kept) instead.
+		return fmt.Errorf("direct agent %s: backend has no ready marker; refusing to seed on a timing guess", id)
+	}
 	rctx, cancel := context.WithTimeout(context.Background(), promptSeedTimeout)
 	ready := l.waitPaneReady(rctx, id, marker)
 	cancel()
 	if !ready {
 		return fmt.Errorf("agent UI not ready after %s", promptSeedTimeout)
 	}
+	auth := InputAuthority{Origin: ptyevent.OriginOperator}
+	if direct {
+		// Automatic input: yields to a typing human and is issued at most once per
+		// session so a retry or a second seeding path can never double-seed.
+		auth = InputAuthority{Origin: ptyevent.OriginWarden, Reason: "seed", OnceKey: "seed:" + id}
+	}
 	var err error
 	for i := 1; i <= promptSeedAttempts; i++ {
 		pctx, pcancel := context.WithTimeout(context.Background(), promptSeedTimeout)
-		err = l.Input(pctx, id, text)
+		err = l.InputAs(pctx, id, text, auth)
 		pcancel()
 		if err == nil {
 			return nil
+		}
+		if direct && (errors.Is(err, ptyruntime.ErrDuplicate) || errors.Is(err, ptyruntime.ErrPreempted) ||
+			errors.Is(err, ptyruntime.ErrAbandoned) || errors.Is(err, ptyruntime.ErrExited)) {
+			// Not retriable: a human owns the line / the seed may already be in.
+			return fmt.Errorf("seed not delivered to direct agent: %w", err)
 		}
 		slog.Warn("prompt seed: paste failed", "agent", id, "attempt", i, "of", promptSeedAttempts, "err", err)
 		if i < promptSeedAttempts {
