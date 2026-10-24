@@ -24,7 +24,9 @@ type Stream interface {
 
 // InputWriter is the interface for delivering input to an agent's terminal.
 type InputWriter interface {
-	WriteInput(ctx context.Context, data []byte, origin ptyevent.Origin, decisionID string) error
+	// humanSeq is the human-input fence captured during revalidation. Direct
+	// writers must reject if a human types before the write reaches the PTY.
+	WriteInput(ctx context.Context, data []byte, origin ptyevent.Origin, decisionID string, humanSeq uint64) error
 	Lease() ptyevent.Lease
 }
 

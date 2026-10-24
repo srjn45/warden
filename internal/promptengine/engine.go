@@ -58,6 +58,9 @@ type Config struct {
 	Backend func(*agentstore.Agent) agentbackend.Backend
 	// CLIVersion reports the installed CLI version for learned-shape pinning.
 	CLIVersion func(backendID string) string
+	// StrategyContext loads bounded context from the canonical plan record for
+	// an autopilot strategic decision. Repository plan exports are not authority.
+	StrategyContext func(context.Context, *agentstore.Agent, string) StrategyContext
 	// Trace, when set, receives a redacted record for every attempt/outcome.
 	Trace *ptyobs.Trace
 	// Metrics, when set, counts prompts, decisions and escalations (bounded labels).
@@ -65,6 +68,14 @@ type Config struct {
 	// Notify is called when an outcome should refresh clients.
 	Notify func()
 	Clock  func() time.Time
+}
+
+// StrategyContext is the bounded canonical context presented to Tier-1.
+// Empty values are safe: the router escalates instead of guessing plan intent.
+type StrategyContext struct {
+	PlanGoal    string
+	ActiveTask  string
+	Constraints string
 }
 
 func (c *Config) defaults() {
@@ -180,7 +191,7 @@ func (e *Engine) handle(ctx context.Context, name string, p *ptyevent.Prompt) {
 	if e.learner != nil {
 		e.learner.ParserAgreement(p)
 	}
-	req := e.routeRequest(ag, name, tgt, p)
+	req := e.routeRequest(ctx, ag, name, tgt, p)
 	started := e.cfg.Clock()
 	e.countPrompt(req.BackendID, req.CLIVersion, p)
 	res, err := e.router.Route(ctx, req)
@@ -194,7 +205,14 @@ func (e *Engine) handle(ctx context.Context, name string, p *ptyevent.Prompt) {
 	}
 }
 
-func (e *Engine) routeRequest(ag *agentstore.Agent, name string, tgt Target, p *ptyevent.Prompt) decisionrouter.RouteRequest {
+func (e *Engine) routeRequest(ctx context.Context, ag *agentstore.Agent, name string, tgt Target, p *ptyevent.Prompt) decisionrouter.RouteRequest {
+	// Capture human ownership before any version probe, canonical-plan lookup or
+	// Tier-1 work. Router revalidates it immediately before delivery and the
+	// direct writer carries the same fence into the PTY write.
+	humanSeq := uint64(0)
+	if tgt.Writer != nil {
+		humanSeq = tgt.Writer.Lease().HumanSeq
+	}
 	posture := ag.PermissionPosture
 	if !posture.Valid() {
 		posture = ptyevent.PostureAllowlisted // the safe default; never an implicit upgrade
@@ -215,27 +233,57 @@ func (e *Engine) routeRequest(ag *agentstore.Agent, name string, tgt Target, p *
 	if e.cfg.CLIVersion != nil {
 		version = e.cfg.CLIVersion(backendID)
 	}
+	runID := autopilotRunID(ag)
+	var strategy StrategyContext
+	if e.cfg.StrategyContext != nil && runID != "" {
+		strategy = e.cfg.StrategyContext(ctx, ag, runID)
+	}
 	return decisionrouter.RouteRequest{
 		SessionID:       name,
 		AgentID:         ag.ID,
 		Name:            ag.Name,
-		RunID:           ag.AutopilotRunID,
-		IsAutopilot:     ag.AutopilotRunID != "",
+		RunID:           runID,
+		IsAutopilot:     runID != "",
 		Workdir:         ag.Workdir,
 		BackendID:       backendID,
 		CLIVersion:      version,
 		Backend:         b,
 		Posture:         posture,
 		AllowlistPolicy: pol,
+		PlanGoal:        strategy.PlanGoal,
+		ActiveTask:      strategy.ActiveTask,
+		Constraints:     strategy.Constraints,
 		// Whether warden WRITES a decision is separate from what the posture
 		// permits (§10.3): the per-session opt-in or autopilot ownership.
-		Act:         ag.AutoApprove || ag.AutopilotRunID != "",
+		Act:         ag.AutoApprove || runID != "",
 		Screen:      tgt.Stream.Screen(),
 		LivePrompt:  p,
 		Stream:      tgt.Stream,
 		InputWriter: tgt.Writer,
+		HumanSeq:    humanSeq,
 		DryRun:      !e.rt.Authoritative(name),
 	}
+}
+
+// autopilotRunID preserves the legacy run:<id> identity tag while records are
+// progressively backfilled into AutopilotRunID. An empty or malformed tag is
+// never enough to grant automation.
+func autopilotRunID(ag *agentstore.Agent) string {
+	if ag == nil {
+		return ""
+	}
+	if id := strings.TrimSpace(ag.AutopilotRunID); id != "" {
+		return id
+	}
+	for _, tag := range ag.Tags {
+		if id := strings.TrimSpace(strings.TrimPrefix(tag, "run:")); strings.HasPrefix(tag, "run:") && id != "" {
+			return id
+		}
+		if id := strings.TrimSpace(strings.TrimPrefix(tag, "autopilot-run:")); strings.HasPrefix(tag, "autopilot-run:") && id != "" {
+			return id
+		}
+	}
+	return ""
 }
 
 // record remembers the outcome so the same instance is not decided twice.
@@ -305,7 +353,7 @@ func (e *Engine) handleUnreadable(ctx context.Context, name, screen string) {
 	if e.cfg.Backend != nil {
 		b = e.cfg.Backend(ag)
 	}
-	req := e.routeRequest(ag, name, tgt, nil)
+	req := e.routeRequest(ctx, ag, name, tgt, nil)
 	creq := decisionrouter.ClassifyRequest{
 		Screen: screen, Backend: b, BackendID: req.BackendID, CLIVersion: req.CLIVersion,
 		SessionID: name, ProjectID: ag.Workdir, Workdir: ag.Workdir, AgentID: ag.ID, Now: e.cfg.Clock(),
@@ -371,8 +419,10 @@ func (h HumanNotifier) NotifyHumanApproval(context.Context, string, string, *pty
 type DirectWriter struct{ S *ptyruntime.Session }
 
 // WriteInput implements decisionrouter.InputWriter.
-func (w DirectWriter) WriteInput(ctx context.Context, data []byte, origin ptyevent.Origin, decisionID string) error {
-	return w.S.WriteWait(ctx, ptyruntime.Write{Origin: origin, Data: data, DecisionID: decisionID})
+func (w DirectWriter) WriteInput(ctx context.Context, data []byte, origin ptyevent.Origin, decisionID string, humanSeq uint64) error {
+	return w.S.WriteWait(ctx, ptyruntime.Write{
+		Origin: origin, Data: data, DecisionID: decisionID, FenceHuman: true, HumanSeq: humanSeq,
+	})
 }
 
 // Lease implements decisionrouter.InputWriter.
@@ -387,7 +437,7 @@ type TmuxWriter struct {
 }
 
 // WriteInput implements decisionrouter.InputWriter.
-func (w TmuxWriter) WriteInput(ctx context.Context, data []byte, _ ptyevent.Origin, _ string) error {
+func (w TmuxWriter) WriteInput(ctx context.Context, data []byte, _ ptyevent.Origin, _ string, _ uint64) error {
 	keys, err := tmuxKeys(data)
 	if err != nil {
 		return err
