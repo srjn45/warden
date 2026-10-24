@@ -1,14 +1,21 @@
 ---
 const base = import.meta.env.BASE_URL;
+const repo = 'https://github.com/srjn45/warden';
 ---
-<footer style="padding:28px 0;text-align:center;color:var(--muted)">
+<footer class="site-footer">
   <div class="wrap">
-    <a href={`${base}start/what-is-warden/`}>Docs</a> ·
-    <a href="https://github.com/srjn45/warden">GitHub</a> ·
-    <a href="https://srjn45.github.io/">Author</a> ·
-    Apache-2.0
+    <nav class="footer-links" aria-label="Project links">
+      <a href={`${base}start/what-is-warden/`}>Docs</a>
+      <a href={`${base}blog/`}>Blog</a>
+      <a href={`${repo}/releases`}>Releases &amp; changelog</a>
+      <a href={`${repo}/blob/main/SECURITY.md`}>Security</a>
+      <a href={`${repo}/issues`}>Issues</a>
+      <a href={repo}>GitHub</a>
+      <a href="https://srjn45.github.io/">Author</a>
+      <span>Apache-2.0</span>
+    </nav>
   </div>
-  <div class="wrap" style="margin-top:10px;font-size:0.85em;opacity:0.8">
+  <div class="wrap footer-legal">
     warden is an independent open-source project, not affiliated with, endorsed by,
     or sponsored by Anthropic, OpenAI, Google, Cursor, Block, or any other backend
     vendor. All product names are trademarks of their respective owners.
