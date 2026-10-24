@@ -66,6 +66,19 @@ func TestSpawnBrainAdoptsLiveSlot(t *testing.T) {
 	require.Nil(t, fl.spawned, "live slot is adopted without spawning")
 }
 
+func TestSpawnBrainRefusesUnverifiedLiveSlotWithoutLaunchingRival(t *testing.T) {
+	fs := &slotSpawnStore{fakeStore: newFakeStore()}
+	fl := &fakeLife{}
+	spec := autopilot.BrainSpec{RunID: "ap-voyage", SlotScope: "voyage", Repo: "/repo/voyage", PlanID: "plan-voyage", ProjectID: "project-voyage", Backend: "claude"}
+	srv := &Server{store: fs, life: fl, managerSlotInspector: managerSlotInspectorFunc(func(_ context.Context, slot string) (managerSlotObservation, error) {
+		return managerSlotObservation{TmuxSession: slot, RunID: "ap-foreign", PlanID: spec.PlanID, ProjectID: spec.ProjectID,
+			Repo: spec.Repo, Workdir: spec.Repo, Role: autopilotBrainRole, Backend: "claude", AICLISessionID: "session-foreign", LaunchID: "launch-foreign"}, nil
+	})}
+	_, err := (autopilotRuntime{s: srv}).SpawnBrain(context.Background(), spec)
+	require.ErrorIs(t, err, errManagerAdoptionRefused)
+	require.Nil(t, fl.spawned, "unverified live slot must not trigger a rival launch")
+}
+
 func TestRotateBrainInvokesHotSwapNotRecovery(t *testing.T) {
 	st := newFakeStore()
 	life := &fakeLife{}

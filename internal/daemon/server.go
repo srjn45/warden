@@ -40,6 +40,9 @@ func NewServer(st agentstore.AgentStore, life Lifecycle, p *poller.Poller, inter
 	if exec != nil {
 		s.pipelineWatcher = NewPipelineWatcher(exec.pstore, st, exec, 10*time.Minute, 20*time.Minute, true)
 	}
+	if inspector, ok := life.(managerSlotInspector); ok {
+		s.managerSlotInspector = inspector
+	}
 	return s
 }
 

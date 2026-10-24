@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/srjn45/warden/internal/agentstore"
@@ -9,6 +10,20 @@ import (
 	"github.com/srjn45/warden/internal/store"
 	"github.com/stretchr/testify/require"
 )
+
+type managerSlotInspectorFunc func(context.Context, string) (managerSlotObservation, error)
+
+func (f managerSlotInspectorFunc) InspectManagerSlot(ctx context.Context, slot string) (managerSlotObservation, error) {
+	return f(ctx, slot)
+}
+
+func verifiedManagerObservation(spec autopilot.BootReconcileRun) managerSlotObservation {
+	return managerSlotObservation{
+		TmuxSession: spec.ManagerSlotID, RunID: spec.RunID, PlanID: spec.PlanID,
+		ProjectID: spec.ProjectID, Repo: spec.Repo, Workdir: spec.Repo,
+		Role: autopilotBrainRole, Backend: "codex", AICLISessionID: "backend-session-1", LaunchID: "launch-1",
+	}
+}
 
 func TestReconcileSessionsMigratesLegacyManagerToSlot(t *testing.T) {
 	st := newFakeStore()
@@ -75,4 +90,75 @@ func TestReconcileSessionsIdempotent(t *testing.T) {
 	got, err := st.Get(context.Background(), slotID)
 	require.NoError(t, err)
 	require.Equal(t, runID, got.AutopilotRunID)
+}
+
+func TestReconcileSessionsAdoptsOnlyVerifiedMissingManager(t *testing.T) {
+	st := newFakeStore()
+	spec := autopilot.BootReconcileRun{
+		RunID: "ap-payments", SlotScope: "payments", ManagerSlotID: "payments-autopilot",
+		PlanID: "plan-payments", ProjectID: "project-payments", Repo: "/repo/payments",
+	}
+	rt := autopilotRuntime{s: &Server{store: st, life: &fakeLife{}, hub: newHub(),
+		managerSlotInspector: managerSlotInspectorFunc(func(_ context.Context, slot string) (managerSlotObservation, error) {
+			require.Equal(t, spec.ManagerSlotID, slot)
+			return verifiedManagerObservation(spec), nil
+		}),
+	}}
+	require.NoError(t, rt.ReconcileSessions(context.Background(), []autopilot.BootReconcileRun{spec}))
+	got, err := st.Get(context.Background(), spec.ManagerSlotID)
+	require.NoError(t, err)
+	require.Equal(t, spec.ManagerSlotID, got.Name)
+	require.Equal(t, autopilotBrainRole, got.Role)
+	require.Equal(t, spec.RunID, got.AutopilotRunID)
+	require.Equal(t, spec.PlanID, got.PlanID)
+	require.Equal(t, spec.ProjectID, got.ProjectID)
+	require.Equal(t, spec.Repo, got.Workdir)
+	require.Equal(t, store.AutopilotSlotManager, got.AutopilotSlot)
+	require.Equal(t, []string{"autopilot", "run:" + spec.RunID}, got.Tags)
+}
+
+func TestReconcileSessionsRefusesForeignOrAmbiguousMissingManager(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*managerSlotObservation)
+	}{
+		{name: "foreign run", mutate: func(o *managerSlotObservation) { o.RunID = "ap-other" }},
+		{name: "ambiguous project", mutate: func(o *managerSlotObservation) { o.ProjectID = "project-other" }},
+		{name: "missing continuity", mutate: func(o *managerSlotObservation) { o.LaunchID = "" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := newFakeStore()
+			spec := autopilot.BootReconcileRun{RunID: "ap-payments", SlotScope: "payments", ManagerSlotID: "payments-autopilot", PlanID: "plan-payments", ProjectID: "project-payments", Repo: "/repo/payments"}
+			rt := autopilotRuntime{s: &Server{store: st, life: &fakeLife{}, hub: newHub(), managerSlotInspector: managerSlotInspectorFunc(func(_ context.Context, _ string) (managerSlotObservation, error) {
+				o := verifiedManagerObservation(spec)
+				tc.mutate(&o)
+				return o, nil
+			})}}
+			require.NoError(t, rt.ReconcileSessions(context.Background(), []autopilot.BootReconcileRun{spec}))
+			_, err := st.Get(context.Background(), spec.ManagerSlotID)
+			require.ErrorIs(t, err, agentstore.ErrNotFound)
+		})
+	}
+}
+
+func TestReconcileSessionsRefusesUnavailableManagerMetadata(t *testing.T) {
+	st := newFakeStore()
+	spec := autopilot.BootReconcileRun{RunID: "ap-payments", SlotScope: "payments", ManagerSlotID: "payments-autopilot", PlanID: "plan-payments", ProjectID: "project-payments", Repo: "/repo/payments"}
+	rt := autopilotRuntime{s: &Server{store: st, life: &fakeLife{}, hub: newHub(), managerSlotInspector: managerSlotInspectorFunc(func(context.Context, string) (managerSlotObservation, error) {
+		return managerSlotObservation{}, errors.New("tmux unavailable")
+	})}}
+	require.NoError(t, rt.ReconcileSessions(context.Background(), []autopilot.BootReconcileRun{spec}))
+	_, err := st.Get(context.Background(), spec.ManagerSlotID)
+	require.ErrorIs(t, err, agentstore.ErrNotFound)
+}
+
+func TestVerifyManagerSlotObservationRefusesLegacyTagOrPlanOwnedManager(t *testing.T) {
+	spec := autopilot.BootReconcileRun{RunID: "ap-payments", ManagerSlotID: "payments-autopilot", PlanID: "plan-payments", ProjectID: "project-payments", Repo: "/repo/payments"}
+	obs := verifiedManagerObservation(spec)
+	for _, existing := range []*agentstore.Agent{
+		{ID: "agent-legacy-tag", TmuxSession: "legacy", Role: autopilotBrainRole, Status: store.StatusWorking, Tags: []string{"autopilot", "run:" + spec.RunID}},
+		{ID: "agent-legacy-plan", TmuxSession: "legacy-plan", Role: autopilotBrainRole, Status: store.StatusWorking, PlanID: spec.PlanID},
+	} {
+		require.Equal(t, "competing manager record for run", verifyManagerSlotObservation(obs, spec, []*agentstore.Agent{existing}))
+	}
 }
