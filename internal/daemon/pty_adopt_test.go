@@ -36,7 +36,13 @@ func newAdoptRig(t *testing.T) *adoptRig {
 	t.Helper()
 	d, err := os.MkdirTemp("", "wda") // short: holder socket paths are length-limited
 	require.NoError(t, err)
-	t.Cleanup(func() { ptyholder.KillAll(filepath.Join(d, "pty", "holder")); os.RemoveAll(d) })
+	t.Cleanup(func() {
+		if err := ptyholder.KillAll(filepath.Join(d, "pty", "holder")); err != nil {
+			t.Error(err)
+			return
+		}
+		os.RemoveAll(d)
+	})
 	ts, err := terminalstore.New(filepath.Join(d, "terminals-db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ts.Close() })
@@ -52,8 +58,10 @@ func (r *adoptRig) restart() {
 		r.mgr.Close()
 	}
 	exe, _ := os.Executable()
+	ownerStart, err := ptyholder.StartTime(os.Getpid())
+	require.NoError(r.t, err)
 	r.mgr = ptyhost.New(ptyhost.Config{Mode: ptyhost.ModeOn, Dir: filepath.Join(r.dir, "pty"), Shell: []string{"/bin/sh"},
-		Launcher: &ptyholder.Launcher{Root: filepath.Join(r.dir, "pty", "holder"), Command: []string{exe, "__ptyholder"}, ExitedLinger: time.Minute},
+		Launcher: &ptyholder.Launcher{TestOwner: &ptyholder.Owner{PID: os.Getpid(), Start: ownerStart}, Root: filepath.Join(r.dir, "pty", "holder"), Command: []string{exe, "__ptyholder"}, ExitedLinger: time.Minute},
 		Options:  ptyruntime.Options{KillGrace: 200 * time.Millisecond}})
 	r.mgr.SetTerminalResolver(func(name string) bool { _, err := r.ts.Get(context.Background(), name); return err == nil })
 	r.srv = &Server{store: r.agents, life: r.life, terminals: r.ts, hub: newHub(), done: make(chan struct{}), pty: r.mgr}
@@ -218,8 +226,8 @@ func TestRecoverPTYAdoptsLiveHolderAgentAfterRollback(t *testing.T) {
 	require.NotNil(t, d)
 	require.Equal(t, pid, d.PID(), "recovery must retain the existing child")
 	require.False(t, r.mgr.IsTerminal("agent-keep"), "adopting an agent must not turn it into a terminal")
-	rec, err := r.agents.Get(ctx, "agent-keep")
-	require.NoError(t, err)
+	rec := r.agents.snapSession("agent-keep") // the adopted end-watcher writes concurrently
+	require.NotNil(t, rec)
 	require.Equal(t, store.StatusWorking, rec.Status)
 }
 
@@ -231,6 +239,11 @@ func TestAgentLaunchAdoptsUnrecordedHolderWithoutDuplicateTaskStart(t *testing.T
 	ctx := context.Background()
 	starts := filepath.Join(r.t.TempDir(), "starts")
 	pid := r.launchUnrecordedAgent("agent-unrecorded", "printf first-start >>"+starts+"; printf conversation-marker; exec sleep 1000")
+	// Establish that the original consumer journaled this one-shot output before
+	// simulating daemon loss; unread/in-flight PTY bytes are not a screen replay.
+	require.Eventually(t, func() bool {
+		return strings.Contains(r.mgr.Direct("agent-unrecorded").Screen(), "conversation-marker")
+	}, 5*time.Second, 10*time.Millisecond)
 	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
 
 	r.restart()
@@ -243,7 +256,19 @@ func TestAgentLaunchAdoptsUnrecordedHolderWithoutDuplicateTaskStart(t *testing.T
 	d := r.mgr.Direct("agent-unrecorded")
 	require.NotNil(t, d)
 	require.Equal(t, pid, d.PID(), "retry must adopt the original child")
-	require.Eventually(t, func() bool { return strings.Contains(d.Screen(), "conversation-marker") }, 5*time.Second, 10*time.Millisecond)
+	// Re-adoption starts a fresh screen model; a sleeping command cannot
+	// repaint on SIGWINCH. Its one-shot output may already have been consumed
+	// before detach, so assert retained journal output instead of a screen race.
+	require.Eventually(t, func() bool {
+		var output strings.Builder
+		_ = d.Journal().Read(1, func(ev ptyevent.Event) error {
+			if ev.Output != nil {
+				_, _ = output.Write(ev.Output.Data)
+			}
+			return nil
+		})
+		return strings.Contains(output.String(), "conversation-marker")
+	}, 5*time.Second, 10*time.Millisecond)
 	data, err := os.ReadFile(starts)
 	require.NoError(t, err)
 	require.Equal(t, "first-start", string(data), "task must start exactly once")
@@ -282,8 +307,8 @@ func TestRecoverPTYAgentExitWhileDaemonDownIsNotRelaunched(t *testing.T) {
 	r.restart()
 	r.srv.recoverPTY(ctx)
 	require.Eventually(t, func() bool {
-		rec, err := r.agents.Get(ctx, "agent-offline-exit")
-		return err == nil && rec.Status == store.StatusOrphaned
+		rec := r.agents.snapSession("agent-offline-exit")
+		return rec != nil && rec.Status == store.StatusOrphaned
 	}, 5*time.Second, 10*time.Millisecond)
 	require.Empty(t, r.life.restored, "offline exit must not start a replacement")
 	_ = pid // retained as an explicit same-child fixture identity
@@ -307,8 +332,8 @@ func TestRecoverPTYLostHolderAgentIsOrphanedNotRelaunched(t *testing.T) {
 	r.srv.recoverPTY(ctx)
 
 	require.Nil(t, r.mgr.Direct("agent-lost"))
-	rec, err := r.agents.Get(ctx, "agent-lost")
-	require.NoError(t, err)
+	rec := r.agents.snapSession("agent-lost")
+	require.NotNil(t, rec)
 	require.Equal(t, store.StatusOrphaned, rec.Status)
 }
 
@@ -327,8 +352,8 @@ func TestRecoverPTYRejectsStaleAgentHolderIdentity(t *testing.T) {
 	r.restart()
 	r.srv.recoverPTY(ctx)
 	require.Nil(t, r.mgr.Direct("agent-stale"), "a stale runtime identity must not attach")
-	rec, err := r.agents.Get(ctx, "agent-stale")
-	require.NoError(t, err)
+	rec := r.agents.snapSession("agent-stale")
+	require.NotNil(t, rec)
 	require.Equal(t, store.StatusOrphaned, rec.Status)
 }
 

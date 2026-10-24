@@ -21,7 +21,12 @@ import (
 func startFakeDaemon(t *testing.T, root, journals, name string) (*exec.Cmd, int) {
 	t.Helper()
 	exe, _ := os.Executable()
-	cmd := exec.Command(exe, "__daemon", root, journals, name)
+	ownerPID := os.Getpid()
+	ownerStart, err := StartTime(ownerPID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(exe, "__daemon", root, journals, name, strconv.Itoa(ownerPID), strconv.FormatUint(ownerStart, 10))
 	out, err := cmd.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -279,7 +284,9 @@ func TestFencingAndPrecedenceSurviveAdoption(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	eventually(t, "both lines to run", func() bool { return strings.Contains(s1.Screen(), "two") })
+	// Wait for both the terminal echo and the executed command output. A lone
+	// echoed input is not evidence that the command finished before detach.
+	eventually(t, "both lines to run", func() bool { return strings.Count(s1.Screen(), "two") >= 2 })
 	h1.Close() // daemon restart
 
 	h2 := newHost(root, journals)

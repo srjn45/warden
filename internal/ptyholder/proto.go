@@ -26,9 +26,23 @@ var (
 	ErrInsecure = errors.New("ptyholder: insecure socket or state directory")
 )
 
+// Owner identifies an opt-in test scope. Production holders have no Owner and
+// deliberately survive their launcher. PID plus start time prevents PID reuse
+// from keeping abandoned fixtures alive.
+type Owner struct {
+	PID   int    `json:"pid"`
+	Start uint64 `json:"start"`
+}
+
+func (o Owner) alive() bool {
+	st, err := StartTime(o.PID)
+	return o.PID > 0 && o.Start != 0 && err == nil && st == o.Start
+}
+
 // Spec is what a holder is started with (a 0600 file removed once read, because
 // Env may carry secrets).
 type Spec struct {
+	TestOwner  *Owner   `json:"test_owner,omitempty"`
 	ID         string   `json:"id"`
 	Root       string   `json:"root"`
 	Argv       []string `json:"argv"`
@@ -46,13 +60,15 @@ type Spec struct {
 // Meta is the holder's public identity, written 0600 after it is listening.
 // The daemon compares what it adopts against it.
 type Meta struct {
-	Proto       int    `json:"proto"`
-	ID          string `json:"id"`
-	HolderPID   int    `json:"holder_pid"`
-	HolderStart uint64 `json:"holder_start"`
-	ChildPID    int    `json:"child_pid"`
-	ChildStart  uint64 `json:"child_start"`
-	Socket      string `json:"socket"`
+	CleanupError string `json:"cleanup_error,omitempty"`
+	TestOwner    *Owner `json:"test_owner,omitempty"`
+	Proto        int    `json:"proto"`
+	ID           string `json:"id"`
+	HolderPID    int    `json:"holder_pid"`
+	HolderStart  uint64 `json:"holder_start"`
+	ChildPID     int    `json:"child_pid"`
+	ChildStart   uint64 `json:"child_start"`
+	Socket       string `json:"socket"`
 }
 
 type request struct {
