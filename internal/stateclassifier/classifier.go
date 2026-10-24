@@ -51,6 +51,7 @@ type sessionState struct {
 	snapshot      ptyevent.Snapshot
 	lastActivity  time.Time
 	lastInput     time.Time
+	lastInputOrg  ptyevent.Origin // who wrote the most recent input
 	quiescence    *time.Timer
 	currentPrompt *ptyevent.Prompt
 	trail         []TransitionRecord
@@ -158,7 +159,13 @@ func (c *Classifier) OnPTYEvent(name string, ev ptyevent.Event) {
 		evs = append(evs, ptyevent.Evidence{Kind: ptyevent.EvOutputActivity})
 		// If input was recent (within 5 seconds), output corroborates ongoing working turn
 		if !s.lastInput.IsZero() && at.Sub(s.lastInput) < 5*time.Second {
-			evs = append(evs, ptyevent.Evidence{Kind: ptyevent.EvInput, Origin: ptyevent.OriginHuman})
+			// Attribute the corroboration to whoever actually typed: a warden seed
+			// or an operator send must not read as a human at the keyboard.
+			org := s.lastInputOrg
+			if !org.Valid() {
+				org = ptyevent.OriginHuman
+			}
+			evs = append(evs, ptyevent.Evidence{Kind: ptyevent.EvInput, Origin: org})
 		}
 
 	case ptyevent.KindInput:
@@ -170,6 +177,7 @@ func (c *Classifier) OnPTYEvent(name string, ev ptyevent.Event) {
 		if ev.Input != nil && ev.Input.Origin.Valid() {
 			orig = ev.Input.Origin
 		}
+		s.lastInputOrg = orig
 		evs = append(evs, ptyevent.Evidence{Kind: ptyevent.EvInput, Origin: orig})
 
 	case ptyevent.KindLifecycle:
@@ -434,11 +442,15 @@ func (c *Classifier) stepSession(s *sessionState, obs ptyevent.Observation) bool
 		_, _ = target.Stream.Emit(ev)
 	}
 
-	// Update store status if authoritative (mode on)
+	// Update store status if authoritative (mode on). The durable record decides
+	// whether this session is a directly hosted AI agent we may write for, and
+	// two things are never written from here: the end of the process (the
+	// lifecycle observer records done/errored/orphaned with the exit code, and a
+	// second writer would race it) and anything over an already-terminal record.
 	if c.mgr.IsAuthoritative(s.name) {
-		if storeSt, ok := ToStoreStatus(ch.To, ch.Reason); ok && c.store != nil {
+		if storeSt, ok := ToStoreStatus(ch.To, ch.Reason); ok && c.store != nil && ch.To != ptyevent.StateExited {
 			ag := c.agentRecord(s.name)
-			if ag != nil {
+			if ag != nil && ag.Runtime != nil && ag.Runtime.Kind == "direct" && !statusFinal(ag.Status) {
 				_, _ = c.store.UpdateStatusIf(context.Background(), ag.ID, ag.Status, storeSt)
 			}
 		}
@@ -516,4 +528,13 @@ func (c *Classifier) Close() {
 		}
 		s.mu.Unlock()
 	}
+}
+
+// statusFinal reports a status the classifier must never move a record out of.
+func statusFinal(st store.Status) bool {
+	switch st {
+	case store.StatusDone, store.StatusErrored, store.StatusOrphaned:
+		return true
+	}
+	return false
 }

@@ -156,11 +156,14 @@ type Poller struct {
 	// id); tests may override it with a fake backend.
 	Backend func(s *agentstore.Agent) agentbackend.Backend
 	// Authoritative, if set, reports whether an event-driven classifier owns
-	// status for the session. When true, the poller tick skips pane capture and
-	// classification for that session (the classifier is authoritative and the
-	// poller cannot fight it).
-	Authoritative func(tmuxSession string) bool
+	// status for a session that carries no runtime identity. The record's own
+	// Runtime.Kind is the authority when present (see directOwned); this is only
+	// consulted for legacy records with no Runtime.
+	Authoritative func(runtimeKey string) bool
 	stuckAfter    time.Duration
+	// directLimit marks direct agents whose current rate-limit episode was already
+	// forwarded to the scheduler (tick goroutine only).
+	directLimit map[string]bool
 	// ActivityEnabled is the explicit operator kill switch for cosmetic
 	// model-generated activity badges. It is intentionally independent of
 	// status, approval, and prompt-recognition behavior.
@@ -1126,10 +1129,12 @@ func (p *Poller) tick(ctx context.Context) error {
 			}
 			continue
 		}
-		if p.Authoritative != nil && p.Authoritative(s.TmuxSession) {
-			// An event-driven state classifier is authoritative for this runtime-backed
-			// session (spec §12 M2). The poller skips pane capture and status
-			// classification so it cannot fight the authoritative state stream.
+		if p.directOwned(s) {
+			// The event-driven classifier and prompt engine own state, approvals,
+			// trust/limit menus and input for a directly hosted AI agent (spec §12
+			// M2). The poller must not capture-classify it, answer its prompts or
+			// write its status — only the ancillary observations below survive.
+			p.observeDirect(ctx, s)
 			continue
 		}
 		alive := p.deps.SessionAlive(ctx, s.TmuxSession)

@@ -198,7 +198,7 @@ func (m *mockProcs) Inspect(ctx context.Context, rootPID int) (ProcessInfo, erro
 func TestEventDrivenActivityResetsQuiescence(t *testing.T) {
 	mgr := newFakeManager(ptyhost.ModeOn)
 	st := newFakeStore()
-	st.agents["sess-1"] = &agentstore.Agent{ID: "sess-1", TmuxSession: "sess-1", Status: store.StatusIdle}
+	st.agents["sess-1"] = &agentstore.Agent{ID: "sess-1", TmuxSession: "sess-1", Status: store.StatusIdle, Runtime: directRuntime()}
 
 	stream := newFakeStream("sess-1", 1)
 	mgr.SetTarget("sess-1", ptyhost.Target{Name: "sess-1", Stream: stream}, true)
@@ -251,7 +251,7 @@ func TestEventDrivenActivityResetsQuiescence(t *testing.T) {
 func TestQuiescenceInvestigationNeverFromSilenceAlone(t *testing.T) {
 	mgr := newFakeManager(ptyhost.ModeOn)
 	st := newFakeStore()
-	st.agents["sess-1"] = &agentstore.Agent{ID: "sess-1", TmuxSession: "sess-1", Status: store.StatusWorking}
+	st.agents["sess-1"] = &agentstore.Agent{ID: "sess-1", TmuxSession: "sess-1", Status: store.StatusWorking, Runtime: directRuntime()}
 
 	stream := newFakeStream("sess-1", 1)
 	// Screen is empty / uninformative; backend reports StateUnknown
@@ -283,7 +283,7 @@ func TestQuiescenceInvestigationNeverFromSilenceAlone(t *testing.T) {
 func TestFusingEvidenceIdleMarkerAndSilence(t *testing.T) {
 	mgr := newFakeManager(ptyhost.ModeOn)
 	st := newFakeStore()
-	st.agents["sess-1"] = &agentstore.Agent{ID: "sess-1", TmuxSession: "sess-1", Status: store.StatusWorking}
+	st.agents["sess-1"] = &agentstore.Agent{ID: "sess-1", TmuxSession: "sess-1", Status: store.StatusWorking, Runtime: directRuntime()}
 
 	stream := newFakeStream("sess-1", 1)
 	stream.SetScreen("❯ \n")
@@ -318,7 +318,7 @@ func TestFusingEvidenceIdleMarkerAndSilence(t *testing.T) {
 func TestFusingEvidenceSubprocess(t *testing.T) {
 	mgr := newFakeManager(ptyhost.ModeOn)
 	st := newFakeStore()
-	st.agents["sess-1"] = &agentstore.Agent{ID: "sess-1", TmuxSession: "sess-1", Status: store.StatusWorking}
+	st.agents["sess-1"] = &agentstore.Agent{ID: "sess-1", TmuxSession: "sess-1", Status: store.StatusWorking, Runtime: directRuntime()}
 
 	stream := newFakeStream("sess-1", 1)
 	stream.SetScreen("") // quiet terminal
@@ -363,7 +363,7 @@ func TestFusingEvidenceSubprocess(t *testing.T) {
 func TestPromptRecognitionAndClearing(t *testing.T) {
 	mgr := newFakeManager(ptyhost.ModeOn)
 	st := newFakeStore()
-	st.agents["sess-1"] = &agentstore.Agent{ID: "sess-1", TmuxSession: "sess-1", Status: store.StatusWorking}
+	st.agents["sess-1"] = &agentstore.Agent{ID: "sess-1", TmuxSession: "sess-1", Status: store.StatusWorking, Runtime: directRuntime()}
 
 	stream := newFakeStream("sess-1", 1)
 	stream.SetScreen("Do you want to run bash command?\n1. Yes\n2. No")
@@ -436,7 +436,7 @@ func TestPromptRecognitionAndClearing(t *testing.T) {
 func TestDecisionPromptRecognition(t *testing.T) {
 	mgr := newFakeManager(ptyhost.ModeOn)
 	st := newFakeStore()
-	st.agents["sess-1"] = &agentstore.Agent{ID: "sess-1", TmuxSession: "sess-1", Status: store.StatusWorking}
+	st.agents["sess-1"] = &agentstore.Agent{ID: "sess-1", TmuxSession: "sess-1", Status: store.StatusWorking, Runtime: directRuntime()}
 
 	stream := newFakeStream("sess-1", 1)
 	stream.SetScreen("Which plan would you like to execute?\n1. Plan A\n2. Plan B\n3. Type something else")
@@ -476,7 +476,7 @@ func TestShadowModeLogsDisagreementsAndWritesNothing(t *testing.T) {
 	mgr := newFakeManager(ptyhost.ModeShadow)
 	st := newFakeStore()
 	// Poller currently holds agent at working
-	st.agents["sess-1"] = &agentstore.Agent{ID: "sess-1", TmuxSession: "sess-1", Status: store.StatusWorking}
+	st.agents["sess-1"] = &agentstore.Agent{ID: "sess-1", TmuxSession: "sess-1", Status: store.StatusWorking, Runtime: directRuntime()}
 
 	stream := newFakeStream("sess-1", 1)
 	stream.SetScreen("❯ \n")
@@ -511,7 +511,7 @@ func TestShadowModeLogsDisagreementsAndWritesNothing(t *testing.T) {
 func TestRateLimitDetection(t *testing.T) {
 	mgr := newFakeManager(ptyhost.ModeOn)
 	st := newFakeStore()
-	st.agents["sess-1"] = &agentstore.Agent{ID: "sess-1", TmuxSession: "sess-1", Status: store.StatusWorking}
+	st.agents["sess-1"] = &agentstore.Agent{ID: "sess-1", TmuxSession: "sess-1", Status: store.StatusWorking, Runtime: directRuntime()}
 
 	stream := newFakeStream("sess-1", 1)
 	stream.SetScreen("You have hit your rate limit. Resets at 6:00am.")
@@ -546,7 +546,7 @@ func TestRateLimitDetection(t *testing.T) {
 func TestLifecycleProcessSpawnAndExit(t *testing.T) {
 	mgr := newFakeManager(ptyhost.ModeOn)
 	st := newFakeStore()
-	st.agents["sess-1"] = &agentstore.Agent{ID: "sess-1", TmuxSession: "sess-1", Status: store.StatusSpawning}
+	st.agents["sess-1"] = &agentstore.Agent{ID: "sess-1", TmuxSession: "sess-1", Status: store.StatusSpawning, Runtime: directRuntime()}
 
 	stream := newFakeStream("sess-1", 1)
 	mgr.SetTarget("sess-1", ptyhost.Target{Name: "sess-1", Stream: stream}, true)
@@ -593,7 +593,9 @@ func TestLifecycleProcessSpawnAndExit(t *testing.T) {
 	snap, ok = c.CurrentState("sess-1")
 	require.True(t, ok)
 	require.Equal(t, ptyevent.StateExited, snap.State)
-	require.Equal(t, store.StatusDone, st.agents["sess-1"].Status)
+	// The process end is recorded by the lifecycle observer (exit code aware); the
+	// classifier is not a second, racing writer of terminal statuses.
+	require.Equal(t, store.StatusIdle, st.agents["sess-1"].Status)
 }
 
 func TestApprovalToPromptTrust(t *testing.T) {
@@ -634,3 +636,5 @@ func TestProcessHierarchyParsing(t *testing.T) {
 	require.Equal(t, "bash", comms[101])
 	require.Equal(t, "go test ./...", comms[102])
 }
+
+func directRuntime() *store.SessionRuntime { return &store.SessionRuntime{Kind: "direct"} }
