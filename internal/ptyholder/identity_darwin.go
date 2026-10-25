@@ -1,6 +1,9 @@
 package ptyholder
 
 import (
+	"fmt"
+	"os"
+
 	"golang.org/x/sys/unix"
 )
 
@@ -9,6 +12,11 @@ import (
 func StartTime(pid int) (uint64, error) {
 	kp, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
 	if err != nil {
+		// sysctl reports a missing pid as a short (EIO) result; surface it as
+		// os.ErrNotExist only when the kernel definitively has no such process.
+		if unix.Kill(pid, 0) == unix.ESRCH {
+			return 0, fmt.Errorf("ptyholder: pid %d: %w", pid, os.ErrNotExist)
+		}
 		return 0, err
 	}
 	t := kp.Proc.P_starttime

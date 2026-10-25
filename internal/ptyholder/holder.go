@@ -259,6 +259,7 @@ func (h *holder) cleanup() {
 		select {
 		case <-h.exited:
 		case <-time.After(time.Second):
+			cleanupFailures.Add(1)
 			slog.Error("ptyholder: child reap timeout", "session", h.spec.ID, "pid", h.cmd.Process.Pid)
 			if h.meta.ID != "" {
 				h.meta.CleanupError = "child reap timeout"
