@@ -34,7 +34,12 @@ Inside **Agents**, agents are grouped by project: each group is a header —
 with its agents indented beneath it, so the tree reads **section → project →
 agents**.
 
-![The warden cockpit: a control-pane navigator tree grouped by project on the left, a live terminal session in the terminal pane below it, and the selected agent's live session in the full-height agent pane on the right.](/warden/media/cockpit.png)
+![The warden cockpit: a control-pane project tree on the left, a live terminal pane below it, and the selected agent's live session in the full-height pane on the right.](/warden/media/cockpit.png)
+
+Opening a plan shows its **Plan Detail** view: lifecycle and executor metadata,
+then the task list with each task's `after` dependencies and current state.
+
+![TUI Plan Detail for an active SSO rollout: lifecycle and active-execution metadata above tasks for schema, middleware, login, tests, and docs; the task rows show their after dependencies and status.](/warden/media/tui-plan-dag.png)
 
 ## Cockpit features
 

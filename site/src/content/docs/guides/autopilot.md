@@ -193,6 +193,12 @@ warden plan stop <plan-id>
 
 ## Monitoring a run
 
+The web dashboard's **Autopilot** control opens the active run's detail modal.
+It presents the run's supervisor and integration base alongside its task list
+and workers.
+
+![The web Autopilot modal for an active SSO rollout: supervisor status and integration base above the plan's task checklist and worker list, with Pause and Stop controls.](/warden/media/web-autopilot-run.png)
+
 ```sh
 warden autopilot status          # every run's state, manager id, task counts (--json for scripts)
 warden plan show <id> --watch    # live status of one plan: executor, backoff, integration branch, per-task worker/PR

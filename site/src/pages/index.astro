@@ -34,11 +34,20 @@ const base = import.meta.env.BASE_URL; // '/warden/'
     <!-- Screenshots captured from an isolated demo instance (site/scripts/demo-seed.sh
          + site/tape/cockpit.tape); no real fleet, paths, or hostname. -->
     <Showcase side="left"  title="The TUI cockpit" img="cockpit.png"
+      alt="The TUI cockpit with its control tree, terminal pane, and selected agent session."
       blurb="Framed panes, live agent detail, scrollable sessions, approvals inbox — all in the terminal." />
     <Showcase side="right" title="Web mission control" img="web-cockpit.png"
-      blurb="A URL-routed dashboard with a Cockpit home, live SSE fleet, grouping, and a one-click attention queue — in the browser." />
+      alt="The web Cockpit home with fleet summary and agent cards grouped in the project tree."
+      blurb="A URL-routed dashboard with a Cockpit home, live SSE fleet, project-tree grouping, and an attention queue — in the browser." />
     <Showcase side="left"  title="Fleet metrics & savings" img="web-metrics.png"
+      alt="The web Metrics view with per-agent and fleet-wide CPU and memory charts."
       blurb="CPU, memory, context fill and fleet size per agent and fleet-wide — plus the tokens-saved trend and per-model cost, from the savings ledger." />
+    <Showcase side="right" title="Autopilot at a glance" img="web-autopilot-run.png"
+      alt="The web Autopilot modal showing one active plan, its task checklist, worker, integration base, and pause and stop controls."
+      blurb="Inspect an active run's plan checklist, worker status, integration base, and daemon supervision without leaving mission control." />
+    <Showcase side="left" title="Backend registry" img="web-backends.png"
+      alt="The web Backends modal listing detected backends with installed state, tier, default choice, and enabled setting."
+      blurb="Rescan the local backend registry and review each backend's installed state, tier, default selection, and enabled setting." />
     <FeatureGrid />
     <PipelineDiagram />
     <Quickstart />
