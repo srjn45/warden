@@ -493,6 +493,10 @@ func (h *Handle) Release(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-deadline.C:
+			// Surface the holder's own recorded diagnosis (e.g. child reap timeout).
+			if m, ok := h.Meta(); ok && m.CleanupError != "" {
+				return fmt.Errorf("ptyholder: release cleanup timeout: holder reported %s", m.CleanupError)
+			}
 			return fmt.Errorf("ptyholder: release cleanup timeout")
 		case <-tick.C:
 		}

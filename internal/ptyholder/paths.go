@@ -84,8 +84,12 @@ func KillAll(root string) error {
 		if err == nil {
 			err = h.Release(ctx)
 		}
-		if errors.Is(err, ErrGone) && h != nil && recordedGone(ctx, h) {
-			err = nil
+		if errors.Is(err, ErrGone) && h != nil {
+			if gone, gerr := recordedGone(ctx, h); gerr != nil {
+				err = fmt.Errorf("%w; ownership unresolved: %w", err, gerr)
+			} else if gone {
+				err = nil
+			}
 		}
 		if err != nil {
 			cleanupFailures.Add(1)
@@ -97,22 +101,51 @@ func KillAll(root string) error {
 	return errors.Join(failures...)
 }
 
+// startTimeOf is StartTime, swappable so tests can inject inspection errors.
+var startTimeOf = StartTime
+
+// incarnationGone reports whether the recorded (pid, start) incarnation no
+// longer exists. Only os.ErrNotExist or a verified start-time mismatch counts
+// as gone; any other inspection error (EACCES, a transient or malformed /proc
+// read) is unresolved and returned, so ownership evidence is kept.
+func incarnationGone(pid int, start uint64) (bool, error) {
+	if pid <= 0 {
+		return true, nil // no process was recorded
+	}
+	st, err := startTimeOf(pid)
+	switch {
+	case err == nil:
+		return start != 0 && st != start, nil
+	case errors.Is(err, os.ErrNotExist):
+		return true, nil
+	default:
+		return false, fmt.Errorf("ptyholder: inspect pid %d: %w", pid, err)
+	}
+}
+
 // recordedGone reports, after a bounded wait, whether neither recorded
 // incarnation of an unreachable holder remains. Only then may its record be
 // forgotten; it never signals a replacement PID or treats an authentication
 // failure as permission. A record without metadata names no process at all.
-func recordedGone(ctx context.Context, h *Handle) bool {
+// An unresolved inspection error is returned so the caller reports a cleanup
+// failure and retains the record.
+func recordedGone(ctx context.Context, h *Handle) (bool, error) {
 	m, ok := h.Meta()
 	if !ok {
-		return true
+		return true, nil
 	}
-	for end := time.Now().Add(time.Second); time.Now().Before(end) && ctx.Err() == nil; {
-		hs, he := StartTime(m.HolderPID)
-		cs, ce := StartTime(m.ChildPID)
-		if (he != nil || m.HolderStart != 0 && hs != m.HolderStart) && (ce != nil || m.ChildStart != 0 && cs != m.ChildStart) {
-			return true
+	for end := time.Now().Add(time.Second); ; {
+		hg, herr := incarnationGone(m.HolderPID, m.HolderStart)
+		cg, cerr := incarnationGone(m.ChildPID, m.ChildStart)
+		if err := errors.Join(herr, cerr); err != nil {
+			return false, err
+		}
+		if hg && cg {
+			return true, nil
+		}
+		if !time.Now().Before(end) || ctx.Err() != nil {
+			return false, nil
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	return false
 }

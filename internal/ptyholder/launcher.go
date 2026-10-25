@@ -3,6 +3,7 @@ package ptyholder
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -78,8 +79,17 @@ func (l *Launcher) release(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	if err := h.Release(ctx); err != nil && !(errors.Is(err, ErrGone) && recordedGone(ctx, h)) {
-		return err
+	if err := h.Release(ctx); err != nil {
+		if !errors.Is(err, ErrGone) {
+			return err
+		}
+		gone, gerr := recordedGone(ctx, h)
+		if gerr != nil {
+			return fmt.Errorf("%w; ownership unresolved: %w", err, gerr)
+		}
+		if !gone {
+			return err
+		}
 	}
 	// Released, or a dead holder whose recorded incarnations are verified gone:
 	// its record must not block an explicit restore/replacement launch.

@@ -233,3 +233,87 @@ func TestDeadHolderRecordDoesNotBlockReplacement(t *testing.T) {
 		t.Fatal("replacement reused the dead child identity")
 	}
 }
+
+// Only os.ErrNotExist or a verified start-time mismatch proves an incarnation
+// gone. Any other inspection failure (EACCES, a transient /proc read) must keep
+// the holder record and surface as a cleanup failure, never Forget evidence.
+func TestRecordedGoneKeepsEvidenceOnInspectionError(t *testing.T) {
+	root, _ := tmpDirs(t)
+	l := testLauncher(root)
+	ad, err := l.Launch(context.Background(), "inspect-err", []string{"/bin/sh"}, "", nil, 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = ad.Master.Close()
+	ad.Abort()
+	h, err := Open(root, "inspect-err")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, ok := h.Meta()
+	if !ok {
+		t.Fatal("missing metadata")
+	}
+	_ = syscall.Kill(-m.ChildPID, syscall.SIGKILL)
+	_ = syscall.Kill(m.HolderPID, syscall.SIGKILL)
+	eventually(t, "holder and child to exit", func() bool {
+		_, he := StartTime(m.HolderPID)
+		_, ce := StartTime(m.ChildPID)
+		return he != nil && ce != nil
+	})
+
+	startTimeOf = func(pid int) (uint64, error) {
+		if pid == m.HolderPID || pid == m.ChildPID {
+			return 0, &os.PathError{Op: "open", Path: "/proc/stat", Err: syscall.EACCES}
+		}
+		return StartTime(pid)
+	}
+	t.Cleanup(func() { startTimeOf = StartTime })
+
+	_, before := Resources()
+	if _, err := l.Launch(context.Background(), "inspect-err", []string{"/bin/sh"}, "", nil, 80, 24); !errors.Is(err, syscall.EACCES) {
+		t.Fatalf("replacement launch with unresolved inspection: %v", err)
+	}
+	if err := KillAll(root); !errors.Is(err, syscall.EACCES) {
+		t.Fatalf("KillAll with unresolved inspection: %v", err)
+	}
+	if !Exists(root, "inspect-err") {
+		t.Fatal("an inspection error forgot ownership evidence")
+	}
+	if _, after := Resources(); after < before+2 {
+		t.Fatalf("cleanup failures not counted: before=%d after=%d", before, after)
+	}
+
+	startTimeOf = StartTime // ENOENT now proves both incarnations gone
+	if err := KillAll(root); err != nil {
+		t.Fatal(err)
+	}
+	if Exists(root, "inspect-err") {
+		t.Fatal("verified-gone record was not forgotten")
+	}
+}
+
+func TestIncarnationGoneClassification(t *testing.T) {
+	self := os.Getpid()
+	start, err := StartTime(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gone, err := incarnationGone(self, start); gone || err != nil {
+		t.Fatalf("live matching incarnation: gone=%v err=%v", gone, err)
+	}
+	if gone, err := incarnationGone(self, start+1); !gone || err != nil {
+		t.Fatalf("start-time mismatch (pid reuse): gone=%v err=%v", gone, err)
+	}
+	t.Cleanup(func() { startTimeOf = StartTime })
+	startTimeOf = func(int) (uint64, error) { return 0, os.ErrNotExist }
+	if gone, err := incarnationGone(self, start); !gone || err != nil {
+		t.Fatalf("not-exist: gone=%v err=%v", gone, err)
+	}
+	for _, inj := range []error{syscall.EACCES, errors.New("ptyholder: malformed /proc/1/stat"), syscall.EIO} {
+		startTimeOf = func(int) (uint64, error) { return 0, inj }
+		if gone, err := incarnationGone(self, start); gone || !errors.Is(err, inj) {
+			t.Fatalf("%v must be unresolved: gone=%v err=%v", inj, gone, err)
+		}
+	}
+}
