@@ -63,11 +63,11 @@ func (p Plan) IsComplete() bool {
 // PlanTask is one coarse task in a plan. Dependency edges (After) reference other
 // task ids within the same plan.
 type PlanTask struct {
-	ID       string   `yaml:"id"`
-	Prompt   string   `yaml:"prompt"`
-	After    []string `yaml:"after"`
-	Status   string   `yaml:"status,omitempty"`
-	LandedPR int      `yaml:"landed_pr,omitempty"`
+	ID       string   `yaml:"id" json:"id"`
+	Prompt   string   `yaml:"prompt" json:"prompt"`
+	After    []string `yaml:"after" json:"after"`
+	Status   string   `yaml:"status,omitempty" json:"status,omitempty"`
+	LandedPR int      `yaml:"landed_pr,omitempty" json:"landed_pr,omitempty"`
 }
 
 const (
