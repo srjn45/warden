@@ -1,29 +1,58 @@
-# Render the TUI cockpit screenshot (public/media/cockpit.png).
+# Render the project-centric TUI cockpit screenshots against the ISOLATED demo fleet.
 #
-# Prereqs: run site/scripts/demo-seed.sh, then start the demo daemon on
-# 127.0.0.1:8799 (see that script's printed next-steps). Then, from site/tape:
-#   PATH="$PWD/_demobin:$PATH" vhs cockpit.tape
+#   export DEMO_ROOT=/tmp/warden-demo DEMO_PORT=8799        # pick per capture; see below
+#   bash ../scripts/demo-seed.sh up                         # seed (fails if the fixture is incomplete)
+#   vhs cockpit.tape                                        # needs vhs + ttyd + ffmpeg
+#   bash ../scripts/demo-seed.sh down
 #
-# _demobin/claude stubs the master pane so the recording starts no real Claude
-# session. The inline `env` on the launch line isolates tmux onto the demo's
-# server (TMUX_TMPDIR) and unsets TMUX so `warden tui` can build its panes even
-# when this tape is rendered from inside a tmux session.
+# The hidden preamble loads the demo instance's clean-env launcher, so the real
+# cockpit (and every pane it re-executes) runs with HOME + --config pointing at the
+# demo instance — never the recorder's real daemon, fleet, paths or token. The
+# `warden` shell function below is that launcher; the visible commands read as the
+# plain CLI. DEMO_ROOT/DEMO_PORT must match the `up` that seeded the instance
+# (t2 TUI and t3 web captures use separate roots/ports; see demo-seed.sh).
 Output cockpit-capture.gif
+Set Shell bash
 Set FontSize 14
 Set Width 1500
 Set Height 900
 Set Padding 12
 Set Theme "Dracula"
 
-Sleep 800ms
-Type "env -u TMUX HOME=/tmp/work WARDEN_APPROVALS=1 WARDEN_ADDR=127.0.0.1:8799 WARDEN_DATA_DIR=/tmp/warden-demo TMUX_TMPDIR=/tmp/warden-demo-tmux PATH=$PWD/_demobin:/usr/local/bin:/usr/bin:/bin /Users/srajan.pathak/workspace/personal/warden/bin/warden tui"
+Hide
+Type `eval "$(bash ../scripts/demo-seed.sh env | grep -v '^#')" && warden() { $DEMO_ENV_PREFIX $DEMO_WARDEN "$@"; } && export PS1='$ ' && clear`
 Enter
-Sleep 4500ms
-# Walk the cursor down to a working agent so the detail pane shows live tool
-# activity (Read/Update/Bash + "esc to interrupt") rather than a quiet idle one.
-Down@400ms 4
-Sleep 600ms
+Sleep 1s
+Show
+
+Type "warden tui"
 Enter
-Sleep 3500ms
-Screenshot cockpit.png
-Sleep 400ms
+Sleep 8s
+# 1. the project tree: group "platform", three projects, Plans, agents, terminals, roles.
+Screenshot cockpit-tree.png
+
+# 2. the Autopilot run on the canonical plan — plan row opens its detail pane.
+Down
+Enter
+Sleep 2s
+Screenshot cockpit-plan.png
+
+# 3. a worker waiting on a permission prompt: agent pane with its border tab.
+Down 3
+Enter
+Sleep 3s
+Screenshot cockpit-agent.png
+
+# 4. agent-backend registry (tiers, default, enabled).
+Type "b"
+Sleep 2s
+Screenshot cockpit-backends.png
+Escape
+Sleep 500ms
+
+# 5. Fast-Brain telemetry + decision trace.
+Type "F"
+Sleep 2s
+Screenshot cockpit-fastbrain.png
+Escape
+Sleep 500ms
