@@ -54,6 +54,17 @@ func (f *fakeStore) Get(_ context.Context, id string) (*agentstore.Agent, error)
 	}
 	return s, nil
 }
+
+// statusOf reads a record's status under the store lock: Get hands out the
+// shared record, so a test polling it would race a concurrent status write.
+func (f *fakeStore) statusOf(id string) store.Status {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if s, ok := f.data[id]; ok {
+		return s.Status
+	}
+	return ""
+}
 func (f *fakeStore) GetByNameOrID(_ context.Context, nameOrID string) (*agentstore.Agent, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

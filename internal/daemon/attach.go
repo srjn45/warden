@@ -105,6 +105,12 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 				writeErr(w, http.StatusConflict, "direct session runtime unavailable")
 				return
 			}
+			release, err := s.pty.AdmitViewer(info.Key)
+			if err != nil {
+				writeErr(w, http.StatusTooManyRequests, err.Error())
+				return
+			}
+			defer release()
 			conn, err := websocket.Accept(w, r, nil)
 			if err != nil {
 				return

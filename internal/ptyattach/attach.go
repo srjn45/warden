@@ -215,6 +215,8 @@ func Run(ctx context.Context, o Options) (res Result, err error) {
 				return Result{}, fmt.Errorf("%w: %v", ErrNotDirect, he)
 			case http.StatusUnauthorized, http.StatusForbidden, http.StatusBadRequest:
 				return Result{Reason: "closed"}, he
+			case http.StatusTooManyRequests: // viewer cap: retrying would not free a slot
+				return Result{Reason: "closed"}, fmt.Errorf("%w: too many viewers attached to this session; close another view of it and retry", he)
 			}
 		}
 		failures++
@@ -444,6 +446,8 @@ func connect(ctx context.Context, o Options, st *state, winch <-chan struct{}, d
 				st.control = false
 				st.mu.Unlock()
 				fmt.Fprint(o.Status, "\r\n[warden] input refused (stale control); Ctrl-] t takes control\r\n")
+			case "notice":
+				fmt.Fprintf(o.Status, "\r\n[warden] %s\r\n", f.Reason)
 			case "resync":
 				finish(outcome{err: errors.New("stream fell behind: " + f.Reason)})
 				return

@@ -76,6 +76,29 @@ const (
 	scEscInter
 )
 
+// Screen-model bounds (02b-05 adversarial matrix). The size comes from an
+// attach client and the cell contents from untrusted program output, so both
+// are capped: an absurd resize (65535×65535) or a flood of combining marks must
+// not let one session allocate unbounded daemon memory or emit an unbounded
+// snapshot. The limits sit far above any real terminal.
+const (
+	// MaxCols / MaxRows / MaxCells bound the modelled screen; Session.Resize
+	// refuses anything larger with ErrResizeTooLarge.
+	MaxCols  = 1024
+	MaxRows  = 1024
+	MaxCells = 256 * 1024
+	// MaxSnapshotBytes bounds a rendered snapshot (budget SnapshotMaxBytes):
+	// rows are dropped from the top (the cursor lives near the bottom) to fit.
+	MaxSnapshotBytes = 1 << 20
+	// maxCombiningBytes bounds the zero-width marks stacked on one cell.
+	maxCombiningBytes = 32
+)
+
+// FitsScreen reports whether cols×rows is within the screen-model bounds.
+func FitsScreen(cols, rows int) bool {
+	return cols <= MaxCols && rows <= MaxRows && cols*rows <= MaxCells
+}
+
 // NewScreen returns a blank cols×rows screen.
 func NewScreen(cols, rows int) *Screen {
 	s := &Screen{}
@@ -109,6 +132,12 @@ func (s *Screen) Resize(cols, rows int) {
 	}
 	if rows <= 0 {
 		rows = 24
+	}
+	// Defense in depth for paths that do not go through Session.Resize (e.g. a
+	// launch size): clamp the model, never allocate past the bounds.
+	cols, rows = min(cols, MaxCols), min(rows, MaxRows)
+	if cols*rows > MaxCells {
+		rows = MaxCells / cols
 	}
 	fit := func(g [][]cell) [][]cell {
 		if g == nil {
@@ -189,7 +218,17 @@ func (s *Screen) render(styled bool) string {
 	for n > 0 && lines[n-1] == "" {
 		n--
 	}
-	return strings.Join(lines[:n], "\n")
+	lines = lines[:n]
+	// Keep the snapshot within MaxSnapshotBytes: drop rows from the top.
+	size := 0
+	for _, l := range lines {
+		size += len(l) + 1
+	}
+	for len(lines) > 0 && size-1 > MaxSnapshotBytes {
+		size -= len(lines[0]) + 1
+		lines = lines[1:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // sgr renders p as one SGR sequence that fully sets it (reset first).
@@ -401,6 +440,9 @@ func (s *Screen) combine(r rune) {
 	}
 	if x < 0 || x >= len(row) {
 		return // nothing to attach to
+	}
+	if len(row[x].ext)+utf8.RuneLen(r) > maxCombiningBytes {
+		return // a combining-mark flood is dropped, not accumulated
 	}
 	row[x].ext += string(r)
 }

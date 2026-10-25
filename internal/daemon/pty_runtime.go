@@ -364,6 +364,12 @@ func (s *Server) handlePTYStream(w http.ResponseWriter, r *http.Request) {
 	if _, scope := s.authorize(r); scope == scopeReadonly {
 		t.Direct = nil // observe-only: no input, resize or raw bytes
 	}
+	release, err := s.pty.AdmitViewer(t.Name)
+	if err != nil {
+		writeErr(w, http.StatusTooManyRequests, err.Error())
+		return
+	}
+	defer release()
 	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
