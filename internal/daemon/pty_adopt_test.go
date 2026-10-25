@@ -218,9 +218,7 @@ func TestRecoverPTYAdoptsLiveHolderAgentAfterRollback(t *testing.T) {
 	require.NotNil(t, d)
 	require.Equal(t, pid, d.PID(), "recovery must retain the existing child")
 	require.False(t, r.mgr.IsTerminal("agent-keep"), "adopting an agent must not turn it into a terminal")
-	rec, err := r.agents.Get(ctx, "agent-keep")
-	require.NoError(t, err)
-	require.Equal(t, store.StatusWorking, rec.Status)
+	require.Equal(t, store.StatusWorking, r.agents.statusOf("agent-keep"))
 }
 
 // A crash after the holder creates the child but before agent-record persistence
@@ -232,6 +230,10 @@ func TestAgentLaunchAdoptsUnrecordedHolderWithoutDuplicateTaskStart(t *testing.T
 	starts := filepath.Join(r.t.TempDir(), "starts")
 	pid := r.launchUnrecordedAgent("agent-unrecorded", "printf first-start >>"+starts+"; printf conversation-marker; exec sleep 1000")
 	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+	// The marker must be journaled before the crash: an adopted session only
+	// repaints what the child redraws (SIGWINCH nudge), so a non-repainting child's
+	// pre-crash output lives in the journal, not the new screen model.
+	require.Eventually(t, func() bool { return strings.Contains(r.mgr.Direct("agent-unrecorded").Screen(), "conversation-marker") }, 5*time.Second, 10*time.Millisecond)
 
 	r.restart()
 	r.mgr.SetAgentDirectReady(true)
@@ -243,7 +245,16 @@ func TestAgentLaunchAdoptsUnrecordedHolderWithoutDuplicateTaskStart(t *testing.T
 	d := r.mgr.Direct("agent-unrecorded")
 	require.NotNil(t, d)
 	require.Equal(t, pid, d.PID(), "retry must adopt the original child")
-	require.Eventually(t, func() bool { return strings.Contains(d.Screen(), "conversation-marker") }, 5*time.Second, 10*time.Millisecond)
+	tg, ok := r.mgr.Lookup("agent-unrecorded")
+	require.True(t, ok)
+	var out strings.Builder
+	require.NoError(t, tg.Stream.Journal().Read(1, func(ev ptyevent.Event) error {
+		if ev.Kind == ptyevent.KindOutput {
+			out.Write(ev.Output.Data)
+		}
+		return nil
+	}))
+	require.Contains(t, out.String(), "conversation-marker", "the adopted session continues the original journal")
 	data, err := os.ReadFile(starts)
 	require.NoError(t, err)
 	require.Equal(t, "first-start", string(data), "task must start exactly once")
@@ -282,8 +293,7 @@ func TestRecoverPTYAgentExitWhileDaemonDownIsNotRelaunched(t *testing.T) {
 	r.restart()
 	r.srv.recoverPTY(ctx)
 	require.Eventually(t, func() bool {
-		rec, err := r.agents.Get(ctx, "agent-offline-exit")
-		return err == nil && rec.Status == store.StatusOrphaned
+		return r.agents.statusOf("agent-offline-exit") == store.StatusOrphaned
 	}, 5*time.Second, 10*time.Millisecond)
 	require.Empty(t, r.life.restored, "offline exit must not start a replacement")
 	_ = pid // retained as an explicit same-child fixture identity
@@ -307,9 +317,7 @@ func TestRecoverPTYLostHolderAgentIsOrphanedNotRelaunched(t *testing.T) {
 	r.srv.recoverPTY(ctx)
 
 	require.Nil(t, r.mgr.Direct("agent-lost"))
-	rec, err := r.agents.Get(ctx, "agent-lost")
-	require.NoError(t, err)
-	require.Equal(t, store.StatusOrphaned, rec.Status)
+	require.Equal(t, store.StatusOrphaned, r.agents.statusOf("agent-lost"))
 }
 
 // PID reuse or an old state generation must not make a different holder look
@@ -327,9 +335,7 @@ func TestRecoverPTYRejectsStaleAgentHolderIdentity(t *testing.T) {
 	r.restart()
 	r.srv.recoverPTY(ctx)
 	require.Nil(t, r.mgr.Direct("agent-stale"), "a stale runtime identity must not attach")
-	rec, err := r.agents.Get(ctx, "agent-stale")
-	require.NoError(t, err)
-	require.Equal(t, store.StatusOrphaned, rec.Status)
+	require.Equal(t, store.StatusOrphaned, r.agents.statusOf("agent-stale"))
 }
 
 func itoa(n int) string {

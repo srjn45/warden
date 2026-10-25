@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -215,10 +216,15 @@ type FakeRunner struct {
 	// that call. Use it to inject a failure on a command whose exact args aren't
 	// known in advance (e.g. send-keys, which embeds a random claude session id).
 	FailIf func(argv []string) error
+	// mu serializes Run: lifecycle runs some commands from background goroutines
+	// (prompt seeding, successor verification) concurrently with the caller.
+	mu sync.Mutex
 }
 
 func (f *FakeRunner) Run(_ context.Context, dir, name string, args ...string) (string, error) {
 	argv := append([]string{name}, args...)
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.Calls = append(f.Calls, FakeCall{Dir: dir, Argv: argv})
 	if f.FailIf != nil {
 		if err := f.FailIf(argv); err != nil {

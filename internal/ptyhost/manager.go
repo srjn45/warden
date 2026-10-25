@@ -58,6 +58,7 @@ type Manager struct {
 	shadow      *Shadow
 	every       time.Duration
 	acks        acks
+	viewers     viewers
 
 	omu       sync.RWMutex
 	observers []observer

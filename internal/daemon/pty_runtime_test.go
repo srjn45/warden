@@ -354,3 +354,43 @@ func TestPTYRuntimeWiresClassifierAndPollerAuthoritative(t *testing.T) {
 	require.Equal(t, ptyevent.StateWaiting, snap.State)
 	require.Equal(t, ptyevent.ReasonStartup, snap.Reason)
 }
+
+// 02b-05 viewer cap: /pty and /attach share one per-session budget of
+// ptyhost.MaxViewersPerSession; the next upgrade is a 429 with an actionable
+// message (the attach client does not retry it), and closing a viewer frees
+// its slot.
+func TestPTYViewerCapSharedAcrossPTYAndAttachIs429(t *testing.T) {
+	_, m, ts, fs := ptyServer(t, ptyhost.ModeOn)
+	ctx := context.Background()
+	require.NoError(t, m.TerminalHost().NewSession(ctx, "T-cap", t.TempDir()))
+	_ = fs.Insert(ctx, &agentstore.Agent{ID: "T-cap", TmuxSession: "T-cap"})
+	base := "ws" + strings.TrimPrefix(ts.URL, "http") + "/api/v1/sessions/T-cap/"
+	var conns []*websocket.Conn
+	for i := range ptyhost.MaxViewersPerSession {
+		route := "pty"
+		if i%2 == 1 {
+			route = "attach"
+		}
+		c, _, err := websocket.Dial(ctx, base+route, nil)
+		require.NoError(t, err, "viewer %d", i)
+		conns = append(conns, c)
+	}
+	require.Eventually(t, func() bool { return m.ViewerCount("T-cap") == ptyhost.MaxViewersPerSession }, 5*time.Second, 10*time.Millisecond)
+	for _, route := range []string{"pty", "attach"} {
+		_, resp, err := websocket.Dial(ctx, base+route, nil)
+		require.Error(t, err)
+		require.NotNil(t, resp)
+		require.Equal(t, http.StatusTooManyRequests, resp.StatusCode, route)
+		b, _ := io.ReadAll(resp.Body)
+		require.Contains(t, string(b), "close another")
+	}
+	conns[0].Close(websocket.StatusNormalClosure, "")
+	require.Eventually(t, func() bool { return m.ViewerCount("T-cap") == ptyhost.MaxViewersPerSession-1 }, 5*time.Second, 10*time.Millisecond)
+	c, _, err := websocket.Dial(ctx, base+"pty", nil)
+	require.NoError(t, err, "a freed slot is reusable")
+	c.CloseNow()
+	for _, c := range conns[1:] {
+		c.CloseNow()
+	}
+	require.Eventually(t, func() bool { return m.ViewerCount("T-cap") == 0 }, 5*time.Second, 10*time.Millisecond)
+}

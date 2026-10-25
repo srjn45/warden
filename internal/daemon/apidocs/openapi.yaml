@@ -356,11 +356,18 @@ paths:
       description: |
         Upgrades to a WebSocket carrying the live tmux pane (terminal multiplexing).
         Not a request/response endpoint; a successful handshake returns 101.
+        A directly hosted session admits at most 16 concurrent viewers across
+        `/attach` and `/pty`; beyond that the upgrade is refused with 429.
       parameters: [{ $ref: "#/components/parameters/SessionId" }]
       responses:
         "101":
           description: Switching Protocols (WebSocket)
         "404": { $ref: "#/components/responses/NotFound" }
+        "429":
+          description: The session already has the maximum number of viewers (16); close another view of it and retry.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/sessions/{id}/pty:
     get:
@@ -381,7 +388,9 @@ paths:
         Server text frames: `{"type":"plan","plan":{mode,from_seq,head,session_id,epoch,presentation,interactive,client_id}}`,
         then `{"type":"event","event":{...}}` for every journaled, redacted
         event in seq order (replay from the cursor, then live), `reject` (attach
-        fresh) and `resync` (re-send hello with the last cursor). Interactive
+        fresh), `resync` (re-send hello with the last cursor) and the additive
+        informational `notice` (e.g. a resize beyond 1024 columns / 1024 rows /
+        262144 cells was refused and the size kept). Interactive
         clients of a directly hosted session also get the live, unredacted PTY
         bytes as binary frames after the replay boundary (`head`). Shadow
         (tmux-mirrored) sessions and read-only tokens are observe-only. Not a
@@ -393,6 +402,11 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409":
           description: The session has no PTY event journal (runtime.pty was off when it started).
+        "429":
+          description: The session already has the maximum number of viewers (16, shared with `/attach`); close another view of it and retry.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
 
   /api/v1/sessions/{id}/runtime:
     get:

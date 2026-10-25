@@ -489,6 +489,8 @@ func TestSpawnPersistsAutoRestart(t *testing.T) {
 
 // calledArgs is a test helper.
 func (f *FakeRunner) calledArgs() [][]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	out := make([][]string, 0, len(f.Calls))
 	for _, c := range f.Calls {
 		out = append(out, c.Argv)
@@ -499,6 +501,8 @@ func (f *FakeRunner) calledArgs() [][]string {
 // callIndex returns the index of the first recorded call whose argv joins to
 // key (space-separated), or -1 if absent. Used for ordering assertions.
 func (f *FakeRunner) callIndex(key string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	for i, c := range f.Calls {
 		if strings.Join(c.Argv, " ") == key {
 			return i
