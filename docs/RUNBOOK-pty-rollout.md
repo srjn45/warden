@@ -283,27 +283,42 @@ blank forms are in
 ## 11. Plan 03 entry gate (`plan-5cd3c58b`, legacy retirement)
 
 Plan 03 must not start until **every** item below is satisfied from observed
-evidence. Plan status and green CI count for none of them.
+evidence (or a recorded operator decision where marked). The item IDs are mirrored
+in code as `terminalcontract.Plan03EntryGate`, and a test fails if this list and
+the code drift apart. Reconciliation at the verified SHA, support matrix and
+numeric budgets: [`rollout/2026-10-25-02b-05-coverage-reconciliation.md`](rollout/2026-10-25-02b-05-coverage-reconciliation.md).
 
-- [ ] Plans 01 (`plan-48de9357`), 02 (`plan-23988b36`) and 02b-01…05
+**Never counts as evidence for any item** (`terminalcontract.NotEvidence`):
+
+- plan status (completed/done task flags)
+- merged PR or green CI
+- fixture or unit-test results (docs/rollout t1 matrix)
+- runtime.pty requested mode (requested_mode is informational)
+- a tmux mirror of an agent (actual_kind=tmux, authoritative=false)
+
+Items (all currently **unsatisfied**; `G03-DIRECT` is structurally BLOCKED for agents):
+
+- [ ] `G03-DEPLOYED` Plans 01 (`plan-48de9357`), 02 (`plan-23988b36`) and 02b-01…05
       (`plan-8eb533f5`, `plan-06a9917e`, `plan-ce2a039b`, `plan-30011980`,
       `plan-e5fdd3fb`) are **merged, released and deployed**; deployed SHA/version
       recorded from `wd version` on the running daemon.
-- [ ] Supported agents **and** shells are demonstrably direct: per-session
-      `wd inspect pty runtime` shows `actual_kind: direct` for the supported set.
-      (Today: shells only; agents are BLOCKED — this item cannot pass until the
-      agent readiness gate and adapter capabilities exist and are proven.)
-- [ ] Measured soak/parity met per cohort (≥ 20 sessions, ≥ 24 h, error < 1 %,
-      fallback < 5 %, all §3 Step 3 budgets) with filed templates.
-- [ ] Metrics healthy: `warden_pty_*` clean, zero-tolerance counters at 0.
-- [ ] No supported workflow still needs tmux as the process owner.
-- [ ] Legacy inventory drained naturally (count 0), with no forced conversion or
-      termination.
-- [ ] Unsupported compatibility retained (Windows, unmanaged terminals, any
-      adapter not direct-capable) and ratified.
-- [ ] Rollback/downgrade and control recovery verified on a live cohort.
-- [ ] #918 / #919 resolved or their affected scenarios explicitly accepted.
-- [ ] Plan 03 text references the corrective plan IDs above and requires a
-      separately authorized deployment.
+- [ ] `G03-DIRECT` Supported agents **and** shells are demonstrably direct:
+      per-session `wd inspect pty runtime` shows `actual_kind: direct` for the
+      supported set. (Today: shells only; agents are BLOCKED until the agent
+      readiness gate and adapter capabilities exist and are proven.)
+- [ ] `G03-SOAK` Measured soak/parity met per cohort (≥ 20 sessions, ≥ 24 h, error
+      < 1 %, fallback < 5 %, all §3 Step 3 budgets) with filed templates.
+- [ ] `G03-METRICS` `warden_pty_*` clean, zero-tolerance counters at 0.
+- [ ] `G03-NO-TMUX-OWNER` No supported workflow still needs tmux as the process owner.
+- [ ] `G03-DRAIN` Legacy inventory drained naturally (count 0), with no forced
+      conversion or termination.
+- [ ] `G03-COMPAT` Unsupported compatibility (Windows, unmanaged terminals, any
+      adapter not direct-capable) retained and ratified by the operator.
+- [ ] `G03-ROLLBACK` Rollback/downgrade and control recovery verified on a live cohort.
+- [ ] `G03-ISSUES` #918 / #919 resolved or their affected scenarios explicitly
+      accepted by the operator.
+- [ ] `G03-PLAN-TEXT` Plan 03 text references the corrective plan IDs above and
+      requires a separately authorized deployment (proposed text in the
+      reconciliation document §8).
 
 This runbook performs none of plan 03 and removes no code.
