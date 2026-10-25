@@ -74,6 +74,10 @@ Ready-made Prometheus alerts and a Grafana dashboard are in
    upgrade. Applies only to sessions created after the change; existing sessions keep
    their mode. Rolling back is setting it to `shadow`/`off` the same way.
 
+No direct AI-agent path is operator-reachable and no production cohort/soak evidence
+exists yet; the staged procedure, evidence templates and plan-03 gate are in
+[`RUNBOOK-pty-rollout.md`](RUNBOOK-pty-rollout.md).
+
 ## Learned-shape safeguards
 
 Unknown prompt formats are classified by Fast-Brain on a redacted screen. A result becomes
