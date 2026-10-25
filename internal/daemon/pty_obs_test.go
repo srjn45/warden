@@ -170,8 +170,8 @@ func TestPTYRuntimeViewActualKindTruthfulWhenGlobalModeDiffers(t *testing.T) {
 	require.Equal(t, "tmux", rv.ActualKind, "actual_kind is truthful even when global mode is on")
 	require.Equal(t, "tmux", rv.ProcessOwner)
 	require.False(t, rv.Authoritative, "a mirrored agent is never authoritative")
-	require.Equal(t, "live", rv.EvidenceSource)
-	require.Equal(t, "fresh", rv.EvidenceFreshness)
+	require.Equal(t, "record", rv.EvidenceSource, "no live mirror is attached, so the kind comes from the durable record")
+	require.Equal(t, "recorded", rv.EvidenceFreshness)
 	require.Contains(t, rv.UnsupportedReason, "observe-only")
 }
 
