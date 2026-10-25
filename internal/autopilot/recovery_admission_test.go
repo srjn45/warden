@@ -623,9 +623,9 @@ func TestRecoveryNilLedgerAndCorruptJournal(t *testing.T) {
 		require.NoError(t, rt.store.Set(NewLedger(rt.store, r.runID).JournalKey(), "invalid JSON", ledgerWriter))
 		c.watchPlanTick(context.Background(), r.runID)
 		waitRecoveryIdle(t, c)
-		st := c.Status().Runs[0]
-		require.Nil(t, st.Brain)
-		require.Contains(t, st.NeedsAttention, "journal_repair_needed")
+		// The supported repair API quarantines and rebuilds the journal, so
+		// recovery proceeds (see recovery_observability_test.go for failure).
+		require.NotNil(t, c.Status().Runs[0].Brain)
 	})
 }
 

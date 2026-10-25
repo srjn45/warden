@@ -25,6 +25,8 @@ type RecoveryStats struct {
 	VerificationFailures uint64 `json:"verification_failures"`
 	Adopted              uint64 `json:"adopted"`
 	CleanupFailures      uint64 `json:"cleanup_failures"`
+	JournalRepairs       uint64 `json:"journal_repairs"`
+	JournalRepairNeeded  uint64 `json:"journal_repair_needed"`
 	PersistenceFailures  uint64 `json:"persistence_failures"`
 	Capacity             int    `json:"capacity"`
 }
@@ -280,8 +282,15 @@ func (c *Controller) recoverAdmitted(ctx context.Context, runID string) {
 	var restartCtx *RestartContext
 	if ledger != nil {
 		if _, journalErr := ledger.Journal(); journalErr != nil {
-			c.finishRecoveryFailure(runID, s.generation, fmt.Errorf("journal_repair_needed: %w", journalErr), true)
-			return
+			// Repair only through the supported backup/quarantine/rebuild API;
+			// never edit the store directly.
+			if _, repairErr := ledger.RepairJournal(); repairErr != nil {
+				c.finishRecoveryFailure(runID, s.generation, fmt.Errorf("journal_repair_needed: %w (decode: %v)", repairErr, journalErr), false)
+				return
+			}
+			c.mu.Lock()
+			c.recoveryStats.JournalRepairs++
+			c.mu.Unlock()
 		}
 		restartCtx, err = ledger.LoadRestartContext()
 		if err != nil {
@@ -444,6 +453,10 @@ func (c *Controller) finishRecoveryFailure(runID string, generation uint64, caus
 		c.recoveryStats.VerificationFailures++
 	}
 	r.recoveryDiagnostic = "waiting_for_backoff"
+	if strings.Contains(cause.Error(), "journal_repair_needed") {
+		c.recoveryStats.JournalRepairNeeded++
+		r.recoveryDiagnostic = "journal_repair_needed"
+	}
 	if definition {
 		r.recoveryDiagnostic = "verification_failed"
 	}
