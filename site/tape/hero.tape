@@ -10,7 +10,7 @@ Set Padding 20
 Set Theme "Dracula"
 
 Hide
-Type `eval "$(bash ../scripts/demo-seed.sh env | grep -v '^#')" && warden() { $DEMO_ENV_PREFIX $DEMO_WARDEN "$@"; } && export PS1='$ ' && clear`
+Type `eval "$(bash ../scripts/demo-seed.sh env | grep -v '^#')" && warden() { eval "$DEMO_ENV_PREFIX $DEMO_WARDEN \"\$@\""; } && export PS1='$ ' && clear`
 Enter
 Sleep 1s
 Show
