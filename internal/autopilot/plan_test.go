@@ -1,6 +1,7 @@
 package autopilot
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -301,4 +302,13 @@ func TestMarkPlanCompleteInPlace(t *testing.T) {
 	p2, err := LoadPlan(path)
 	require.NoError(t, err)
 	require.Equal(t, "2026-07-21T11:30:00Z", p2.CompletedAt)
+}
+
+// The web client reads /autopilot plan_tasks as lowercase keys; without json
+// tags the wire carried Go-cased ID/Prompt/Status and the run view rendered
+// blank task rows.
+func TestPlanTaskJSONKeysAreLowercase(t *testing.T) {
+	b, err := json.Marshal(PlanTask{ID: "schema", Prompt: "p", After: []string{"x"}, Status: "done", LandedPR: 7})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"id":"schema","prompt":"p","after":["x"],"status":"done","landed_pr":7}`, string(b))
 }

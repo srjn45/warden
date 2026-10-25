@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""Stub AI-CLI used ONLY by the isolated demo fleet (site/scripts/demo-seed.sh).
+
+One file, installed under several names (claude, codex, cursor-agent, opencode,
+aider) by the seed script. It never contacts a provider and never reads real
+credentials:
+
+  claude -p ...          -> prints a fixed {"name": ...} slug (agent-name resolver)
+  codex app-server       -> tiny JSON-RPC server answering account/rate-limit reads
+  cursor-agent status    -> {"isAuthenticated": true}
+  cursor-agent about     -> {"subscriptionTier": "Pro"}
+  anything else          -> acts as an interactive agent pane: it draws the text in
+                            $DEMO_PANES/<tmux-session>.txt (the seed script writes
+                            that file after spawning) and redraws whenever it
+                            changes, so the poller classifies state from real pane
+                            content ("esc to interrupt" -> working, a permission
+                            menu -> waiting_for_input).
+"""
+import json, os, subprocess, sys, time
+
+name = os.path.basename(sys.argv[0])
+args = sys.argv[1:]
+
+
+def out(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+
+if "-p" in args[:1]:                      # claude -p "<slug prompt>"
+    out({"name": os.environ.get("DEMO_SLUG", "demo-task")})
+    sys.exit(0)
+
+if name == "cursor-agent" and args[:1] == ["status"]:
+    out({"isAuthenticated": True})
+    sys.exit(0)
+if name == "cursor-agent" and args[:1] == ["about"]:
+    out({"subscriptionTier": "Pro"})
+    sys.exit(0)
+
+if name == "codex" and args[:1] == ["app-server"]:
+    reset = int(time.time()) + 3 * 3600
+    weekly = int(time.time()) + 4 * 86400
+    for line in sys.stdin:
+        try:
+            req = json.loads(line)
+        except ValueError:
+            continue
+        rid, method = req.get("id"), req.get("method")
+        if rid is None:
+            continue
+        if method == "initialize":
+            res = {"userAgent": "demo"}
+        elif method == "account/read":
+            res = {"account": {"type": "chatgpt", "planType": "plus"}, "requiresOpenaiAuth": False}
+        elif method == "account/rateLimits/read":
+            res = {"rateLimits": {"planType": "plus",
+                                  "primary": {"usedPercent": 38, "windowDurationMins": 300, "resetsAt": reset},
+                                  "secondary": {"usedPercent": 22, "windowDurationMins": 10080, "resetsAt": weekly},
+                                  "limitReached": False}}
+        else:
+            res = {}
+        out({"jsonrpc": "2.0", "id": rid, "result": res})
+    sys.exit(0)
+
+# ---- interactive pane ----
+panes = os.environ.get("DEMO_PANES", "")
+try:
+    sess = subprocess.run(["tmux", "display-message", "-p", "#S"], capture_output=True,
+                          text=True, timeout=5).stdout.strip()
+except Exception:
+    sess = ""
+path = os.path.join(panes, sess + ".txt") if panes and sess else ""
+default = "  ✻ Welcome to %s\n\n  > ready_\n" % name
+last = None
+while True:
+    try:
+        text = open(path).read() if path and os.path.exists(path) else default
+    except OSError:
+        text = default
+    if text != last:
+        exiting = text.startswith("@@EXIT@@")      # first line: end the session (status -> done)
+        sys.stdout.write("\033[2J\033[H" + text.replace("@@EXIT@@\n", "", 1) + "\n")
+        sys.stdout.flush()
+        last = text
+        if exiting:
+            sys.exit(0)
+    time.sleep(1)

@@ -11,11 +11,11 @@ through the owner's `child_agents[]`. Ownership does not change DAG scheduling.
 
 A **pipeline** is a DAG of agent jobs defined in YAML. The daemon runs it: jobs with no dependencies start first, and each job's `emit` publishes its output and unblocks its dependents — so a "lead" orchestrator agent stays off the critical path. Author from a YAML spec (`warden pipeline create <spec.yaml>` or `-f`), from a built-in template (`warden pipeline create --template …`), or over MCP (`create_pipeline`/`start_pipeline`). The TUI and web show + control pipelines but don't author them.
 
-![A pipeline rendered as a DAG in the warden web UI: two parallel root jobs fan out through design and implementation jobs, converge on a three-parent `integrate` job, then fan out again to parallel test/review jobs before a final `release` job — each job card shows its live status.](/warden/media/web-pipeline.png)
+![The warden web Pipelines view for a running checkout-hardening pipeline: one completed root span-out job fans into two running tasks, which join before the pending integrate job.](/warden/media/web-pipeline.png)
 
-Selecting a job opens a drawer with its prompt, emitted output, and completion digest — plus **Cancel** (pipeline) / **Retry** (job) controls and an **Open terminal** link to a running job's session:
+Selecting a job opens a drawer with its prompt and an **Open terminal** link while it is running; completed jobs can also show emitted output and a completion digest. The pipeline view has **Pause** and **Cancel** controls, and failed jobs can be retried:
 
-![The web pipeline view with a completed job selected: a side drawer shows the job's Prompt, its emitted Output, and the completion Digest.](/warden/media/web-pipeline-job.png)
+![The web pipeline view for webhook-retry-fix: completed root span-out and analyze jobs lead to the selected running implement job, whose drawer shows its prompt and Open terminal action; review is pending.](/warden/media/web-pipeline-job.png)
 
 ## Lifecycle
 
