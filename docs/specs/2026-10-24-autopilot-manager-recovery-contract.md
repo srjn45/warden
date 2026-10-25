@@ -93,3 +93,14 @@ store/tmux/metadata adapters; they must not require a daemon, a real tmux
 server, or persisted production data.  Implementations may add fields, but
 must preserve these five named cases and their expected dispositions.
 
+
+## Operator diagnostics
+
+`GET /autopilot` exposes `recovery_diagnostic` per run and a `recovery` counter
+block.  Diagnostics are distinct: `adopted`/`launched`, `waiting_for_backoff`,
+`verification_failed` (counter `verification_failures`), `journal_repair_needed`
+(counter `journal_repair_needed`; successful automatic repairs are counted in
+`journal_repairs`) and `child_cleanup_failed: <cause>` (counter
+`cleanup_failures`).  Journal repair is `Ledger.RepairJournal`: the original
+bytes are kept under `autopilot.<run>.journal.quarantine.<hash>` via CAS before
+the journal is rebuilt empty; tasks and landings are never modified.

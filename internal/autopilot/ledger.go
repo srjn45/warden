@@ -2,6 +2,8 @@ package autopilot
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -238,6 +240,35 @@ func (l *Ledger) Journal() ([]JournalEntry, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+// RepairJournal is the supported recovery path for a corrupt decision journal.
+// The journal is a rolling log, so it is rebuilt empty, but only after the
+// original bytes are preserved under a content-addressed quarantine key. It
+// never touches tasks or landings. It returns the quarantine key ("" when the
+// journal was already readable) and writes only through the CtxStore seam, with
+// CAS so a concurrent writer's fresh journal is never clobbered.
+func (l *Ledger) RepairJournal() (string, error) {
+	raw, err := l.store.Get(l.JournalKey())
+	if errors.Is(err, ErrLedgerMissing) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var probe []JournalEntry
+	if raw == "" || json.Unmarshal([]byte(raw), &probe) == nil {
+		return "", nil
+	}
+	sum := sha256.Sum256([]byte(raw))
+	qkey := l.key("journal.quarantine." + hex.EncodeToString(sum[:6]))
+	if err := l.store.CompareAndSet(qkey, "", raw, ledgerWriter); err != nil && !errors.Is(err, ErrLedgerConflict) {
+		return "", fmt.Errorf("quarantine journal: %w", err)
+	}
+	if err := l.store.CompareAndSet(l.JournalKey(), raw, "[]", ledgerWriter); err != nil {
+		return "", fmt.Errorf("rebuild journal: %w", err)
+	}
+	return qkey, nil
 }
 
 // readJSON loads key and unmarshals it into v. An absent key is not an error: v
