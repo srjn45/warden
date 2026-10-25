@@ -84,22 +84,22 @@ Therefore wd update and wd migrate must not rewrite retired detector keys. Only 
 
 Update live product documentation: README.md, FEATURES.md, docs/FEATURES.md, docs/USAGE.md, site reference env-vars/features/CLI, multi-agent MCP/REPL pages and web-mission-control. Generate site/src/content/docs/reference/cli.md with make gendocs rather than manually editing it. Historical detector design documents may receive a removal-status annotation rather than being silently erased.
 
-The following are live instruction surfaces and must be updated in the atomic cutover:
+The following are live instruction surfaces and must be updated in the surface-removal layer. The canonical skill sources are under `skills/warden/...`; `.agents/skills/warden/...` is their repository projection and must remain aligned rather than being treated as the source of truth.
 
 | Path | Required change |
 |---|---|
 | AGENTS.md | Remove mandatory who_is_editing_file/get_collaboration_status and conflict-inbox guidance only; retain Warden lifecycle/git/check guidance. |
-| .agents/skills/warden/SKILL.md | Remove detector tool/claim rows while retaining context/messages/approvals and branch tracking. |
-| .agents/skills/warden/references/coordination.md | Remove the File-conflict detection section/commands/config/hint; retain shared context, messages, approvals, Branch & CI tracking. |
-| .agents/skills/warden/references/operations.md | Remove collab config and alias mentions while retaining branch_track and other operations. |
+| skills/warden/SKILL.md (projected at .agents/skills/warden/SKILL.md) | Remove detector tool/claim rows while retaining context/messages/approvals and branch tracking. |
+| skills/warden/references/coordination.md (projected at .agents/skills/warden/references/coordination.md) | Remove the File-conflict detection section/commands/config/hint; retain shared context, messages, approvals, Branch & CI tracking. |
+| skills/warden/references/operations.md (projected at .agents/skills/warden/references/operations.md) | Remove collab config and alias mentions while retaining branch_track and other operations. |
 
 ## Actual user-owned PR stack
 
-This inventory is the first, documentation-only PR and targets the repository default branch, main.
+The inventory is PR #1067 on `worker-83955ef9`, based on `main`. The user-owned stack is deliberately five layers: inventory -> surface -> runtime -> verification -> release.
 
-The next branch must be based on this inventory PR branch and contain one compile-clean, atomic runtime-plus-surface cutover PR. It includes the runtime, config retirement, prompt changes, OpenAPI/generated output, client, MCP, CLI/aliases, REPL, web, tests/goldens and live docs/skills. It cannot be split into runtime-first and surface-later PRs without broken imports of collab.Conflict, missing route/interface implementations, or dormant APIs/instructions.
+The surface-removal branch is forked from the inventory branch head and its PR base is `worker-83955ef9`. The runtime-removal branch is forked from the surface branch head and its PR base is that surface branch. The verification branch is forked from the runtime branch head and its PR base is the runtime branch. The release branch is forked from the verification branch head and its PR base is the verification branch. If an earlier layer is rebased after its parent merges, its direct child must be rebased onto that updated parent; no layer skips a predecessor.
 
-A final verification/release PR must be based on the cutover branch. It adds the retired-config fixture matrix, compatibility/release/operator documentation and verification evidence. If release policy requires code plus release material atomically, fold that final PR into the cutover rather than create an unmergeable split.
+Surface owns public detector surfaces (including prompts, APIs, generated schemas, MCP/CLI/REPL/web and their focused tests) at a compile-clean boundary. Runtime then removes the detector implementation and retired configuration at its own compile-clean boundary. Verification adds the retired-config fixture matrix and acceptance evidence; release adds compatibility/release/operator material. This ordering supersedes earlier atomic-cutover wording.
 
 All PRs are user-owned: do not merge or enable auto-merge.
 
