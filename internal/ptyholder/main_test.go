@@ -3,8 +3,10 @@ package ptyholder
 import (
 	"context"
 	"fmt"
+	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,10 +18,19 @@ import (
 // without any external CLI: a holder (`__ptyholder <spec>`) and a stand-in
 // daemon (`__daemon <root> <journals> <name>`) that is SIGKILLed mid-session.
 func TestMain(m *testing.M) {
-	if len(os.Args) >= 3 && os.Args[1] == "__ptyholder" {
+	if len(os.Args) > 1 && os.Args[1] == "__blocked_ready" {
+		for {
+			time.Sleep(time.Hour)
+		}
+	}
+	if len(os.Args) >= 3 && (os.Args[1] == "__ptyholder" || os.Args[1] == "__silent_holder") {
 		var ready *os.File
 		if os.Getenv("WARDEN_PTYHOLDER_READY_FD") == "3" {
 			ready = os.NewFile(3, "ready")
+		}
+		if os.Args[1] == "__silent_holder" {
+			unix.CloseOnExec(3)
+			ready = nil // deliberately never acknowledge readiness; retain fd3 until exit
 		}
 		if err := Run(os.Args[2], ready); err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -61,7 +72,13 @@ func fakeDaemon(root, journals, name string) int {
 
 func testLauncher(root string) *Launcher {
 	exe, _ := os.Executable()
-	return &Launcher{Root: root, Command: []string{exe, "__ptyholder"}, ExitedLinger: time.Minute}
+	pid := os.Getpid()
+	start, _ := StartTime(pid)
+	if len(os.Args) >= 7 && os.Args[1] == "__daemon" {
+		pid, _ = strconv.Atoi(os.Args[5])
+		start, _ = strconv.ParseUint(os.Args[6], 10, 64)
+	}
+	return &Launcher{TestOwner: &Owner{PID: pid, Start: start}, Root: root, Command: []string{exe, "__ptyholder"}, ExitedLinger: time.Minute}
 }
 
 func newHost(root, journals string) *ptyruntime.Host {
@@ -77,7 +94,13 @@ func tmpDirs(t *testing.T) (root, journals string) {
 		t.Fatal(err)
 	}
 	root = filepath.Join(d, "h")
-	t.Cleanup(func() { KillAll(root); os.RemoveAll(d) }) // no holder or shell outlives the test
+	t.Cleanup(func() {
+		if err := KillAll(root); err != nil {
+			t.Error(err)
+			return
+		}
+		os.RemoveAll(d)
+	}) // no holder or shell outlives the test
 	journals = filepath.Join(d, "j")
 	return root, journals
 }

@@ -76,7 +76,7 @@ func TestCharacterization_RotateBrainHotSwapsInPlace(t *testing.T) {
 		BaseDir:  dir,
 		Resolver: cyclicResolver("a", "free"),
 	}, &fakeEnv{})
-	c.SetRuntime(fake)
+	setRuntimeAndWait(t, c, fake)
 	st, err := c.ReconcileConfiguredPlans(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, st.Runs, 1)
@@ -107,7 +107,7 @@ func TestSlotSpawnAdoptsStoredBrainOnRestart(t *testing.T) {
 		Resolver:          &fakeResolver{backendID: "a", tier: "free"},
 	}, env)
 	rt1 := newHexBrainRuntime()
-	c1.SetRuntime(rt1)
+	setRuntimeAndWait(t, c1, rt1)
 	r, err := c1.Register(context.Background(), RegisterRequest{PlanFile: plan})
 	require.NoError(t, err)
 	_, err = c1.StartRun(context.Background(), r.RunID)
@@ -128,7 +128,7 @@ func TestSlotSpawnAdoptsStoredBrainOnRestart(t *testing.T) {
 		Resolver:          &fakeResolver{backendID: "a", tier: "free"},
 	}, env)
 	rt2 := newHexBrainRuntime()
-	c2.SetRuntime(rt2)
+	setRuntimeAndWait(t, c2, rt2)
 	t.Cleanup(func() { require.NoError(t, c2.Close()) })
 
 	require.Len(t, rt2.spawned, 1, "boot reconciliation calls SpawnBrain to adopt the slot")
@@ -150,7 +150,7 @@ func TestSlotSpawnCanBrainCompleteAfterRestart(t *testing.T) {
 
 	c1 := NewController(ControllerConfig{DataDir: data, BaseDir: repo, Resolver: &fakeResolver{backendID: "a", tier: "free"}}, env)
 	rt1 := newHexBrainRuntime()
-	c1.SetRuntime(rt1)
+	setRuntimeAndWait(t, c1, rt1)
 	r, err := c1.Register(context.Background(), RegisterRequest{PlanFile: plan})
 	require.NoError(t, err)
 	_, err = c1.StartRun(context.Background(), r.RunID)
@@ -160,7 +160,7 @@ func TestSlotSpawnCanBrainCompleteAfterRestart(t *testing.T) {
 
 	c2 := NewController(ControllerConfig{DataDir: data, BaseDir: repo, Resolver: &fakeResolver{backendID: "a", tier: "free"}}, env)
 	rt2 := newHexBrainRuntime()
-	c2.SetRuntime(rt2)
+	setRuntimeAndWait(t, c2, rt2)
 	t.Cleanup(func() { require.NoError(t, c2.Close()) })
 	newBrainID := c2.Status().Runs[0].Brain.AgentID
 	require.Equal(t, survivingBrainID, newBrainID)
@@ -194,12 +194,12 @@ func TestCharacterization_GuardianRotationWalksIdChurn(t *testing.T) {
 
 	// Wedge → nudge → restart (same backend) → rotate (next backend).
 	clock.t = t0.Add(11 * time.Minute)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	clock.t = t0.Add(22 * time.Minute)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	ids = append(ids, c.runs[runID].brain.AgentID)
 	clock.t = t0.Add(33 * time.Minute)
-	c.guardianTick(ctx)
+	guardianTickAndWait(t, c, ctx)
 	ids = append(ids, c.runs[runID].brain.AgentID)
 
 	require.Equal(t, []string{"brain-1", "brain-1", "brain-1"}, ids,

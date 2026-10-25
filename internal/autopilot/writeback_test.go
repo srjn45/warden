@@ -17,7 +17,7 @@ func TestUpdateTaskStatusValidationConcurrencyAndRestart(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte("goal: g\ntasks:\n  - id: a\n    prompt: a\n  - id: b\n    prompt: b\n"), 0o644))
 	rt := newFakeRuntime()
 	c := NewController(ControllerConfig{Plans: []string{path}, BaseDir: dir}, &fakeEnv{})
-	c.SetRuntime(rt)
+	setRuntimeAndWait(t, c, rt)
 	st, err := c.ReconcileConfiguredPlans(context.Background(), dir)
 	require.NoError(t, err)
 	runID := st.Runs[0].RunID

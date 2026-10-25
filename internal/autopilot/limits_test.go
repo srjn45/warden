@@ -70,7 +70,7 @@ func newLimitHarness(t *testing.T) (*Controller, *limitFake, *fakeClock, string)
 	res := &roundRobinResolver{backends: []string{"a", "b"}, tiers: []backendstore.ModelTier{"free", "subscription"}}
 	c, runID := enabledGuardianController(t, base, clock, res, testGuardian())
 	f := &limitFake{guardianFake: base, switchRes: map[string]LimitSwitch{}, switchErr: map[string]error{}}
-	c.SetRuntime(f)
+	setRuntimeAndWait(t, c, f)
 	return c, f, clock, runID
 }
 
@@ -173,7 +173,7 @@ func TestLimitManagerSwitchesAndRestingManagerNotEscalated(t *testing.T) {
 	f2.switchRes[mgr2] = LimitSwitch{Reset: clock2.now().Add(3 * time.Hour)}
 	c2.limitTick(context.Background())
 	clock2.add(11 * time.Minute) // heartbeat now stale
-	c2.guardianTick(context.Background())
+	guardianTickAndWait(t, c2, context.Background())
 	require.Empty(t, f2.nudges)
 	require.Empty(t, f2.rotated)
 

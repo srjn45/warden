@@ -21,7 +21,10 @@ func backoffAfterRotateFailure(t *testing.T, mutate func(f *guardianFake, r *run
 	r := c.runs[runID]
 	r.brain = nil
 	mutate(fake, r)
+	c.mu.Lock()
 	c.rotateStep(context.Background(), fake, r, t0)
+	c.mu.Unlock()
+	waitRecoveryIdle(t, c)
 	b := c.Status().Runs[0].Backoff
 	require.NotNil(t, b)
 	return b
@@ -35,7 +38,10 @@ func TestSpawnFailureDefinitionErrorNotRateLimited(t *testing.T) {
 	r.brain = nil
 	require.NoError(t, os.Remove(r.absPlanFile))
 	r.plan.Goal = ""
+	c.mu.Lock()
 	c.rotateStep(context.Background(), fake, r, t0)
+	c.mu.Unlock()
+	waitRecoveryIdle(t, c)
 	st := c.Status().Runs[0]
 	// A definition error cannot succeed on retry: parked as needs-attention, not backoff.
 	require.Contains(t, st.NeedsAttention, string(KindDefinitionError))

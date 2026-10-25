@@ -2,7 +2,6 @@ package autopilot
 
 import (
 	"context"
-	"log/slog"
 	"sort"
 	"strings"
 )
@@ -12,6 +11,8 @@ type BootReconcileRun struct {
 	RunID         string
 	SlotScope     string
 	Repo          string
+	PlanID        string
+	ProjectID     string
 	LegacyBrainID string
 	ManagerSlotID string
 }
@@ -28,22 +29,14 @@ func isLegacyBrainID(id string) bool {
 	return strings.HasPrefix(id, "agent-") && id != ""
 }
 
-// reconcileRunsAtBootLocked normalizes in-memory run state and asks the runtime
-// to migrate legacy sessions before guardian reconciliation and brain spawn.
-// Caller holds c.mu.
+// reconcileRunsAtBootLocked only normalizes in-memory state. Runtime/store work
+// is deliberately scheduled by SetRuntime after releasing c.mu.
 func (c *Controller) reconcileRunsAtBootLocked(ctx context.Context) {
 	if c.runtime == nil {
 		return
 	}
 	for _, r := range c.runs {
-		c.grandfatherIntegrationBranchLocked(r)
 		c.normalizeSlotIDsLocked(r)
-	}
-	if mr, ok := c.runtime.(MigrationRuntime); ok {
-		specs := c.bootReconcileSpecsLocked()
-		if err := mr.ReconcileSessions(ctx, specs); err != nil {
-			slog.Warn("autopilot: session boot reconciliation failed", "err", err)
-		}
 	}
 }
 
@@ -88,12 +81,12 @@ func (c *Controller) bootReconcileSpecsLocked() []BootReconcileRun {
 			RunID:         r.runID,
 			SlotScope:     r.slotScope,
 			Repo:          r.repo,
+			PlanID:        r.planID,
+			ProjectID:     r.projectID,
 			ManagerSlotID: ManagerSlotID(r.slotScope),
 		}
-		if c.store != nil {
-			if rec, err := c.store.Get(r.runID); err == nil {
-				spec.LegacyBrainID = strings.TrimSpace(rec.BrainID)
-			}
+		if r.brain != nil {
+			spec.LegacyBrainID = strings.TrimSpace(r.brain.AgentID)
 		}
 		out = append(out, spec)
 	}

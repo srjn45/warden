@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -75,8 +74,18 @@ type BrainSpec struct {
 
 // BrainHandle identifies a spawned brain.
 type BrainHandle struct {
-	AgentID string
-	Backend string
+	// NewLaunch is true only for a process created by this invocation. Adopted
+	// managers must survive cancellation of the controller's recovery generation.
+	NewLaunch bool
+	LaunchID  string
+	AgentID   string
+	Backend   string
+}
+
+// RecoveryBrainCleaner conditionally cleans only the exact launch returned by
+// this recovery. Production validates launch and run ownership before teardown.
+type RecoveryBrainCleaner interface {
+	CleanupRecoveryBrain(context.Context, string, BrainHandle) error
 }
 
 // RotateBrainSpec is the guardian's in-place slot rotation request. HotSwap
@@ -405,47 +414,105 @@ func (c *Controller) watchPlan(ctx context.Context, r *run, interval time.Durati
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			c.mu.Lock()
-			// Degraded-recovery check: attempt to re-preflight and spawn.
-			if r.state == StateDegraded && r.brain == nil && c.runtime != nil {
-				if err := c.preflightRegisteredRunLocked(ctx, r); err != nil {
-					var pfe *PreflightError
-					recovered := false
-					if errors.As(err, &pfe) && pfe.hasContentOnly() {
-						plan, warnings, lerr := loadPlanLenient(r.absPlanFile)
-						if lerr == nil {
-							r.plan = plan
-							r.preflightWarnings = warnings
-							recovered = true
-						}
-					}
-					if !recovered {
-						// Structural failure or lenient load failed — still degraded.
-						c.mu.Unlock()
-						continue
-					}
-					// Content-only + lenient load succeeded — fall through to spawn.
-				} else {
-					r.preflightWarnings = nil // clean preflight — clear any prior warnings
-				}
-				r.state = StateStarting
-				sel := c.selectBrain(nil)
-				r.tier = sel.Tier
-				if spawnErr := c.spawnBrain(ctx, r, sel.Backend); spawnErr != nil {
-					slog.Warn("autopilot: watchPlan recovery spawn failed",
-						"run", r.runID, "err", spawnErr)
-				}
-				c.persistRunLocked(r)
-				c.mu.Unlock()
-				continue
-			}
-			_, notify := r.reloadPlanIfChanged()
-			c.mu.Unlock()
-			if notify != nil && c.runtime != nil {
-				c.runtime.NotifyOwner(r.runID, "autopilot: plan edit ignored (kept last-good): "+notify.Error())
-			}
+			c.watchPlanTick(ctx, r.runID)
 		}
 	}
+}
+
+func (c *Controller) watchPlanTick(parent context.Context, id string) {
+	c.mu.Lock()
+	r := c.runs[id]
+	if r == nil || r.planID != "" || r.recoveryInFlight {
+		c.mu.Unlock()
+		return
+	}
+	switch r.state {
+	case StatePaused, StateStopped, StateDisabled, StateComplete, StateRegistered:
+		c.mu.Unlock()
+		return
+	}
+	if r.state == StateDegraded && r.backoffKind != "" && r.backoffKind != KindDefinitionError &&
+		!r.backoffNextRetry.IsZero() && c.now().Before(r.backoffNextRetry) {
+		c.mu.Unlock()
+		return
+	}
+	if !c.admitRecoveryLocked(r) {
+		c.mu.Unlock()
+		return
+	}
+	snapshot := cloneGuardianRun(r)
+	rt := c.runtime
+	c.mu.Unlock()
+	go func() {
+		ctx, cancel := context.WithCancel(snapshot.recoveryCtx)
+		stop := context.AfterFunc(parent, cancel)
+		defer stop()
+		defer cancel()
+		defer c.releaseRecovery(id, snapshot.recoveryAttempt)
+		if snapshot.state == StateDegraded && snapshot.brain == nil {
+			definition := planDefinitionIdentity(snapshot.absPlanFile)
+			if snapshot.recoveryDefinition != "" && definition == snapshot.recoveryDefinition {
+				return
+			}
+			c.mu.Lock()
+			current := c.runs[id]
+			valid := current == r && current.recoveryGeneration == snapshot.recoveryGeneration && ctx.Err() == nil
+			if valid {
+				current.recoveryDefinition = definition
+				current.needsAttention = ""
+			}
+			c.mu.Unlock()
+			if valid {
+				c.recoverAdmitted(ctx, id)
+			}
+			return
+		}
+		_, notify := snapshot.reloadPlanIfChanged()
+		c.mu.Lock()
+		current := c.runs[id]
+		valid := current == r && current.recoveryGeneration == snapshot.recoveryGeneration && ctx.Err() == nil
+		if valid {
+			current.plan, current.planModTime = snapshot.plan, snapshot.planModTime
+		}
+		c.mu.Unlock()
+		if valid && notify != nil && rt != nil {
+			rt.NotifyOwner(id, "autopilot: plan edit ignored (kept last-good): "+notify.Error())
+		}
+	}()
+}
+
+// planDefinitionIdentity is intentionally cheap and conservative.  It is not a
+// content hash or an authority check: it only establishes that the owner has
+// repaired/replaced the file since the last failed observation.  Canonical
+// plan-bound runs never call it because their definition is hydrated from the
+// verified plan store, not the repository YAML export.
+func planDefinitionIdentity(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return "missing-plan-file"
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "unavailable:" + path
+	}
+	return fmt.Sprintf("%s:%d:%d", path, info.ModTime().UnixNano(), info.Size())
+}
+
+// enterWatcherBackoffLocked gives watcher-originated spawn errors exactly the
+// same bounded retry surface that the guardian exposes.  It intentionally does
+// not notify or perform runtime work: callers already hold c.mu and status/API
+// responsiveness must not depend on an owner notification completing.
+func (c *Controller) enterWatcherBackoffLocked(r *run, now time.Time, cause error) {
+	r.state = StateDegraded
+	r.healStage = stageBackoff
+	r.backoffStage++
+	wait := c.guardian.BackoffMin << uint(r.backoffStage-1)
+	if wait <= 0 || wait > c.guardian.BackoffMax {
+		wait = c.guardian.BackoffMax
+	}
+	r.backoffNextRetry = now.Add(wait)
+	r.healNextAt = r.backoffNextRetry
+	r.backoffKind = classifySpawnError(cause)
+	r.backoffLastErr = fmt.Sprintf("%s: %v — backing off until %s", r.backoffKind, cause, r.backoffNextRetry.Format(time.RFC3339))
 }
 
 // planWatchInterval is the default plan-file poll cadence. Plan edits are rare

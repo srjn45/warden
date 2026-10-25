@@ -67,6 +67,10 @@ func (c *Controller) RestartRun(ctx context.Context, id string, req RestartReque
 	if !ok {
 		return RestartResult{}, ErrRunNotFound
 	}
+	c.invalidateRecoveryLocked(r)
+	if r.recoveryInFlight || c.recoveryOwners[id] != nil {
+		return RestartResult{}, fmt.Errorf("%w: recovery dependency or cleanup still in flight", ErrRunConflict)
+	}
 	kind, reason, err := c.restartPreconditionsLocked(r, req.Force)
 	if err != nil {
 		return RestartResult{}, err

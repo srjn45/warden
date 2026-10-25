@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -135,10 +134,18 @@ type Controller struct {
 	live       *autopilotstore.Store
 	planSource PlanTaskSource
 
-	mu      sync.Mutex
-	runtime Runtime         // nil ⇒ inert (S1): no brain spawns
-	runs    map[string]*run // keyed by run_id (across all enabled repos)
-	claims  *claimRegistry  // slot scope + reserved manager/guardian id claims
+	mu               sync.Mutex
+	runtime          Runtime         // nil ⇒ inert (S1): no brain spawns
+	runs             map[string]*run // keyed by run_id (across all enabled repos)
+	claims           *claimRegistry  // slot scope + reserved manager/guardian id claims
+	statusReadOnly   bool
+	recoveryDeferred bool // private snapshot supervisor records intent without dispatch
+	recoveryTimeout  time.Duration
+	recoveryStats    RecoveryStats
+	liveBootInFlight bool
+	bootDone         chan struct{}
+	recoverySem      chan struct{}   // bounded recovery work; held until external work returns
+	recoveryOwners   map[string]*run // reservations survive removal from runs
 
 	landLocks sync.Map // per-run / per-PR landing mutexes (landing.go)
 }
@@ -166,6 +173,29 @@ type run struct {
 	slotScope         string             // stable scope for <scope>-autopilot / <scope>-guardian slot ids
 	cancel            context.CancelFunc // stops the plan-watch goroutine (nil in inert mode)
 	preflightWarnings []string           // content warnings from boot-recovery lenient load; cleared on clean preflight
+	// recoveryDefinition is the last definition identity observed by the
+	// plan-file recovery watcher.  It is deliberately separate from planModTime:
+	// the latter is the last successfully adopted plan, while this value also
+	// records a broken or missing definition.  That distinction prevents a
+	// degraded run from treating every watcher tick as a fresh admission.
+	cachedLedgerTasks  []LedgerTask
+	cachedFix          []FixStatus
+	recoveryDefinition string
+	// generation invalidates an unlocked recovery after pause/stop/restart;
+	// inFlight is the per-run singleflight admission bit.
+	recoveryGeneration         uint64
+	persistRevision            uint64
+	recoveryAdmittedGeneration uint64
+	recoveryCancel             context.CancelFunc
+	recoveryCtx                context.Context
+	recoveryAttempt            uint64 // exact reservation owner; survives generation fencing
+	recoveryInFlight           bool
+	recoveryRotate             bool
+	recoveryBackend            string
+	recoveryReason             string
+	recoveryDiagnostic         string
+	recoveryLostID             string
+	recoveryLostCause          string
 
 	// Guardian-owned state (autopilot.md §2.3, §7). All mutated only under c.mu, by
 	// the guardian tick or the (re)spawn helpers.
@@ -257,6 +287,7 @@ func NewController(cfg ControllerConfig, env Env) *Controller {
 		planSource:        cfg.PlanSource,
 		runs:              map[string]*run{},
 		claims:            newClaimRegistry(),
+		recoverySem:       make(chan struct{}, 4),
 	}
 	if c.store == nil && strings.TrimSpace(cfg.DataDir) != "" {
 		if st, err := NewRunStore(cfg.DataDir); err != nil {
@@ -332,9 +363,25 @@ func (c *Controller) SetFastBrain(e fastbrain.Engine) {
 // it inside SetAutopilotController.
 func (c *Controller) SetRuntime(rt Runtime) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	alreadyWired := c.runtime != nil
 	c.runtime = rt
+	if alreadyWired {
+		c.mu.Unlock()
+		return
+	}
 	c.reconcileRunsAtBootLocked(context.Background())
+	mr, _ := rt.(MigrationRuntime)
+	specs := c.bootReconcileSpecsLocked()
+	// Boot reconciliation is itself bounded external work, even for inert runs.
+	select {
+	case c.recoverySem <- struct{}{}:
+	default:
+		c.recoveryStats.CapacityRefusals++
+		c.mu.Unlock()
+		return
+	}
+	c.recoveryStats.InFlight++
+	var admitted []string
 	// Durable run records, not the deprecated config plan list, are the V2
 	// restart authority. Recreate every run whose persisted intent is live even
 	// when it was registered directly and therefore is absent from c.plans.
@@ -344,61 +391,82 @@ func (c *Controller) SetRuntime(rt Runtime) {
 		default:
 			continue
 		}
-		if r.state == StateActive && c.awaitingMergeLocked(r) {
+		if r.state == StateActive && r.completion.awaiting != nil {
 			// Waiting on the final PR merge: no manager is respawned and nothing is
 			// re-verified; the completion tick resumes polling.
 			continue
 		}
-		if err := c.preflightRegisteredRunLocked(context.Background(), r); err != nil {
-			var pfe *PreflightError
-			if !errors.As(err, &pfe) || pfe.hasStructural() {
-				// Structural failure: plan is unrunnable — stay degraded.
-				// Start watchPlan anyway so when the operator fixes the file the
-				// degraded-recovery tick can promote the run automatically.
-				r.state = StateDegraded
-				c.persistRunLocked(r)
-				slog.Warn("autopilot: stored run recovery skipped", "run", r.runID, "err", err)
-				if r.cancel == nil {
-					wctx, cancel := context.WithCancel(context.Background())
-					r.cancel = cancel
-					go c.watchPlan(wctx, r, planWatchInterval)
-				}
-				continue
-			}
-			// Content-only failure: normalize the plan leniently and proceed.
-			plan, warnings, lerr := loadPlanLenient(r.absPlanFile)
-			if lerr != nil {
-				r.state = StateDegraded
-				c.persistRunLocked(r)
-				slog.Warn("autopilot: stored run recovery skipped (lenient load failed)",
-					"run", r.runID, "err", lerr)
-				if r.cancel == nil {
-					wctx, cancel := context.WithCancel(context.Background())
-					r.cancel = cancel
-					go c.watchPlan(wctx, r, planWatchInterval)
-				}
-				continue
-			}
-			r.plan = plan
-			r.preflightWarnings = warnings
-			slog.Warn("autopilot: boot recovery proceeding with content warnings",
-				"run", r.runID, "warnings", warnings)
-		} else {
-			r.preflightWarnings = nil // clean preflight — clear any prior warnings
+		// A persisted BrainID is a slot identity, not evidence that a manager is
+		// still live after daemon restart.  The runtime's spawn/reconcile path is
+		// the sole ownership-aware authority for adopting that slot; clear the
+		// in-memory handle so the shared admission reaches it.
+		r.brain = nil
+		// Boot is an admission source, not an exception.  In particular do not
+		// run plan-store, filesystem, ledger, digest, tmux, or persistence work
+		// while c.mu is held here: any of those dependencies may stall during a
+		// daemon restart.  The coordinator performs the same preflight/hydration
+		// and records an actionable degraded state on failure.
+		if c.admitRecoveryLocked(r) {
+			admitted = append(admitted, r.runID)
 		}
-		r.state = StateStarting
-		sel := c.selectBrain(nil)
-		r.tier = sel.Tier
-		if err := c.spawnBrain(context.Background(), r, sel.Backend); err != nil {
-			slog.Warn("autopilot: stored run recovery failed", "run", r.runID, "err", err)
-		}
-		if r.brain != nil && r.cancel == nil {
-			wctx, cancel := context.WithCancel(context.Background())
-			r.cancel = cancel
-			go c.watchPlan(wctx, r, planWatchInterval)
-		}
-		c.persistRunLocked(r)
 	}
+	c.bootDone = make(chan struct{})
+	store, done := c.store, c.bootDone
+	c.mu.Unlock()
+	c.launchBootAdmissions(mr, specs, admitted, store, done)
+}
+
+// launchBootAdmissions serializes session reconciliation before the reserved
+// run admissions. Both can touch tmux/store and may stall, so neither executes
+// while c.mu is held. The per-run reservations were acquired before this
+// goroutine starts and remain held until their actual recovery returns.
+func (c *Controller) launchBootAdmissions(mr MigrationRuntime, specs []BootReconcileRun, admitted []string, store *RunStore, done chan struct{}) {
+	go func() {
+		defer func() {
+			c.mu.Lock()
+			c.recoveryStats.InFlight--
+			c.mu.Unlock()
+			<-c.recoverySem
+			close(done)
+		}()
+		// Recover the legacy branch/manager fields outside c.mu.  Persisted
+		// records are I/O and must never hold the controller mutex at boot.
+		branches := make(map[string]string, len(specs))
+		if store != nil {
+			for i := range specs {
+				rec, err := store.Get(specs[i].RunID)
+				if err != nil {
+					continue
+				}
+				specs[i].LegacyBrainID = rec.BrainID
+				if rec.IntegrationBranch != "" {
+					branches[rec.RunID] = rec.IntegrationBranch
+				} else if rec.SlotScope == "" || isLegacyBrainID(rec.BrainID) {
+					branches[rec.RunID] = DefaultIntegrationBranch
+				}
+			}
+		}
+		if mr != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), recoveryDeadline)
+			err := mr.ReconcileSessions(ctx, specs)
+			cancel()
+			if err != nil {
+				slog.Warn("autopilot: session boot reconciliation failed", "err", err)
+			}
+		}
+		if len(branches) != 0 {
+			c.mu.Lock()
+			for id, branch := range branches {
+				if r := c.runs[id]; r != nil && r.integrationBranch == "" {
+					r.integrationBranch = branch
+				}
+			}
+			c.mu.Unlock()
+		}
+		for _, id := range admitted {
+			c.launchRecovery(id)
+		}
+	}()
 }
 
 // RunID is the stable identifier for a run: a short hash of the repo root and the
@@ -985,7 +1053,12 @@ func (c *Controller) LookupRun(runID string) (RunStatus, error) {
 
 // statusLocked builds the status snapshot; the caller must hold c.mu.
 func (c *Controller) statusLocked() Status {
-	st := Status{Runs: []RunStatus{}}
+	priorReadOnly := c.statusReadOnly
+	c.statusReadOnly = c.recoveryStats.InFlight > 0
+	defer func() { c.statusReadOnly = priorReadOnly }()
+	stats := c.recoveryStats
+	stats.Capacity = cap(c.recoverySem)
+	st := Status{Runs: []RunStatus{}, Recovery: stats}
 	for _, r := range c.runs {
 		counts := TaskCounts{}
 		for _, task := range r.plan.Tasks {
@@ -1012,33 +1085,34 @@ func (c *Controller) statusLocked() Status {
 		}
 		sv := c.surfaceViewLocked(r) // also hydrates the persisted awaiting record
 		rs := RunStatus{
-			RunID:             r.runID,
-			Name:              r.name,
-			PlanFile:          r.planFile,
-			Repo:              r.repo,
-			PlanID:            r.planID,
-			ProjectID:         r.projectID,
-			State:             c.reportedStateLocked(r),
-			Gate:              c.runGate(r), // the mode resolved at preflight (§6.1)
-			Brain:             brain,
-			WorkersInFlight:   r.workersInFlight, // last roster count from the overwatch tick
-			Tasks:             counts,
-			Backoff:           r.backoffStatus(),
-			NeedsAttention:    r.needsAttention,
-			ResolverAttempts:  copyAttempts(r.resolverAttempts),
-			LastProgressAt:    rfc3339OrEmpty(r.lastProgressAt),
-			Watchdog:          c.watchdogState(r, c.now()),
-			Supervisor:        c.supervisorLocked(r),
-			NextStep:          c.nextStepLocked(r, c.now()),
-			RestingUntil:      rfc3339OrEmpty(restingUntil(r)),
-			PlanTasks:         append([]PlanTask(nil), r.plan.Tasks...),
-			SlotScope:         r.slotScope,
-			IntegrationBranch: r.integrationBranch,
-			GateWarning:       r.gateWarning,
-			ManagerSlotID:     managerSlotIDOrEmpty(r.slotScope),
-			GuardianSlotID:    guardianSlotIDOrEmpty(r.slotScope),
-			LedgerTasks:       c.ledgerTasksLocked(r.runID),
-			PreflightWarnings: append([]string(nil), r.preflightWarnings...),
+			RecoveryDiagnostic: r.recoveryDiagnostic,
+			RunID:              r.runID,
+			Name:               r.name,
+			PlanFile:           r.planFile,
+			Repo:               r.repo,
+			PlanID:             r.planID,
+			ProjectID:          r.projectID,
+			State:              c.reportedStateLocked(r),
+			Gate:               c.runGate(r), // the mode resolved at preflight (§6.1)
+			Brain:              brain,
+			WorkersInFlight:    r.workersInFlight, // last roster count from the overwatch tick
+			Tasks:              counts,
+			Backoff:            r.backoffStatus(),
+			NeedsAttention:     r.needsAttention,
+			ResolverAttempts:   copyAttempts(r.resolverAttempts),
+			LastProgressAt:     rfc3339OrEmpty(r.lastProgressAt),
+			Watchdog:           c.watchdogState(r, c.now()),
+			Supervisor:         c.supervisorLocked(r),
+			NextStep:           c.nextStepLocked(r, c.now()),
+			RestingUntil:       rfc3339OrEmpty(restingUntil(r)),
+			PlanTasks:          append([]PlanTask(nil), r.plan.Tasks...),
+			SlotScope:          r.slotScope,
+			IntegrationBranch:  r.integrationBranch,
+			GateWarning:        r.gateWarning,
+			ManagerSlotID:      managerSlotIDOrEmpty(r.slotScope),
+			GuardianSlotID:     guardianSlotIDOrEmpty(r.slotScope),
+			LedgerTasks:        c.ledgerTasksLocked(r.runID),
+			PreflightWarnings:  append([]string(nil), r.preflightWarnings...),
 		}
 		sv.apply(&rs)
 		st.Runs = append(st.Runs, rs)
@@ -1111,13 +1185,17 @@ func isLandableState(s RunState) bool {
 // (no selection). A nil resolver falls back to the daemon default (""): this
 // preserves the inert-core / unit-test behaviour where no resolver is injected.
 func (c *Controller) selectBrain(exclude map[string]bool) selection {
+	return c.selectBrainContext(context.Background(), exclude)
+}
+
+func (c *Controller) selectBrainContext(ctx context.Context, exclude map[string]bool) selection {
 	if c.resolver == nil {
 		if exclude[""] {
 			return selection{}
 		}
 		return selection{Backend: "", Tier: tierFree, OK: true}
 	}
-	res, err := c.resolver.Resolve(context.Background(), router.ResolveOptions{Role: "autopilot"})
+	res, err := c.resolver.Resolve(ctx, router.ResolveOptions{Role: "autopilot"})
 	if err != nil {
 		return selection{}
 	}

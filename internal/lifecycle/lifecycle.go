@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -1002,6 +1003,58 @@ type Lifecycle struct {
 	// kernel sources are exercised on any host.
 	goos    string
 	readPSI func() (string, error)
+}
+
+// ManagerSlotMetadata is the immutable launch identity recovered from a live
+// tmux session. It is intentionally not a general adoption API.
+type ManagerSlotMetadata struct {
+	TmuxSession, RunID, PlanID, ProjectID, Repo, Workdir, Role, Backend, AICLISessionID, LaunchID string
+}
+
+// ErrManagerSlotMissing distinguishes an absent deterministic slot (where a
+// normal first launch is allowed) from a live slot whose evidence is unreadable.
+var ErrManagerSlotMissing = errors.New("manager slot missing")
+
+// InspectManagerSlot reads a manager pane's session-scoped launch environment
+// and current path. It performs no attach, send-keys, rename, or teardown.
+func (l *Lifecycle) InspectManagerSlot(ctx context.Context, slot string) (ManagerSlotMetadata, error) {
+	if strings.TrimSpace(slot) == "" {
+		return ManagerSlotMetadata{}, errors.New("manager slot is required")
+	}
+	target := "=" + slot // tmux otherwise accepts prefixes/patterns.
+	if _, err := l.run.Run(ctx, "", "tmux", "has-session", "-t", target); err != nil {
+		// Only tmux's documented no-such-session exit status is absence. A
+		// deadline, transport, or executable failure is a refusal, never a spawn permit.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return ManagerSlotMetadata{}, fmt.Errorf("%w: %v", ErrManagerSlotMissing, err)
+		}
+		return ManagerSlotMetadata{}, fmt.Errorf("inspect manager slot liveness: %w", err)
+	}
+	env, err := l.run.Run(ctx, "", "tmux", "show-environment", "-t", target)
+	if err != nil {
+		return ManagerSlotMetadata{}, fmt.Errorf("inspect manager slot environment: %w", err)
+	}
+	identity, err := l.run.Run(ctx, "", "tmux", "display-message", "-p", "-t", target, "#{session_name}\t#{pane_current_path}")
+	if err != nil {
+		return ManagerSlotMetadata{}, fmt.Errorf("inspect manager slot path: %w", err)
+	}
+	parts := strings.SplitN(strings.TrimSpace(identity), "\t", 2)
+	if len(parts) != 2 || parts[0] != slot || strings.TrimSpace(parts[1]) == "" {
+		return ManagerSlotMetadata{}, fmt.Errorf("inspect manager slot identity: expected %q, got %q", slot, identity)
+	}
+	values := map[string]string{}
+	for _, line := range strings.Split(env, "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if ok {
+			values[key] = value
+		}
+	}
+	return ManagerSlotMetadata{TmuxSession: parts[0], RunID: values["WARDEN_AUTOPILOT_RUN_ID"],
+		PlanID: values["WARDEN_PLAN_ID"], ProjectID: values["WARDEN_PROJECT_ID"],
+		Repo: values["WARDEN_REPO"], Workdir: strings.TrimSpace(parts[1]), Role: values["WARDEN_ROLE"],
+		Backend: values["WARDEN_BACKEND"], AICLISessionID: values["WARDEN_AI_CLI_SESSION_ID"],
+		LaunchID: values["WARDEN_MANAGER_LAUNCH_ID"]}, nil
 }
 
 // recordOffload reports a fully-offloaded local-model call to the savings hook (if
@@ -2109,10 +2162,29 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, agent *
 		}
 	}
 
-	if err := l.newAgentSession(ctx, "", agent.ID, req.Cwd); err != nil {
+	launchEnv := []string(nil)
+	launchID := ""
+	if req.AutopilotRunID != "" {
+		var tokenErr error
+		launchID, tokenErr = store.NewSessionID()
+		if tokenErr != nil {
+			return nil, tokenErr
+		}
+		launchEnv = []string{
+			"WARDEN_AUTOPILOT_RUN_ID=" + req.AutopilotRunID, "WARDEN_PLAN_ID=" + req.PlanID,
+			"WARDEN_PROJECT_ID=" + req.ProjectID, "WARDEN_REPO=" + req.Repo,
+			"WARDEN_ROLE=" + req.Role, "WARDEN_BACKEND=" + agent.AiCli,
+			"WARDEN_AI_CLI_SESSION_ID=" + agent.AICLISessionID,
+			"WARDEN_MANAGER_LAUNCH_ID=" + launchID,
+		}
+	}
+	if err := l.newAgentSession(ctx, "", agent.ID, req.Cwd, launchEnv...); err != nil {
 		return nil, err
 	}
 	agent.Runtime = l.stampRuntime(l.Proc(), agent.ID, "tmux")
+	if agent.Runtime != nil {
+		agent.Runtime.LaunchID = launchID
+	}
 	mode := req.PermissionMode
 	if mode == "" {
 		mode = l.config().GetDefaultPermissionMode()
@@ -2198,7 +2270,16 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, agent *age
 			return nil, err
 		}
 	}
-	if err := l.newAgentSession(ctx, req.Repo, agent.ID, workdir); err != nil {
+	launchEnv := []string(nil)
+	if req.AutopilotRunID != "" {
+		launchEnv = []string{
+			"WARDEN_AUTOPILOT_RUN_ID=" + req.AutopilotRunID, "WARDEN_PLAN_ID=" + req.PlanID,
+			"WARDEN_PROJECT_ID=" + req.ProjectID, "WARDEN_REPO=" + req.Repo,
+			"WARDEN_ROLE=" + req.Role, "WARDEN_BACKEND=" + agent.AiCli,
+			"WARDEN_AI_CLI_SESSION_ID=" + agent.AICLISessionID,
+		}
+	}
+	if err := l.newAgentSession(ctx, req.Repo, agent.ID, workdir, launchEnv...); err != nil {
 		// new-session failed, so no tmux session exists; only undo a worktree we made.
 		l.cleanupFailedSpawn(agent, false, worktreeCreated)
 		return nil, err
@@ -2396,7 +2477,12 @@ func (l *Lifecycle) launchAgent(ctx context.Context, runDir string, agent *agent
 		}
 		// Restamp now that the holder/process identity exists (pre-launch the
 		// stamp could only say "tmux").
+		launchID := ""
+		if agent.Runtime != nil {
+			launchID = agent.Runtime.LaunchID
+		}
 		agent.Runtime = l.stampRuntime(l.Proc(), id, "direct")
+		agent.Runtime.LaunchID = launchID
 		return nil
 	}
 	if out, err := l.run.Run(ctx, runDir, "tmux", "send-keys", "-t", id, line, "Enter"); err != nil {

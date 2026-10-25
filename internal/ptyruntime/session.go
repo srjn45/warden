@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"sync"
@@ -191,6 +192,8 @@ type Session struct {
 	writerDone chan struct{}
 	exited     chan struct{} // exit journaled
 	closeOnce  sync.Once
+	masterOnce sync.Once
+	closeErr   error
 
 	// enq/done count raw reads handed to the writer and fully applied by it:
 	// equal means the journal and screen have caught up with everything the
@@ -281,20 +284,32 @@ func Start(cfg Config) (*Session, error) {
 	err := s.open(last, cfg)
 	s.mu.Unlock()
 	if err != nil {
+		master.Close()
 		if cfg.Adopt == nil {
 			_ = unix.Kill(-s.pid, unix.SIGKILL)
-			_ = cmd.Wait()
+			done := make(chan struct{})
+			children.Add(1)
+			worker(func() { defer children.Add(-1); _ = cmd.Wait(); close(done) })
+			select {
+			case <-done:
+			case <-time.After(opt.KillGrace):
+				cleanupTimeouts.Add(1)
+				slog.Error("ptyruntime: failed-start reap timeout", "pid", s.pid)
+			}
 		}
-		master.Close()
 		return nil, err
 	}
 	if cfg.Adopt != nil && cfg.Adopt.Recovered {
 		s.restoreInputIDs(last)
 		s.nudgeRedraw()
 	}
-	go s.waitLoop()
-	go s.readLoop()
-	go s.writeLoop()
+	masters.Add(1)
+	if s.cmd != nil {
+		children.Add(1)
+	}
+	worker(s.waitLoop)
+	worker(s.readLoop)
+	worker(s.writeLoop)
 	return s, nil
 }
 
@@ -599,6 +614,7 @@ func (s *Session) detach(r *RawSubscription) {
 
 func (s *Session) waitLoop() {
 	if s.adopt == nil {
+		defer children.Add(-1)
 		err := s.cmd.Wait()
 		_ = err
 		s.exit = exitFromState(s.cmd.ProcessState)
@@ -648,6 +664,7 @@ func exitFromState(ps *os.ProcessState) ExitStatus {
 // counts the loss for the writer's gap marker. While a loss is pending, a read
 // deadline makes sure it is reported even if the PTY then goes quiet.
 func (s *Session) readLoop() {
+	defer s.closeMaster()
 	defer close(s.readDone)
 	dropped, deadline := 0, false
 	for {
@@ -762,7 +779,8 @@ func (s *Session) writeLoop() {
 		case <-drain:
 			drain = nil
 			if !done {
-				s.finish() // descendants still hold the PTY; their output is dropped
+				s.closeMaster() // bound reader lifetime when descendants hold the slave
+				s.finish()
 				done = true
 			}
 		case <-readDone:
@@ -820,7 +838,7 @@ func (s *Session) Detach() error {
 		if s.adopt.Abort != nil {
 			s.adopt.Abort()
 		}
-		_ = s.master.Close()
+		s.closeMaster()
 		<-s.writerDone
 		s.mu.Lock()
 		s.closed = true
@@ -832,32 +850,63 @@ func (s *Session) Detach() error {
 	return nil
 }
 
-// Close tears the session down deterministically: SIGHUP+SIGTERM to the
-// process group, SIGKILL after KillGrace, a final SIGKILL sweep of the group,
-// then the master is closed, the exit journaled, and every subscription and
-// goroutine ended before Close returns. The journal stays open (caller-owned).
+// closeMaster releases this runtime's descriptor exactly once.
+func (s *Session) closeMaster() {
+	s.masterOnce.Do(func() { _ = s.master.Close(); masters.Add(-1) })
+}
+
+// Close terminates a live, owned process group, bounds the wait for its reaper,
+// and releases this runtime's master and workers. A timeout is returned and
+// counted; it never triggers a sweep of unverified or recycled descendants.
 func (s *Session) Close() error {
 	s.closeOnce.Do(func() {
-		select {
-		case <-s.waitDone:
-		default:
-			_ = unix.Kill(-s.pid, unix.SIGHUP)
-			_ = unix.Kill(-s.pid, unix.SIGTERM)
-			t := time.NewTimer(s.opt.KillGrace)
+		signalGroup := func(sig unix.Signal) {
 			select {
 			case <-s.waitDone:
-			case <-t.C:
-				_ = unix.Kill(-s.pid, unix.SIGKILL)
-				<-s.waitDone
+				return
+			default:
 			}
-			t.Stop()
+			if s.adopt != nil && (s.adopt.Alive == nil || !s.adopt.Alive()) {
+				return
+			}
+			_ = unix.Kill(-s.pid, sig)
 		}
-		// Stragglers that kept the group (orphaned descendants): kill them and
-		// wait, bounded, until init has reaped them.
-		for end := time.Now().Add(s.opt.KillGrace); unix.Kill(-s.pid, unix.SIGKILL) == nil && time.Now().Before(end); {
+		wait := func() bool {
+			timer := time.NewTimer(s.opt.KillGrace)
+			defer timer.Stop()
+			select {
+			case <-s.waitDone:
+				return true
+			case <-timer.C:
+				return false
+			}
+		}
+		signalGroup(unix.SIGHUP)
+		signalGroup(unix.SIGTERM)
+		if !wait() {
+			signalGroup(unix.SIGKILL)
+			if !wait() {
+				s.closeErr = fmt.Errorf("ptyruntime: reap timeout for pid %d", s.pid)
+				cleanupTimeouts.Add(1)
+				slog.Error("ptyruntime: cleanup timeout", "pid", s.pid)
+				close(s.detachCh) // end the writer even if the reaper is unavailable
+				if s.adopt != nil && s.adopt.Abort != nil {
+					s.adopt.Abort()
+				}
+			}
+		}
+		s.closeMaster()
+		// Give the system reaper a bounded interval to collect children hit by
+		// the group signal. This is observation only: never signal a group after
+		// its recorded leader has been reaped.
+		for end := time.Now().Add(s.opt.KillGrace); unix.Kill(-s.pid, 0) == nil && time.Now().Before(end); {
 			time.Sleep(5 * time.Millisecond)
 		}
-		_ = s.master.Close()
+		if unix.Kill(-s.pid, 0) == nil && s.closeErr == nil {
+			s.closeErr = fmt.Errorf("ptyruntime: process group %d remains after cleanup deadline", s.pid)
+			cleanupTimeouts.Add(1)
+			slog.Warn("ptyruntime: unverified descendants remain; refusing further signals", "pid", s.pid)
+		}
 		<-s.writerDone
 		s.mu.Lock()
 		s.closed = true
@@ -866,7 +915,7 @@ func (s *Session) Close() error {
 		s.hub.close()
 		s.wg.Wait()
 	})
-	return nil
+	return s.closeErr
 }
 
 // WriteSequence writes q as one authority-checked unit through the same input

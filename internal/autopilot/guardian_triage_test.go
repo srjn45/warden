@@ -58,7 +58,7 @@ func newTriageHarness(t *testing.T, useFB bool, diag func(fastbrain.StallInput) 
 
 func (h *triageHarness) tick(d time.Duration) {
 	h.clock.add(d)
-	h.c.guardianTick(context.Background())
+	guardianTickAndWait(h.t, h.c, context.Background())
 }
 
 // settle waits for the in-flight diagnosis to be delivered.
@@ -265,14 +265,16 @@ func TestTriageNoLockHeldAcrossModelCall(t *testing.T) {
 		<-release
 		return fastbrain.StallDiagnosis{Action: fastbrain.ActionMechanical, Source: "failopen"}
 	}
-	h.tick(11 * time.Minute)
+	h.clock.add(11 * time.Minute)
+	h.c.guardianTick(context.Background())
 	<-started
 	require.True(t, h.c.mu.TryLock(), "c.mu must be free while the model call runs")
 	h.c.mu.Unlock()
-	h.tick(time.Minute) // still in flight: no second call, no escalation
+	h.c.guardianTick(context.Background()) // still in flight: no second call, no escalation
 	require.EqualValues(t, 1, h.calls.Load())
 	require.Empty(t, h.fake.nudges)
 	close(release)
+	waitRecoveryIdle(t, h.c)
 	h.settle()
 	h.tick(time.Minute)
 	require.Len(t, h.fake.nudges, 1)

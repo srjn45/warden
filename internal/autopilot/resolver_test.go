@@ -26,7 +26,7 @@ func resolverSetup(t *testing.T) (*Controller, *resolverFake, string) {
 	g := newGuardianFake()
 	c, runID := enabledGuardianController(t, g, clock, cyclicResolver("a", "free"), testGuardian())
 	rf := &resolverFake{guardianFake: g}
-	c.SetRuntime(rf)
+	setRuntimeAndWait(t, c, rf)
 	c.mu.Lock()
 	r := c.runs[runID]
 	r.plan.Goal = "ship the thing"

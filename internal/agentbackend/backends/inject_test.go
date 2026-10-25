@@ -43,6 +43,7 @@ func TestInjectImplementsContextInjector(t *testing.T) {
 // TestInjectWritesBlock verifies a fresh workdir gets the agent's rules file carrying
 // warden's addendum inside the delimited block.
 func TestInjectWritesBlock(t *testing.T) {
+	withAgyHome(t, t.TempDir())
 	for _, tc := range injectCases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -61,6 +62,7 @@ func TestInjectWritesBlock(t *testing.T) {
 // TestInjectIdempotent verifies a second call replaces the warden block in place
 // rather than appending a duplicate.
 func TestInjectIdempotent(t *testing.T) {
+	withAgyHome(t, t.TempDir())
 	for _, tc := range injectCases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -82,6 +84,7 @@ func TestInjectIdempotent(t *testing.T) {
 // TestInjectPreservesUserFile verifies a user's pre-existing rules file content
 // survives: only the warden block is added/refreshed around it.
 func TestInjectPreservesUserFile(t *testing.T) {
+	withAgyHome(t, t.TempDir())
 	for _, tc := range injectCases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -112,6 +115,7 @@ func TestInjectPreservesUserFile(t *testing.T) {
 
 // TestInjectNoOps verifies an empty workdir or empty text writes nothing.
 func TestInjectNoOps(t *testing.T) {
+	withAgyHome(t, t.TempDir())
 	for _, tc := range injectCases {
 		t.Run(tc.name, func(t *testing.T) {
 			inj := tc.backend.(agentbackend.ContextInjector)
@@ -128,6 +132,7 @@ func TestInjectNoOps(t *testing.T) {
 // TestInjectGitExclude verifies the dropped rules file is added to the repo's
 // info/exclude (so it never lands in the agent's diff), idempotently.
 func TestInjectGitExclude(t *testing.T) {
+	withAgyHome(t, t.TempDir())
 	for _, tc := range injectCases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -148,6 +153,7 @@ func TestInjectGitExclude(t *testing.T) {
 // pointing at a per-worktree gitdir whose commondir names the shared .git) resolves
 // its exclude through the shared commondir — the path warden agents actually run in.
 func TestInjectGitExcludeLinkedWorktree(t *testing.T) {
+	withAgyHome(t, t.TempDir())
 	for _, tc := range injectCases {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()

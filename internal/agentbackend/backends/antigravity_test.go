@@ -782,7 +782,6 @@ func TestAntigravityDetectRateLimit_IdlePaneIsNeverLimited(t *testing.T) {
 // and "available at HH:MM" formats, and confirms the generic fallback also
 // works for non-agy-specific time formats that agy might use.
 func TestAntigravityParseRateLimitReset_ResetsAt(t *testing.T) {
-	loc := time.Local
 	tests := []struct {
 		name     string
 		pane     string
@@ -796,11 +795,19 @@ func TestAntigravityParseRateLimitReset_ResetsAt(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			now := time.Now()
 			got, ok := Antigravity{}.ParseRateLimitReset(tt.pane)
 			require.True(t, ok, "reset time must parse")
-			require.Equal(t, tt.wantHour, got.In(loc).Hour())
-			require.Equal(t, tt.wantMin, got.In(loc).Minute())
-			require.True(t, got.After(time.Now().Add(-25*time.Hour)))
+
+			// The runtime intentionally advances an already-passed clock time by
+			// a 24-hour duration. Around DST that is not necessarily the same
+			// local wall-clock hour on the following date, so assert that exact
+			// existing rule rather than a DST-sensitive hour literal.
+			want := time.Date(now.Year(), now.Month(), now.Day(), tt.wantHour, tt.wantMin, 0, 0, now.Location())
+			if want.Before(now) {
+				want = want.Add(24 * time.Hour)
+			}
+			require.WithinDuration(t, want, got, time.Second)
 		})
 	}
 }

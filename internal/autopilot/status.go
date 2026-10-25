@@ -21,25 +21,27 @@ const (
 // the OpenAPI schema via x-go-type, so this struct's JSON tags ARE the API
 // contract — keep them in sync with the spec.
 type Status struct {
-	Runs []RunStatus `json:"runs"`
+	Recovery RecoveryStats `json:"recovery"`
+	Runs     []RunStatus   `json:"runs"`
 }
 
 // RunStatus is one run's slice of AutopilotStatus. In the S1 inert core Brain is
 // always nil, WorkersInFlight/Tasks/LandedTotal are zero, and Backoff is nil —
 // those go live in S3/S4/S5.
 type RunStatus struct {
-	RunID           string       `json:"run_id"`
-	Name            string       `json:"name"`
-	PlanFile        string       `json:"plan_file"`
-	Repo            string       `json:"repo"`
-	PlanID          string       `json:"plan_id,omitempty"`
-	ProjectID       string       `json:"project_id,omitempty"`
-	State           RunState     `json:"state"`
-	Gate            string       `json:"gate"`
-	Brain           *BrainStatus `json:"brain"`
-	WorkersInFlight int          `json:"workers_in_flight"`
-	Tasks           TaskCounts   `json:"tasks"`
-	Backoff         *Backoff     `json:"backoff"`
+	RecoveryDiagnostic string       `json:"recovery_diagnostic,omitempty"`
+	RunID              string       `json:"run_id"`
+	Name               string       `json:"name"`
+	PlanFile           string       `json:"plan_file"`
+	Repo               string       `json:"repo"`
+	PlanID             string       `json:"plan_id,omitempty"`
+	ProjectID          string       `json:"project_id,omitempty"`
+	State              RunState     `json:"state"`
+	Gate               string       `json:"gate"`
+	Brain              *BrainStatus `json:"brain"`
+	WorkersInFlight    int          `json:"workers_in_flight"`
+	Tasks              TaskCounts   `json:"tasks"`
+	Backoff            *Backoff     `json:"backoff"`
 	// NeedsAttention is set when the guardian stopped retrying a failure that
 	// cannot succeed on retry; it carries the reason and how to clear it.
 	NeedsAttention string `json:"needs_attention,omitempty"`

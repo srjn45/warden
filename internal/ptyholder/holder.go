@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
@@ -24,6 +25,9 @@ import (
 // ready receives "ok\n" once the socket is listening and Meta is written (or
 // "err: <reason>\n"), then is closed.
 func Run(specPath string, ready *os.File) error {
+	if ready != nil {
+		unix.CloseOnExec(int(ready.Fd()))
+	}
 	err := run(specPath, ready)
 	if err != nil && ready != nil {
 		fmt.Fprintf(ready, "err: %v\n", err)
@@ -68,10 +72,17 @@ func run(specPath string, ready *os.File) error {
 	if spec.ExitedLinger <= 0 {
 		spec.ExitedLinger = 24 * time.Hour
 	}
+	// Install before spawning: cancellation during the readiness handshake must
+	// run child cleanup too. Production holders still ignore HUP/INT below.
+	terms := make(chan os.Signal, 1)
+	signal.Notify(terms, syscall.SIGTERM)
+	defer signal.Stop(terms)
 	master, tty, err := pty.Open()
 	if err != nil {
 		return err
 	}
+	defer master.Close()
+	defer tty.Close()
 	if err := pty.Setsize(master, &pty.Winsize{Cols: spec.Cols, Rows: spec.Rows}); err != nil {
 		return err
 	}
@@ -89,6 +100,31 @@ func run(specPath string, ready *os.File) error {
 	signal.Ignore(syscall.SIGHUP, syscall.SIGPIPE, syscall.SIGINT)
 	h := &holder{spec: spec, master: master, cmd: cmd, exited: make(chan struct{}), stop: make(chan struct{})}
 	go h.reap()
+	defer func() { h.shutdown(); h.cleanup() }()
+	go func() {
+		select {
+		case <-terms:
+			h.shutdown()
+		case <-h.stop:
+		}
+	}()
+	if spec.TestOwner != nil {
+		go func() {
+			tick := time.NewTicker(100 * time.Millisecond)
+			defer tick.Stop()
+			for {
+				if !spec.TestOwner.alive() {
+					h.shutdown()
+					return
+				}
+				select {
+				case <-tick.C:
+				case <-h.stop:
+					return
+				}
+			}
+		}()
+	}
 
 	hs, err := StartTime(os.Getpid())
 	if err != nil {
@@ -98,7 +134,7 @@ func run(specPath string, ready *os.File) error {
 	if err != nil {
 		cs = 0 // already gone: the adopter sees Exited in the reply
 	}
-	h.meta = Meta{Proto: ProtoVersion, ID: spec.ID, HolderPID: os.Getpid(), HolderStart: hs,
+	h.meta = Meta{TestOwner: spec.TestOwner, Proto: ProtoVersion, ID: spec.ID, HolderPID: os.Getpid(), HolderStart: hs,
 		ChildPID: cmd.Process.Pid, ChildStart: cs, Socket: spec.Socket}
 
 	if err := os.MkdirAll(filepath.Dir(spec.Socket), 0o700); err != nil {
@@ -125,18 +161,45 @@ func run(specPath string, ready *os.File) error {
 		ln.Close()
 	}()
 	go h.lingerAfterExit()
+	var connMu sync.Mutex
+	conns := make(map[*net.UnixConn]struct{})
+	var handlers sync.WaitGroup
+	slots := make(chan struct{}, 64)
+	defer func() {
+		_ = ln.Close()
+		connMu.Lock()
+		for c := range conns {
+			_ = c.Close()
+		}
+		connMu.Unlock()
+		handlers.Wait()
+	}()
 	for {
 		c, err := ln.Accept()
 		if err != nil {
 			select {
 			case <-h.stop:
-				h.cleanup()
 				return nil
 			default:
 				return err
 			}
 		}
-		go h.serve(c.(*net.UnixConn))
+		uc := c.(*net.UnixConn)
+		select {
+		case slots <- struct{}{}:
+		default:
+			_ = uc.Close()
+			continue
+		}
+		connMu.Lock()
+		conns[uc] = struct{}{}
+		connMu.Unlock()
+		handlers.Add(1)
+		go func() {
+			defer handlers.Done()
+			defer func() { connMu.Lock(); delete(conns, uc); connMu.Unlock(); <-slots }()
+			h.serve(uc)
+		}()
 	}
 }
 
@@ -167,7 +230,44 @@ func (h *holder) lingerAfterExit() {
 func (h *holder) shutdown() { h.once.Do(func() { close(h.stop) }) }
 
 func (h *holder) cleanup() {
+	// Signal only the live, recorded PTY leader's group. Once it has exited,
+	// closing the master sends terminal hangup; never sweep a recycled PGID.
+	signalChild := func(sig syscall.Signal) {
+		select {
+		case <-h.exited:
+			return
+		default:
+		}
+		if h.meta.ChildStart == 0 {
+			// Initialization failed before identity capture: the exec.Cmd owns the
+			// leader, but there is no evidence permitting a descendant/group signal.
+			_ = h.cmd.Process.Signal(sig)
+			return
+		}
+		st, err := StartTime(h.cmd.Process.Pid)
+		if err != nil || st != h.meta.ChildStart {
+			return
+		}
+		_ = syscall.Kill(-h.cmd.Process.Pid, sig)
+	}
+	signalChild(syscall.SIGTERM)
 	_ = h.master.Close()
+	select {
+	case <-h.exited:
+	case <-time.After(200 * time.Millisecond):
+		signalChild(syscall.SIGKILL)
+		select {
+		case <-h.exited:
+		case <-time.After(time.Second):
+			cleanupFailures.Add(1)
+			slog.Error("ptyholder: child reap timeout", "session", h.spec.ID, "pid", h.cmd.Process.Pid)
+			if h.meta.ID != "" {
+				h.meta.CleanupError = "child reap timeout"
+				_ = writeMeta(h.spec.Root, h.meta)
+			}
+			return // keep identity evidence; Release will report cleanup failure
+		}
+	}
 	_ = os.Remove(h.spec.Socket)
 	_ = os.Remove(metaPath(h.spec.Root, h.spec.ID))
 }
@@ -183,13 +283,14 @@ func (h *holder) refuse(c *net.UnixConn, why string, uid uint32) {
 }
 
 func writeReply(c net.Conn, r reply) {
+	_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	b, _ := json.Marshal(r)
 	_, _ = c.Write(append(b, '\n'))
 }
 
 func (h *holder) serve(c *net.UnixConn) {
 	defer c.Close()
-	_ = c.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_ = c.SetDeadline(time.Now().Add(10 * time.Second))
 	sc, err := c.SyscallConn()
 	if err != nil {
 		return
@@ -201,7 +302,7 @@ func (h *holder) serve(c *net.UnixConn) {
 		h.refuse(c, "peer uid not allowed", uid)
 		return
 	}
-	line, err := bufio.NewReaderSize(c, 4096).ReadBytes('\n')
+	line, err := bufio.NewReaderSize(c, 4096).ReadSlice('\n')
 	if err != nil {
 		return
 	}
@@ -231,7 +332,11 @@ func (h *holder) serve(c *net.UnixConn) {
 		var werr error
 		_ = h.sendMaster(sc, c, append(b, '\n'), &werr)
 	case "wait":
+		disconnected := make(chan struct{})
+		go func() { var b [1]byte; _, _ = c.Read(b[:]); close(disconnected) }()
 		select {
+		case <-disconnected:
+			return
 		case <-h.exited:
 			r := h.status
 			r.Proto = ProtoVersion

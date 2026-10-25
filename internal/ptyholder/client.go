@@ -25,6 +25,9 @@ import (
 
 // LaunchSpec describes a new holder-hosted session.
 type LaunchSpec struct {
+	// TestOwner bounds fixture lifetime independently of a simulated daemon.
+	// Nil preserves production restart/re-adoption semantics.
+	TestOwner *Owner
 	// Root is the holder state directory (created 0700).
 	Root string
 	ID   string
@@ -50,11 +53,18 @@ type Handle struct {
 // Launch starts a holder (its own session; the daemon dying does not signal
 // it) and waits until it is listening. It does NOT adopt: call Adopt.
 func Launch(ctx context.Context, ls LaunchSpec) (h *Handle, err error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if ls.TestOwner != nil && !ls.TestOwner.alive() {
+		return nil, fmt.Errorf("ptyholder: test owner is not alive")
+	}
+
 	if !ValidID(ls.ID) {
 		return nil, fmt.Errorf("ptyholder: invalid session id %q", ls.ID)
 	}
+	preserve := false
 	defer func() {
-		if err != nil {
+		if err != nil && !preserve {
 			Forget(ls.Root, ls.ID) // a failed launch leaves no record that looks adoptable
 		}
 	}()
@@ -68,7 +78,7 @@ func Launch(ctx context.Context, ls LaunchSpec) (h *Handle, err error) {
 	if err := writeFileAtomic(credPath(ls.Root, ls.ID), []byte(cred)); err != nil {
 		return nil, err
 	}
-	spec := Spec{ID: ls.ID, Root: ls.Root, Argv: ls.Argv, Cwd: ls.Cwd, Env: ls.Env, Cols: ls.Cols, Rows: ls.Rows,
+	spec := Spec{TestOwner: ls.TestOwner, ID: ls.ID, Root: ls.Root, Argv: ls.Argv, Cwd: ls.Cwd, Env: ls.Env, Cols: ls.Cols, Rows: ls.Rows,
 		Credential: cred, Socket: SocketPath(ls.Root, ls.ID), ExitedLinger: ls.ExitedLinger}
 	sp := specPath(ls.Root, ls.ID)
 	if err := writeFileAtomic(sp, mustJSON(spec)); err != nil {
@@ -101,7 +111,24 @@ func Launch(ctx context.Context, ls LaunchSpec) (h *Handle, err error) {
 		return nil, err
 	}
 	wr.Close()
-	go func() { _ = cmd.Wait() }() // reap while this process lives; afterwards init does
+	done := make(chan struct{})
+	holderChildren.Add(1)
+	go func() { defer holderChildren.Add(-1); _ = cmd.Wait(); close(done) }()
+	defer func() {
+		if err == nil {
+			return
+		}
+		// SIGTERM is handled by the holder, including after it starts its PTY
+		// child but before readiness. Only this exact exec.Cmd is signalled.
+		_ = cmd.Process.Signal(syscall.SIGTERM)
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			_ = cmd.Process.Kill()
+			cleanupFailures.Add(1)
+			preserve = true
+		}
+	}()
 	type res struct {
 		line string
 		err  error
@@ -118,7 +145,6 @@ func Launch(ctx context.Context, ls LaunchSpec) (h *Handle, err error) {
 			return nil, fmt.Errorf("ptyholder: holder failed to start: %q %v", r.line, r.err)
 		}
 	case <-ctx.Done():
-		_ = cmd.Process.Kill()
 		_ = os.Remove(sp)
 		return nil, ctx.Err()
 	}
@@ -131,6 +157,9 @@ func Open(root, id string) (*Handle, error) {
 		return nil, fmt.Errorf("ptyholder: invalid session id %q", id)
 	}
 	if err := checkOwned(credPath(root, id), 0o600); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, ErrGone
+		}
 		return nil, err
 	}
 	b, err := os.ReadFile(credPath(root, id))
@@ -234,6 +263,12 @@ func (h *Handle) dial(ctx context.Context, m Meta) (*net.UnixConn, error) {
 		return nil, ErrGone
 	}
 	uc := c.(*net.UnixConn)
+	deadline := time.Now().Add(5 * time.Second)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	_ = uc.SetDeadline(deadline)
+
 	sc, err := uc.SyscallConn()
 	if err != nil {
 		uc.Close()
@@ -317,6 +352,8 @@ func (h *Handle) Adopt(ctx context.Context, recovered bool) (*ptyruntime.Adoptio
 		return nil, err
 	}
 	defer c.Close()
+	stop := context.AfterFunc(ctx, func() { _ = c.Close() })
+	defer stop()
 	if err := h.send(c, "adopt"); err != nil {
 		return nil, ErrGone
 	}
@@ -396,6 +433,7 @@ func (h *Handle) Adopt(ctx context.Context, recovered bool) (*ptyruntime.Adoptio
 		if h.send(c, "wait") != nil {
 			return ptyruntime.ExitStatus{Lost: true}
 		}
+		_ = c.SetReadDeadline(time.Time{}) // a wait intentionally lasts until exit or Abort
 		wr, _, err := readReply(c)
 		if err != nil || !wr.OK || !wr.Exited {
 			return ptyruntime.ExitStatus{Lost: true}
@@ -429,6 +467,8 @@ func (h *Handle) Release(ctx context.Context) error {
 		return err
 	}
 	defer c.Close()
+	stop := context.AfterFunc(ctx, func() { _ = c.Close() })
+	defer stop()
 	if err := h.send(c, "release"); err != nil {
 		return ErrGone
 	}
@@ -436,7 +476,31 @@ func (h *Handle) Release(ctx context.Context) error {
 	if err != nil {
 		return ErrGone
 	}
-	return classify(r)
+	if err := classify(r); err != nil {
+		return err
+	}
+	// An acknowledgement is not cleanup completion. Preserve metadata on a
+	// timeout so the next attempt still has authenticated ownership evidence.
+	deadline := time.NewTimer(3 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if _, err := os.Stat(metaPath(h.Root, h.ID)); errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			// Surface the holder's own recorded diagnosis (e.g. child reap timeout).
+			if m, ok := h.Meta(); ok && m.CleanupError != "" {
+				return fmt.Errorf("ptyholder: release cleanup timeout: holder reported %s", m.CleanupError)
+			}
+			return fmt.Errorf("ptyholder: release cleanup timeout")
+		case <-tick.C:
+		}
+	}
 }
 
 // Snapshot of what a holder record says without touching the socket (for

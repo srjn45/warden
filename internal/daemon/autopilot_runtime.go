@@ -60,25 +60,51 @@ func (rt autopilotRuntime) SpawnBrain(ctx context.Context, spec autopilot.BrainS
 	}
 	slotID := autopilot.ManagerSlotID(spec.SlotScope)
 	if existing, err := rt.s.store.Get(ctx, slotID); err == nil {
-		if handle, ok := rt.adoptSlotSession(ctx, existing); ok {
-			rt.refreshBrainSession(ctx, slotID, spec)
-			return handle, nil
+		verifyErr := rt.verifyRegisteredManager(ctx, existing, spec)
+		if verifyErr != nil && !errors.Is(verifyErr, errManagerSlotMissing) {
+			return autopilot.BrainHandle{}, verifyErr
+		}
+		if verifyErr == nil {
+			if handle, ok := rt.adoptSlotSession(ctx, existing); ok {
+				return handle, nil
+			}
 		}
 		if err := rt.clearDeadSlotSession(ctx, existing); err != nil {
 			return autopilot.BrainHandle{}, err
 		}
 	} else if !errors.Is(err, agentstore.ErrNotFound) {
 		return autopilot.BrainHandle{}, err
+	} else if rt.s.managerSlotInspector == nil {
+		// Unit-only/minimal runtimes have no tmux observer. Production NewServer
+		// wires one; preserving this fallback keeps a first launch possible.
+	} else {
+		sessions, listErr := rt.s.store.List(ctx)
+		if listErr != nil {
+			return autopilot.BrainHandle{}, fmt.Errorf("verify missing manager slot: %w", listErr)
+		}
+		adopted, adoptErr := rt.adoptVerifiedMissingManager(ctx, sessions, autopilot.BootReconcileRun{
+			RunID: spec.RunID, SlotScope: spec.SlotScope, Repo: spec.Repo, PlanID: spec.PlanID,
+			ProjectID: spec.ProjectID, ManagerSlotID: slotID,
+		})
+		if adoptErr != nil {
+			return autopilot.BrainHandle{}, adoptErr
+		}
+		if adopted {
+			return rt.registeredManagerHandle(ctx, spec, false)
+		}
 	}
 	req := SpawnRequest{
-		Ticket:    slotID,
-		Cwd:       spec.Repo,
-		Prompt:    spec.Prompt,
-		Role:      autopilotBrainRole,
-		Backend:   spec.Backend,
-		Tags:      spec.Tags,
-		PlanID:    spec.PlanID,
-		ProjectID: spec.ProjectID,
+		Ticket:         slotID,
+		Repo:           spec.Repo,
+		Cwd:            spec.Repo,
+		Prompt:         spec.Prompt,
+		Role:           autopilotBrainRole,
+		Backend:        spec.Backend,
+		Tags:           spec.Tags,
+		PlanID:         spec.PlanID,
+		ProjectID:      spec.ProjectID,
+		AutopilotRunID: spec.RunID,
+		AutopilotSlot:  store.AutopilotSlotManager,
 	}
 	if code, msg := rt.s.validateSpawnRequest(ctx, req); code != 0 {
 		return autopilot.BrainHandle{}, errors.New(msg)
@@ -86,19 +112,32 @@ func (rt autopilotRuntime) SpawnBrain(ctx context.Context, spec autopilot.BrainS
 	rt.s.prepareSpawnName(ctx, &req)
 	sess, err := rt.s.life.Spawn(ctx, req)
 	if err != nil {
+		// A pane may have appeared since the missing-slot observation. Reconcile
+		// once, with ownership evidence, and never retry the launch in this call.
+		if errors.Is(err, lifecycle.ErrAlreadyRunning) || strings.Contains(strings.ToLower(err.Error()), "duplicate session:") {
+			if handle, reconcileErr := rt.reconcileSpawnRace(ctx, spec); reconcileErr == nil {
+				return handle, nil
+			} else {
+				return autopilot.BrainHandle{}, errors.Join(err, reconcileErr)
+			}
+		}
 		return autopilot.BrainHandle{}, err
 	}
 	if err := rt.s.store.Insert(ctx, sess); err != nil {
 		tctx, cancel := context.WithTimeout(context.Background(), brainTeardownTimeout)
 		defer cancel()
 		if errors.Is(err, agentstore.ErrExists) {
-			_ = rt.s.life.Teardown(tctx, sess)
+			// The store winner may describe the very pane we just created. Never
+			// tear down a deterministic slot merely because insertion lost a race.
+			// Reconciliation adopts only a matching registered owner.
 			existing, gerr := rt.s.store.Get(ctx, slotID)
 			if gerr != nil {
 				return autopilot.BrainHandle{}, gerr
 			}
+			if err := rt.verifyRegisteredManager(ctx, existing, spec); err != nil {
+				return autopilot.BrainHandle{}, err
+			}
 			if handle, ok := rt.adoptSlotSession(ctx, existing); ok {
-				rt.refreshBrainSession(ctx, slotID, spec)
 				return handle, nil
 			}
 			return autopilot.BrainHandle{}, fmt.Errorf("slot %s exists but is not live", slotID)
@@ -109,7 +148,7 @@ func (rt autopilotRuntime) SpawnBrain(ctx context.Context, spec autopilot.BrainS
 		return autopilot.BrainHandle{}, err
 	}
 	rt.s.notify()
-	return autopilot.BrainHandle{AgentID: sess.ID, Backend: sess.AiCli}, nil
+	return newManagerLaunchHandle(sess, sess.AiCli)
 }
 
 // RotateBrain hot-swaps a successor backend into the existing manager session
@@ -162,19 +201,25 @@ func (rt autopilotRuntime) RotateBrain(ctx context.Context, spec autopilot.Rotat
 	}
 	// Persist even when the lifecycle implementation already wrote (adapter): a
 	// second Update is idempotent and covers fake/raw Lifecycle doubles used in tests.
-	if err := rt.s.store.Update(ctx, sess.ID, func(s *agentstore.Agent) error {
+	// A successful hot-swap owns a replacement even if Stop canceled the caller.
+	// Persist its token so the controller can safely clean a late completion.
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), brainTeardownTimeout)
+	defer cancel()
+	if err := rt.s.store.Update(persistCtx, sess.ID, func(s *agentstore.Agent) error {
 		s.AiCli = toBackend
 		s.Model = toModel
 		if res != nil && res.Agent != nil {
 			s.AICLISessionID = res.Agent.AICLISessionID
 			s.UpdatedAt = res.Agent.UpdatedAt
+			s.Runtime = res.Agent.Runtime
 		}
 		return nil
 	}); err != nil {
-		return autopilot.BrainHandle{}, fmt.Errorf("persist rotated brain: %w", err)
+		handle, identityErr := newManagerLaunchHandle(sess, toBackend)
+		return handle, errors.Join(fmt.Errorf("persist rotated brain: %w", err), identityErr)
 	}
 	rt.s.notify()
-	return autopilot.BrainHandle{AgentID: sess.ID, Backend: toBackend}, nil
+	return newManagerLaunchHandle(sess, toBackend)
 }
 
 // TerminateBrain gracefully stops the brain's tmux session (record + worktree
@@ -183,6 +228,48 @@ func (rt autopilotRuntime) TerminateBrain(ctx context.Context, agentID string) e
 	sess, err := rt.s.store.Get(ctx, agentID)
 	if err != nil {
 		return err
+	}
+	if err := rt.s.life.Terminate(ctx, sess.TmuxSession); err != nil {
+		return err
+	}
+	rt.s.notify()
+	return nil
+}
+
+// CleanupRecoveryBrain fences cleanup by the launch token as well as run and
+// manager identity. A recycled slot or a verified adopted manager is untouched.
+func (rt autopilotRuntime) CleanupRecoveryBrain(ctx context.Context, runID string, handle autopilot.BrainHandle) error {
+	if !handle.NewLaunch {
+		return nil
+	}
+	if handle.LaunchID == "" {
+		return errors.New("owned manager cleanup requires launch identity")
+	}
+	sess, err := rt.s.store.Get(ctx, handle.AgentID)
+	if errors.Is(err, agentstore.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if managerLaunchID(sess) != handle.LaunchID || sess.AutopilotRunID != runID || sess.AutopilotSlot != store.AutopilotSlotManager {
+		return nil
+	}
+	if rt.s.managerSlotInspector != nil {
+		verifyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		obs, err := rt.s.managerSlotInspector.InspectManagerSlot(verifyCtx, sess.TmuxSession)
+		if errors.Is(err, errManagerSlotMissing) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("verify owned manager cleanup: %w", err)
+		}
+		if obs.LaunchID != handle.LaunchID || obs.RunID != runID || obs.TmuxSession != sess.TmuxSession ||
+			obs.Role != autopilotBrainRole || obs.PlanID != sess.PlanID || obs.ProjectID != sess.ProjectID ||
+			obs.Repo != sess.Repo || obs.Workdir != sess.Workdir {
+			return nil
+		}
 	}
 	if err := rt.s.life.Terminate(ctx, sess.TmuxSession); err != nil {
 		return err
@@ -211,17 +298,94 @@ func (rt autopilotRuntime) adoptSlotSession(ctx context.Context, sess *agentstor
 	return autopilot.BrainHandle{AgentID: sess.ID, Backend: sess.AiCli}, true
 }
 
-func (rt autopilotRuntime) refreshBrainSession(ctx context.Context, id string, spec autopilot.BrainSpec) {
-	if err := rt.s.store.Update(ctx, id, func(sess *agentstore.Agent) error {
-		sess.Tags = spec.Tags
-		sess.Repo = spec.Repo
-		sess.Workdir = spec.Repo
-		return nil
-	}); err != nil {
-		slog.Warn("autopilot: refresh adopted brain session failed", "agent", id, "err", err)
-		return
+func (rt autopilotRuntime) verifyRegisteredManagerRecord(ctx context.Context, sess *agentstore.Agent, spec autopilot.BrainSpec) error {
+	if sess == nil || sess.ID != autopilot.ManagerSlotID(spec.SlotScope) || sess.TmuxSession != sess.ID ||
+		sess.Role != autopilotBrainRole || sess.AutopilotSlot != store.AutopilotSlotManager ||
+		spec.RunID == "" || sess.AutopilotRunID != spec.RunID ||
+		sess.PlanID != spec.PlanID || sess.ProjectID != spec.ProjectID ||
+		spec.Repo == "" || sess.Repo != spec.Repo || sess.Workdir != spec.Repo {
+		return fmt.Errorf("%w: registered manager ownership missing or conflicting", errManagerAdoptionRefused)
 	}
-	rt.s.notify()
+	sessions, err := rt.s.store.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, other := range sessions {
+		if other == nil || other.ID == sess.ID || !guardianSessionLive(other.Status) {
+			continue
+		}
+		if other.TmuxSession == sess.TmuxSession || ((autopilot.IsManagerRecord(other) || other.Role == autopilotBrainRole) &&
+			(autopilot.SessionRunID(other) == spec.RunID || (spec.PlanID != "" && other.Role == autopilotBrainRole && other.PlanID == spec.PlanID))) {
+			return fmt.Errorf("%w: competing registered manager", errManagerAdoptionRefused)
+		}
+	}
+	return nil
+}
+
+func (rt autopilotRuntime) verifyRegisteredManager(ctx context.Context, sess *agentstore.Agent, spec autopilot.BrainSpec) error {
+	if err := rt.verifyRegisteredManagerRecord(ctx, sess, spec); err != nil {
+		return err
+	}
+	if rt.s.managerSlotInspector != nil {
+		verifyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		obs, err := rt.s.managerSlotInspector.InspectManagerSlot(verifyCtx, sess.TmuxSession)
+		if errors.Is(err, errManagerSlotMissing) {
+			return errManagerSlotMissing
+		}
+		if err != nil {
+			return fmt.Errorf("%w: registered manager observation unavailable: %v", errManagerAdoptionRefused, err)
+		}
+		if obs.TmuxSession != sess.TmuxSession || obs.RunID != spec.RunID || obs.PlanID != spec.PlanID ||
+			obs.ProjectID != spec.ProjectID || obs.Repo != spec.Repo || obs.Workdir != spec.Repo ||
+			obs.Role != autopilotBrainRole || obs.Backend == "" || obs.Backend != sess.AiCli ||
+			obs.LaunchID == "" || obs.LaunchID != managerLaunchID(sess) {
+			return fmt.Errorf("%w: registered manager live ownership missing or conflicting", errManagerAdoptionRefused)
+		}
+	}
+	return nil
+}
+
+func (rt autopilotRuntime) reconcileSpawnRace(ctx context.Context, spec autopilot.BrainSpec) (autopilot.BrainHandle, error) {
+	slotID := autopilot.ManagerSlotID(spec.SlotScope)
+	adopted := false
+	if _, err := rt.s.store.Get(ctx, slotID); errors.Is(err, agentstore.ErrNotFound) {
+		sessions, err := rt.s.store.List(ctx)
+		if err != nil {
+			return autopilot.BrainHandle{}, err
+		}
+		adopted, err = rt.adoptVerifiedMissingManager(ctx, sessions, autopilot.BootReconcileRun{
+			RunID: spec.RunID, PlanID: spec.PlanID, ProjectID: spec.ProjectID, Repo: spec.Repo,
+			SlotScope: spec.SlotScope, ManagerSlotID: slotID,
+		})
+		if err != nil {
+			return autopilot.BrainHandle{}, err
+		}
+	} else if err != nil {
+		return autopilot.BrainHandle{}, err
+	}
+	return rt.registeredManagerHandle(ctx, spec, !adopted)
+}
+
+// A just-adopted missing record already has a verified live observation. Avoid
+// another metadata pass; competing/existing records still require observation.
+func (rt autopilotRuntime) registeredManagerHandle(ctx context.Context, spec autopilot.BrainSpec, observe bool) (autopilot.BrainHandle, error) {
+	existing, err := rt.s.store.Get(ctx, autopilot.ManagerSlotID(spec.SlotScope))
+	if err != nil {
+		return autopilot.BrainHandle{}, err
+	}
+	if observe {
+		err = rt.verifyRegisteredManager(ctx, existing, spec)
+	} else {
+		err = rt.verifyRegisteredManagerRecord(ctx, existing, spec)
+	}
+	if err != nil {
+		return autopilot.BrainHandle{}, err
+	}
+	if handle, live := rt.adoptSlotSession(ctx, existing); live {
+		return handle, nil
+	}
+	return autopilot.BrainHandle{}, fmt.Errorf("%w: raced manager is not live", errManagerAdoptionRefused)
 }
 
 func (rt autopilotRuntime) clearDeadSlotSession(ctx context.Context, sess *agentstore.Agent) error {
@@ -728,4 +892,18 @@ func (rt autopilotRuntime) RedeliverSeed(ctx context.Context, agentID, text stri
 		a.SeedStatus, a.SeedError = store.SeedDelivered, ""
 		return nil
 	})
+}
+
+func managerLaunchID(sess *agentstore.Agent) string {
+	if sess != nil && sess.Runtime != nil {
+		return sess.Runtime.LaunchID
+	}
+	return ""
+}
+
+func newManagerLaunchHandle(sess *agentstore.Agent, backend string) (autopilot.BrainHandle, error) {
+	if managerLaunchID(sess) == "" {
+		return autopilot.BrainHandle{}, errors.New("new manager launch missing ownership token")
+	}
+	return autopilot.BrainHandle{AgentID: sess.ID, Backend: backend, NewLaunch: true, LaunchID: managerLaunchID(sess)}, nil
 }

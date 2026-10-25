@@ -12,7 +12,7 @@ import (
 func supervisorFixture(t *testing.T, r *run) (*Controller, Supervisor, *NextStep) {
 	t.Helper()
 	c := NewController(ControllerConfig{BaseDir: t.TempDir(), Resolver: &fakeResolver{backendID: "a", tier: "free"}}, &fakeEnv{})
-	c.SetRuntime(newFakeRuntime())
+	setRuntimeAndWait(t, c, newFakeRuntime())
 	r.slotScope = "x"
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -122,13 +122,13 @@ func TestGuardianTickStampsLastTickAndWalksHealth(t *testing.T) {
 
 	clock.t = t0.Add(time.Minute)
 	fake.activity = map[string]time.Time{st.RunID: clock.t}
-	c.guardianTick(context.Background())
+	guardianTickAndWait(t, c, context.Background())
 	st = c.Status().Runs[0]
 	require.Equal(t, HealthHealthy, st.Supervisor.Health)
 	require.Equal(t, clock.t.UTC().Format(time.RFC3339), st.Supervisor.LastTickAt)
 
 	clock.t = t0.Add(20 * time.Minute) // stale heartbeat -> nudge
-	c.guardianTick(context.Background())
+	guardianTickAndWait(t, c, context.Background())
 	st = c.Status().Runs[0]
 	require.Equal(t, HealthHealing, st.Supervisor.Health)
 	require.Equal(t, "nudged", st.Supervisor.HealStage)

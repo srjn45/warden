@@ -55,7 +55,7 @@ func fixSetup(t *testing.T) (*Controller, *fixRT) {
 	c, rt, _ := landingSetup(t)
 	fr := &fixRT{landingRT: rt, live: FixWorkerIdle,
 		ev: FixEvidence{Jobs: []string{"ci"}, RunIDs: []string{"11"}, Log: "--- FAIL: TestX"}}
-	c.SetRuntime(fr)
+	setRuntimeAndWait(t, c, fr)
 	return c, fr
 }
 
