@@ -380,3 +380,28 @@ func TestNoRuntimeInferringTmuxSessionCheck(t *testing.T) {
 		t.Fatalf("walk failed: %v", err)
 	}
 }
+
+func TestPlan03EntryGateRequiresObservedEvidence(t *testing.T) {
+	if len(NotEvidence) == 0 {
+		t.Fatal("NotEvidence must enumerate what never satisfies the gate")
+	}
+	runbook := read(t, "docs/RUNBOOK-pty-rollout.md")
+	seen := map[string]bool{}
+	for _, g := range Plan03EntryGate {
+		if g.Need == "" || seen[g.ID] {
+			t.Errorf("gate item %q empty or duplicated", g.ID)
+		}
+		seen[g.ID] = true
+		if g.Evidence != EvidenceObserved && g.Evidence != EvidenceOperatorDecision {
+			t.Errorf("%s: evidence kind %q may not be derived from tests or plan status", g.ID, g.Evidence)
+		}
+		if !strings.Contains(runbook, g.ID) {
+			t.Errorf("runbook §11 does not list gate item %s", g.ID)
+		}
+	}
+	for _, n := range NotEvidence {
+		if !strings.Contains(runbook, n) {
+			t.Errorf("runbook §11 does not list non-evidence %q", n)
+		}
+	}
+}

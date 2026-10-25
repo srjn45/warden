@@ -134,7 +134,10 @@ type Stage struct {
 	Entry         string
 }
 
-// Stages is the rollout ladder (t4). Shadow is observe-only and only valid for
+// Stages is the rollout ladder (t4). The Kinds column is the TARGET design:
+// at the 02b-05 reconciliation only the "terminal" kind is operator-reachable in
+// S2-S4; the "agent" kind is BLOCKED (no adapter is direct-capable and the agent
+// readiness guard has no production caller). See docs/RUNBOOK-pty-rollout.md §2. Shadow is observe-only and only valid for
 // agents (a tmux-hosted process already exists to mirror); plain terminals have
 // no valid shadow — a second owner of one PTY master is impossible.
 var Stages = []Stage{

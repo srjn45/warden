@@ -491,3 +491,22 @@ func TestNotDirectIsReportedBeforeAnyOutput(t *testing.T) {
 		t.Fatal("terminal left raw")
 	}
 }
+
+// A 429 (the session's viewer cap) ends the attach at once with an actionable
+// error: re-dialing would not free a slot.
+func TestViewerCapRefusalIsNotRetried(t *testing.T) {
+	var dials atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		dials.Add(1)
+		http.Error(w, "too many viewers", http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+	_, err := Run(context.Background(), Options{URL: "ws" + strings.TrimPrefix(srv.URL, "http"), Out: &safeBuf{}})
+	var he *HandshakeError
+	if !errors.As(err, &he) || he.Status != http.StatusTooManyRequests || !strings.Contains(err.Error(), "close another view") {
+		t.Fatalf("err = %v, want actionable 429 HandshakeError", err)
+	}
+	if n := dials.Load(); n != 1 {
+		t.Fatalf("dialed %d times, want exactly 1", n)
+	}
+}

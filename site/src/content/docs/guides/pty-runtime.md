@@ -37,9 +37,16 @@ that can observe or directly host that session.
   terminals keep running until they exit.
 - **Restart:** tmux panes survive a daemon restart, and the next daemon re-adopts their
   mirrors on a new epoch (`lifecycle{recovered}`, a reset marker and a snapshot of the
-  live screen). A direct terminal's shell is owned by the daemon and ends with it; the
-  next daemon (in `on` mode) starts a fresh shell for every running direct terminal on
-  the same journal, so a reconnecting client is resynchronized from the snapshot.
+  live screen). A direct terminal's shell is owned by its independent holder process, not
+  the daemon, so it survives a daemon restart, update or crash and is re-adopted rather
+  than relaunched (see *Survival* below). Only with `WARDEN_PTY_HOLDER=off` is the shell a
+  daemon child that ends with it.
+- **Rollout status:** only plain-shell terminals can be hosted directly today. **No AI
+  agent can be hosted directly by an operator**: no adapter is direct-capable and there
+  is no operator readiness gate, so agents stay in tmux in every mode. No production
+  direct cohort, soak or drain has been observed; the evidence so far is automated
+  fixtures. The staged procedure, rollback and plan-03 gate are in the
+  [rollout runbook](https://github.com/srjn45/warden/blob/main/docs/RUNBOOK-pty-rollout.md).
 
 ## What is in the journal
 

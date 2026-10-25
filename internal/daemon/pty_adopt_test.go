@@ -245,6 +245,10 @@ func TestAgentLaunchAdoptsUnrecordedHolderWithoutDuplicateTaskStart(t *testing.T
 		return strings.Contains(r.mgr.Direct("agent-unrecorded").Screen(), "conversation-marker")
 	}, 5*time.Second, 10*time.Millisecond)
 	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+	// The marker must be journaled before the crash: an adopted session only
+	// repaints what the child redraws (SIGWINCH nudge), so a non-repainting child's
+	// pre-crash output lives in the journal, not the new screen model.
+	require.Eventually(t, func() bool { return strings.Contains(r.mgr.Direct("agent-unrecorded").Screen(), "conversation-marker") }, 5*time.Second, 10*time.Millisecond)
 
 	r.restart()
 	r.mgr.SetAgentDirectReady(true)
