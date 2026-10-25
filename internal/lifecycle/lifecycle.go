@@ -30,6 +30,7 @@ import (
 	"github.com/srjn45/warden/internal/memory"
 	"github.com/srjn45/warden/internal/pressure"
 	"github.com/srjn45/warden/internal/ptyevent"
+	"github.com/srjn45/warden/internal/ptyhost"
 	"github.com/srjn45/warden/internal/ptyruntime"
 	"github.com/srjn45/warden/internal/role"
 	"github.com/srjn45/warden/internal/savings"
@@ -2353,6 +2354,12 @@ func (l *Lifecycle) planAgentDirect(id string) bool {
 func (l *Lifecycle) rejectDirectPromptSeeder(id string, b agentbackend.Backend) error {
 	if !l.planAgentDirect(id) {
 		return nil
+	}
+	// A direct child starts a provider conversation. Do this capability check
+	// before any session/holder/process is created, so an internal readiness
+	// seam cannot silently turn runtime.pty:on into an AI-agent rollout.
+	if err := ptyhost.ValidateAdapterDirect(b.ID()); err != nil {
+		return err
 	}
 	if _, ok := b.(agentbackend.PromptSeeder); ok {
 		return fmt.Errorf("%w: backend %s requires post-launch prompt seeding", ErrDirectPromptSeederUnsupported, b.ID())

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/srjn45/warden/internal/agentstore"
+	"github.com/srjn45/warden/internal/ptyhost"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/srjn45/warden/internal/tmuxproc"
 )
@@ -103,13 +104,13 @@ func TestDirectAgentRejectsLegacyLifecycleOperations(t *testing.T) {
 	}
 }
 
-func TestDirectPromptSeederIsRejectedBeforeSessionOrChild(t *testing.T) {
+func TestUnsupportedDirectAdapterIsRejectedBeforeSessionOrChild(t *testing.T) {
 	h := &directStubHost{plan: true}
 	l := New(nil, &FakeConfig{})
 	l.SetProcessHost(h)
 	err := l.rejectDirectPromptSeeder("a1", crushBackend(t))
-	if !errors.Is(err, ErrDirectPromptSeederUnsupported) {
-		t.Fatalf("rejectDirectPromptSeeder error = %v, want direct seed rejection", err)
+	if !errors.Is(err, ptyhost.ErrAdapterNotDirectCapable) {
+		t.Fatalf("rejectDirectPromptSeeder error = %v, want direct-adapter capability rejection", err)
 	}
 	if h.launched || h.newSessions != 0 || len(h.sent) != 0 {
 		t.Fatalf("unsupported direct seeder caused side effects: %+v", h)

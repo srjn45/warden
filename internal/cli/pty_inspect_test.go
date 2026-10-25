@@ -19,7 +19,7 @@ func TestInspectPTYScriptedFixture(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/runtime"):
-			_, _ = w.Write([]byte(`{"session_id":"A-1","mode":"on","supervised":true,"authoritative":true,"state":"waiting","reason":"permission","evidence":["menu:4 options"],"input_owner":"warden","posture":"dangerously-execute-all","danger":true,"danger_banner":"` + ptyobs.DangerBanner + `","route":"posture","last_outcome":"approved","prompt":{"class":"permission","text":"Run a command: git status"}}`))
+			_, _ = w.Write([]byte(`{"session_id":"A-1","mode":"on","requested_mode":"on","actual_kind":"tmux","process_owner":"tmux","evidence_source":"live","evidence_freshness":"fresh","unsupported_reason":"shadow mirror is observe-only","supervised":true,"authoritative":false,"state":"waiting","reason":"permission","evidence":["menu:4 options"],"input_owner":"warden","posture":"dangerously-execute-all","danger":true,"danger_banner":"` + ptyobs.DangerBanner + `","route":"posture","last_outcome":"approved","prompt":{"class":"permission","text":"Run a command: git status"}}`))
 		case strings.HasSuffix(r.URL.Path, "/decisions"):
 			require.Equal(t, "escalated_human", r.URL.Query().Get("outcome"))
 			_, _ = w.Write([]byte(`{"session_id":"A-1","records":[{"id":"d2","time":"2026-10-19T10:00:00Z","session_id":"A-1","outcome":"escalated_human","route":"human","reason":"unrecognized","posture":"allowlisted","policy":{"act":true},"permission":{"class":"permission","text":"x"},"latency_ms":3}]}`))
@@ -34,7 +34,7 @@ func TestInspectPTYScriptedFixture(t *testing.T) {
 
 	out, err := runGit(t, addr, "inspect", "pty", "runtime", "A-1")
 	require.NoError(t, err)
-	for _, want := range []string{"DANGER", "waiting", "permission", "warden", "posture", "approved"} {
+	for _, want := range []string{"DANGER", "waiting", "permission", "warden", "posture", "approved", "requested=on", "actual=tmux", "freshness=fresh", "observe-only"} {
 		require.Contains(t, out, want)
 	}
 

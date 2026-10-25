@@ -14,7 +14,12 @@ TUI, web cockpit, REST, CLI and MCP; none of them re-derive state.
 | Pending approvals with posture, route, human-readable summary and danger flag | `GET /api/v1/approvals` | `warden approvals` | `list_approvals` | approvals pane / Attention queue |
 
 A session spawned while `runtime.pty` was `off` is reported `supervised: false`; its
-remaining runtime fields are empty (tmux polling still supervises it).
+remaining runtime fields are empty (tmux polling still supervises it). The runtime
+document also separates `requested_mode` from observed `actual_kind`, `process_owner`,
+and `authoritative`, and reports `evidence_source` / `evidence_freshness`. `live` and
+`legacy-probe` evidence is fresh; a durable `record` is only recorded metadata, never
+proof of live authority. `unsupported_reason` explains why direct-agent authority is
+unavailable. A tmux mirror is always observe-only and never reported as direct.
 
 ### Danger banner
 
@@ -64,9 +69,10 @@ Ready-made Prometheus alerts and a Grafana dashboard are in
 2. `shadow` - sessions still launch in tmux; output is mirrored into the journal and the
    engine records what it *would* do (`dry_run` trace records). Pollers stay authoritative.
    Compare traces to real behaviour before moving on.
-3. `on` - the engine is authoritative for runtime-backed sessions. Applies to sessions
-   created after the change; existing sessions keep their mode. Rolling back is setting it
-   to `shadow`/`off` the same way.
+3. `on` - new plain-shell terminals may be directly hosted; agents still launch in tmux
+   and any mirror remains observe-only. It is not an AI-agent opt-in, including after an
+   upgrade. Applies only to sessions created after the change; existing sessions keep
+   their mode. Rolling back is setting it to `shadow`/`off` the same way.
 
 ## Learned-shape safeguards
 

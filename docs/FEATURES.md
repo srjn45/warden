@@ -588,7 +588,7 @@ guardian tick `interval`.
 | `metrics` | `true` | Record per-agent metrics to disk |
 | `pipeline.keep_done` / `pipeline.hint` | `false` / `true` | Keep a job's agent after completion / append the decomposition hint |
 | `pipeline.brain_consult` | `true` | Per-pipeline override for brain consult. Set `false` to silence brain consult for every job in this pipeline (global `brain_consult.enabled` still wins if false) |
-| `runtime.pty` | `off` | Warden-owned PTY runtime (see §40): `off` = tmux only, no journal; `shadow` = tmux panes unchanged, output mirrored into a redacted, replayable per-session event journal (`pipe-pane`), observe-only; `on` = shadow plus plain-shell terminals hosted directly on a warden PTY. Hot-reloaded; applies to sessions created afterwards |
+| `runtime.pty` | `off` | Warden-owned PTY runtime (see §40): `off` = tmux only, no journal; `shadow` = tmux panes unchanged, output mirrored into a redacted, replayable per-session event journal (`pipe-pane`), observe-only; `on` = shadow plus new plain-shell terminals hosted directly on a warden PTY. `on` is not direct-agent opt-in and never converts agents on upgrade. Hot-reloaded; applies to sessions created afterwards |
 | `brain_consult.enabled` | `true` | Global kill-switch for pipeline stuck-job brain consult. Set `false` to disable all consults across all pipelines |
 | `brain_consult.timeout` | `10m` | Per-consult deadline (Go duration string). The spawned `role=brain` agent is torn down unconditionally when this window elapses |
 | `brain_consult.max_concurrent` | `1` | Maximum simultaneous brain-consult agents across all pipelines. Default 1 — one consult at a time is almost always correct |

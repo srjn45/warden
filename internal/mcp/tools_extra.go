@@ -741,7 +741,7 @@ func (s *Server) registerExtraTools() {
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "session_runtime",
-		Description: "Live PTY-runtime status of one session: classifier state with typed waiting reason and evidence trail, who owns the input line (human/operator/warden/free), the effective permission posture (danger=true + danger_banner for dangerously-execute-all), the route/outcome of the latest decision, and a human-readable summary (capability, target/scope, offered options) of the permission prompt on screen. Read-only.",
+		Description: "Live PTY-runtime status of one session: requested mode versus observed host/process owner/authority; evidence source and freshness; an explicit unsupported reason where direct-agent authority is unavailable; classifier state with typed waiting reason and evidence trail; input owner; permission posture; and latest decision. A tmux shadow mirror is observe-only, never direct. Read-only.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a sessionRuntimeArgs) (*mcpsdk.CallToolResult, any, error) {
 		v, err := s.cl.SessionRuntime(ctx, strings.TrimSpace(a.ID))
 		if err != nil {
