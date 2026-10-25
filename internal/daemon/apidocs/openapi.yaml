@@ -406,7 +406,12 @@ paths:
         (with a `danger` flag and banner for `dangerously-execute-all`), the
         route and outcome of the latest decision, and a human-readable summary
         of the permission prompt on screen (capability, target/scope, offered
-        options). `supervised` is false when no event stream backs the session
+        options). `requested_mode` is only the current configuration;
+        `actual_kind`, `process_owner`, and `authoritative` report what is
+        actually observed. `evidence_source` plus `evidence_freshness` make
+        live, recorded, legacy-probed, and unavailable evidence explicit. A
+        tmux shadow mirror is observe-only and is never reported as direct.
+        `supervised` is false when no event stream backs the session
         (runtime.pty was off when it started); the posture is still reported.
       parameters: [{ $ref: "#/components/parameters/SessionId" }]
       responses:
@@ -6449,8 +6454,10 @@ components:
         name: ptyobs
       type: object
       description: >
-        Live runtime status (state, typed reason, evidence trail, input owner,
-        posture/danger, decision route, prompt summary).
+        Live runtime status (requested versus observed host/authority, evidence
+        source/freshness, typed reason and evidence trail, input owner,
+        posture/danger, decision route, prompt summary). A shadow mirror is
+        never direct or authoritative.
 
     PTYDecisionRecord:
       x-go-type: ptyobs.TraceRecord

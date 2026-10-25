@@ -3242,6 +3242,8 @@ runtime:
   Nothing is typed into a pane; status and approvals still come from the pollers.
 - `on` — as shadow, and new plain-shell terminals run directly on a warden-owned PTY
   (no tmux session; attach through the daemon — the web UI and app work unchanged).
+  It does not convert or directly host AI agents, including after an upgrade; a future
+  direct-agent path needs a separate explicit operator gate and adapter capability.
 - The setting hot-reloads and applies to sessions created afterwards; `off` stops the
   mirrors.
 - Direct terminals run under a per-session **PTY holder** (`warden ptyholder`, hidden) that
@@ -3269,7 +3271,7 @@ for the full protocol (interactive mode, ack, resize, reject/resync).
 ### Inspecting the runtime
 
 ```sh
-warden inspect pty runtime <id>     # state, waiting reason, evidence, input owner, route, posture
+warden inspect pty runtime <id>     # requested vs actual host/authority, evidence source/freshness, state, posture
 warden inspect pty decisions <id>   # redacted decision trace (--limit, --outcome)
 warden inspect pty metrics          # warden_pty_* snapshot
 ```

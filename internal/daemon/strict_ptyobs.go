@@ -8,6 +8,7 @@ import (
 
 	"github.com/srjn45/warden/internal/daemon/oapi"
 	"github.com/srjn45/warden/internal/ptyevent"
+	"github.com/srjn45/warden/internal/ptyhost"
 	"github.com/srjn45/warden/internal/ptyobs"
 )
 
@@ -61,6 +62,9 @@ func (s *Server) runtimeView(id, key string, posture ptyevent.Posture) ptyobs.Ru
 	info := s.pty.Resolve(context.Background(), id)
 	v.ActualKind = info.Kind
 	v.ProcessOwner = info.ProcessOwner
+	v.EvidenceSource = info.Source
+	v.EvidenceFreshness = runtimeEvidenceFreshness(info.Source)
+	v.UnsupportedReason = runtimeUnsupportedReason(info)
 	if info.RequestedMode != "" {
 		v.RequestedMode = info.RequestedMode
 	}
@@ -107,6 +111,29 @@ func (s *Server) runtimeView(id, key string, posture ptyevent.Posture) ptyobs.Ru
 		}
 	}
 	return v
+}
+
+// runtimeEvidenceFreshness makes the distinction an operator needs when a
+// daemon has only durable metadata: recorded identity is not live authority.
+func runtimeEvidenceFreshness(source string) string {
+	switch source {
+	case "live", "legacy-probe":
+		return "fresh"
+	case "record":
+		return "recorded"
+	default:
+		return "unknown"
+	}
+}
+
+func runtimeUnsupportedReason(info ptyhost.RuntimeInfo) string {
+	if info.Kind == "tmux" {
+		return "tmux-hosted session; a shadow mirror is observe-only and never direct"
+	}
+	if info.Kind == "unknown" && info.Reason != "" {
+		return info.Reason
+	}
+	return ""
 }
 
 // GetSessionRuntime implements GET /api/v1/sessions/{id}/runtime.
