@@ -21,7 +21,6 @@ import (
 	"github.com/srjn45/warden/internal/brainconsult"
 	"github.com/srjn45/warden/internal/branchtrack"
 	"github.com/srjn45/warden/internal/capacity"
-	"github.com/srjn45/warden/internal/collab"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/daemon/oapi"
@@ -156,13 +155,6 @@ type Server struct {
 	// Read by the terminalWatcher.OnTransition closure — must be set before
 	// ListenAndServe starts the watcher.
 	restarter *Restarter
-	// collab scans active worktrees for inter-agent file conflicts.
-	collab *collab.Monitor
-	// collabInterval is the file-conflict watch-reconcile interval; <=0 disables.
-	collabInterval time.Duration
-	// collabGitReconcile is how often git diff refreshes dirty state when fsnotify
-	// is active.
-	collabGitReconcile time.Duration
 	// branchTracker reports each agent's CI status + branch-vs-main state (#44).
 	branchTracker *branchtrack.Tracker
 	// branchTrackInterval is the branch-tracker poll interval; <=0 disables it.

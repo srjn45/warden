@@ -16,7 +16,7 @@
 // re-alerting the same (branch, signal-state) within the window.
 //
 // Design: docs/superpowers/specs/2026-06-14-intelligent-inter-agent-collaboration-design.md
-// (BranchTracker). Mirrors internal/collab's Monitor structurally.
+// (BranchTracker).
 package branchtrack
 
 import (

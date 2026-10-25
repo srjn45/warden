@@ -21,7 +21,7 @@ const humanRecipient = "human"
 // autopilotForwardSender stamps forwarded/mirrored approval messages. "daemon" is
 // a reserved provenance id (sanitizeSender blocks agents from forging it), and
 // daemon-internal writes call Append directly, so this is trusted by construction
-// — matching the collab monitor's daemon-origin warnings.
+// — matching other daemon-origin warnings.
 const autopilotForwardSender = "daemon"
 
 // promptBrainTimeout bounds one stage-3 consult (spec §I.3 prompts.brain_timeout).
