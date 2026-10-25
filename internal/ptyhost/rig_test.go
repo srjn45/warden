@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +27,15 @@ const waitFor = 10 * time.Second
 const fakeEnv = "PTYHOST_FAKE_CLI"
 
 func TestMain(m *testing.M) {
+	if len(os.Args) == 4 && os.Args[1] == "__tmux_scope" {
+		r := tmuxRunner{sock: os.Args[2], token: os.Args[3]}
+		_, _ = io.Copy(io.Discard, os.Stdin) // lease closes on test exit, including SIGKILL
+		if err := r.cleanup(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	if os.Getenv(fakeEnv) == "repl" {
 		fakeREPL()
 		os.Exit(0)
@@ -72,14 +82,26 @@ func fakeShell(t *testing.T) []string {
 }
 
 // tmuxRunner runs tmux against an isolated server socket.
-type tmuxRunner struct{ sock string }
+type tmuxRunner struct{ sock, token string }
 
 func (r tmuxRunner) Run(ctx context.Context, dir, name string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
 	if name == "tmux" {
+		if len(args) > 0 && args[0] == "new-session" && r.token != "" {
+			for i := 1; i+1 < len(args); i++ {
+				if args[i] == "-s" {
+					session := args[i+1]
+					args = append(args, ";", "set-option", "-t", session, "@warden_test_owner", r.token)
+					break
+				}
+			}
+		}
 		args = append([]string{"-L", r.sock, "-f", "/dev/null"}, args...)
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	cmd.WaitDelay = 200 * time.Millisecond
 	env := make([]string, 0, len(os.Environ())+1)
 	for _, e := range os.Environ() {
 		if !strings.HasPrefix(e, "TMUX=") && !strings.HasPrefix(e, "SHELL=") {
@@ -96,9 +118,87 @@ func newTmux(t *testing.T) tmuxRunner {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
-	r := tmuxRunner{sock: fmt.Sprintf("wd-ptyhost-%d-%d", os.Getpid(), time.Now().UnixNano())}
-	t.Cleanup(func() { _, _ = r.Run(context.Background(), "", "tmux", "kill-server") })
+	r := tmuxRunner{sock: fmt.Sprintf("wd-ptyhost-%d-%d", os.Getpid(), time.Now().UnixNano()), token: fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())}
+	rd, wr, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe, _ := os.Executable()
+	guard := exec.Command(exe, "__tmux_scope", r.sock, r.token)
+	guard.Stdin, guard.Stderr = rd, os.Stderr
+	if err := guard.Start(); err != nil {
+		rd.Close()
+		wr.Close()
+		t.Fatal(err)
+	}
+	rd.Close()
+	done := make(chan error, 1)
+	go func() { done <- guard.Wait() }()
+	t.Cleanup(func() {
+		wr.Close()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("tmux scope cleanup: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			_ = guard.Process.Kill()
+			t.Error("tmux scope cleanup timeout")
+		}
+	})
 	return r
+}
+
+// cleanup targets only session IDs carrying this fixture's ownership token.
+// The private server exits naturally when its last session is removed, so a
+// server that is gone (or exits mid-command) counts as clean once a re-list
+// confirms no owned session survives. Only r.sock is ever addressed.
+func (r tmuxRunner) cleanup() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var lastErr error
+	for attempt := 0; attempt < 10; attempt++ {
+		if attempt > 0 {
+			time.Sleep(50 * time.Millisecond)
+		}
+		out, err := r.Run(ctx, "", "tmux", "list-sessions", "-F", "#{session_id} #{@warden_test_owner}")
+		if err != nil {
+			if tmuxServerGone(out) {
+				return nil
+			}
+			lastErr = fmt.Errorf("list test tmux sessions: %w: %s", err, out)
+			if strings.Contains(out, "server exited unexpectedly") {
+				continue // server shutting down; re-list to confirm it is gone
+			}
+			return lastErr
+		}
+		var owned []string
+		for _, line := range strings.Split(out, "\n") {
+			if fields := strings.Fields(line); len(fields) == 2 && fields[1] == r.token {
+				owned = append(owned, fields[0])
+			}
+		}
+		if len(owned) == 0 {
+			return nil
+		}
+		lastErr = nil
+		for _, id := range owned {
+			if out, err := r.Run(ctx, "", "tmux", "kill-session", "-t", id); err != nil && !tmuxServerGone(out) &&
+				!strings.Contains(out, "server exited unexpectedly") && !strings.Contains(out, "can't find session") {
+				lastErr = fmt.Errorf("cleanup test tmux session %s: %w: %s", id, err, out)
+			}
+		}
+		// loop re-lists to verify the kills took effect
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("owned test tmux sessions survived cleanup on %s", r.sock)
+	}
+	return lastErr
+}
+
+func tmuxServerGone(out string) bool {
+	return strings.Contains(out, "no server running") || strings.Contains(out, "No such file") ||
+		strings.Contains(out, "error connecting")
 }
 
 func newManager(t *testing.T, run tmuxRunner, dir string, mode Mode) *Manager {

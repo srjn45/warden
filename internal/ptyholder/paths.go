@@ -1,14 +1,15 @@
 package ptyholder
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/hex"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
-	"syscall"
+	"time"
 )
 
 var idRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
@@ -54,28 +55,64 @@ func writeFileAtomic(path string, b []byte) error {
 	return os.Rename(tmp, path)
 }
 
-// KillAll force-ends every holder recorded under root and the process group it
-// hosts, then forgets their state. It is the teardown for tests and for
-// uninstall/factory-reset tooling — the daemon never calls it on a restart
-// path (a restart must leave holders alone).
-func KillAll(root string) {
-	ents, _ := os.ReadDir(root)
+// KillAll releases only authenticated holders recorded in root. It never sweeps
+// tmux, cgroups or PIDs from unverified metadata. Failed records are retained
+// for diagnosis/retry. The daemon never calls this on its restart path.
+func KillAll(root string) error {
+	ents, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var failures []error
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	for _, e := range ents {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(append(failures, err)...)
+		}
 		if filepath.Ext(e.Name()) != ".json" {
 			continue
 		}
-		var m Meta
-		if b, err := os.ReadFile(filepath.Join(root, e.Name())); err == nil && json.Unmarshal(b, &m) == nil {
-			// Only a process that is still the recorded incarnation (same start
-			// time) is signalled: a recycled pid is somebody else's.
-			if st, err := StartTime(m.ChildPID); m.ChildPID > 0 && err == nil && st == m.ChildStart && m.ChildPID != os.Getpid() {
-				_ = syscall.Kill(-m.ChildPID, syscall.SIGKILL)
-				_ = syscall.Kill(m.ChildPID, syscall.SIGKILL)
-			}
-			if st, err := StartTime(m.HolderPID); m.HolderPID > 0 && err == nil && st == m.HolderStart && m.HolderPID != os.Getpid() {
-				_ = syscall.Kill(m.HolderPID, syscall.SIGKILL)
-			}
-			Forget(root, m.ID)
+		id := e.Name()[:len(e.Name())-len(".json")]
+		h, err := Open(root, id)
+		if errors.Is(err, ErrGone) {
+			continue // record forgotten concurrently (e.g. by its own release)
 		}
+		if err == nil {
+			err = h.Release(ctx)
+		}
+		if errors.Is(err, ErrGone) && h != nil && recordedGone(ctx, h) {
+			err = nil
+		}
+		if err != nil {
+			cleanupFailures.Add(1)
+			failures = append(failures, fmt.Errorf("ptyholder: cleanup %s: %w", id, err))
+			continue
+		}
+		Forget(root, id)
 	}
+	return errors.Join(failures...)
+}
+
+// recordedGone reports, after a bounded wait, whether neither recorded
+// incarnation of an unreachable holder remains. Only then may its record be
+// forgotten; it never signals a replacement PID or treats an authentication
+// failure as permission. A record without metadata names no process at all.
+func recordedGone(ctx context.Context, h *Handle) bool {
+	m, ok := h.Meta()
+	if !ok {
+		return true
+	}
+	for end := time.Now().Add(time.Second); time.Now().Before(end) && ctx.Err() == nil; {
+		hs, he := StartTime(m.HolderPID)
+		cs, ce := StartTime(m.ChildPID)
+		if (he != nil || m.HolderStart != 0 && hs != m.HolderStart) && (ce != nil || m.ChildStart != 0 && cs != m.ChildStart) {
+			return true
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return false
 }

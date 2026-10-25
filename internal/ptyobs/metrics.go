@@ -3,11 +3,16 @@ package ptyobs
 import (
 	"fmt"
 	"io"
+	"os"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/srjn45/warden/internal/ptyholder"
+	"github.com/srjn45/warden/internal/ptyruntime"
 )
 
 // Metric names are a stable, documented contract (docs/PTY_OBSERVABILITY.md).
@@ -311,6 +316,30 @@ func (m *Metrics) Snapshot() Snapshot {
 		f.mu.Unlock()
 		snap.Families = append(snap.Families, fam)
 	}
+	r := ptyruntime.Resources()
+	holders, failures := ptyholder.Resources()
+	samples := []struct {
+		name, help, typ string
+		value           int64
+	}{
+		{"warden_pty_runtime_children", "Locally owned PTY leaders awaiting reap.", "gauge", r.Children},
+		{"warden_pty_runtime_masters", "Open runtime PTY master descriptors.", "gauge", r.Masters},
+		{"warden_pty_runtime_goroutines", "Active PTY reader, writer and wait goroutines.", "gauge", r.Goroutines},
+		{"warden_pty_holder_children", "Holder children launched here and awaiting reap (includes preserved holders).", "gauge", holders},
+		{"warden_pty_cleanup_failures_total", "Holder cleanup failures and runtime reap timeouts.", "counter", failures + r.CleanupTimeouts},
+		{"warden_pty_process_goroutines", "Daemon process goroutines.", "gauge", int64(runtime.NumGoroutine())},
+	}
+	// Linux exposes a process-wide FD count; omit it on unsupported platforms.
+	if fds, err := os.ReadDir("/proc/self/fd"); err == nil {
+		samples = append(samples, struct {
+			name, help, typ string
+			value           int64
+		}{"warden_pty_process_open_fds", "Daemon process open file descriptors.", "gauge", int64(len(fds))})
+	}
+	for _, sample := range samples {
+		snap.Families = append(snap.Families, Family{Name: sample.name, Help: sample.help, Type: sample.typ, Series: []Series{{Value: float64(sample.value)}}})
+	}
+	sort.Slice(snap.Families, func(i, j int) bool { return snap.Families[i].Name < snap.Families[j].Name })
 	return snap
 }
 
