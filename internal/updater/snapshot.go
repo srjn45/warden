@@ -31,7 +31,7 @@ const schema2BackupPrefix = "pre-schema2-"
 
 // isUpdaterSnapshotDir reports whether a backups/ entry is an updater snapshot.
 func isUpdaterSnapshotDir(e os.DirEntry) bool {
-	return e.IsDir() && strings.HasPrefix(e.Name(), "pre-") && !strings.HasPrefix(e.Name(), schema2BackupPrefix)
+	return e.IsDir() && strings.HasPrefix(e.Name(), "pre-") && !strings.HasPrefix(e.Name(), schema2BackupPrefix) && !strings.HasPrefix(e.Name(), schema3BackupPrefix)
 }
 
 // SnapshotManifest records the files and checksums captured in a snapshot.

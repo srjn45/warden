@@ -84,6 +84,12 @@ func main() {
 		Requires:       updater.ManifestRequirements{Manual: manual},
 	}
 
+	// Schema 3 is not publishable from the migration-only stack layer. Do not
+	// let the support-window default invent its updater waypoint.
+	if m.SchemaVersion == 3 {
+		fmt.Fprintln(os.Stderr, "genmanifest: schema 3 release blocked pending cutover and compatibility-tested updater waypoint")
+		os.Exit(1)
+	}
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "genmanifest: marshal JSON: %v\n", err)

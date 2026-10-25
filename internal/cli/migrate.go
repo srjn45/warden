@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/srjn45/warden/internal/config"
 	"github.com/srjn45/warden/internal/migrate"
+	"github.com/srjn45/warden/internal/migrate/schema3"
 	"github.com/srjn45/warden/internal/ownerlock"
 	"github.com/srjn45/warden/internal/schema"
 )
@@ -147,6 +148,12 @@ and rolls the binary and data back if it fails.`,
 				Context:       cmd.Context(),
 			}
 			runner := migrate.NewRunner(nil)
+			if targetVer == 3 {
+				if checkFlag || planFlag {
+					return runSchema3Plan(cmd, dataDir, jsonFlag)
+				}
+				return migrate.ErrUpdaterTransactionRequired
+			}
 
 			switch {
 			case retirementFlag:
@@ -462,4 +469,24 @@ func runSchema2Plan(cmd *cobra.Command, dataDir string, asJSON bool) error {
 		return errors.New("migrate: schema-2 cutover is blocked")
 	}
 	return nil
+}
+
+func runSchema3Plan(cmd *cobra.Command, dataDir string, asJSON bool) error {
+	report, err := schema3.Plan(cmd.Context(), dataDir)
+	if report != nil {
+		if asJSON {
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			if writeErr := enc.Encode(report); writeErr != nil {
+				return writeErr
+			}
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "schema 2 → 3 ownership plan (%s), read-only\n", report.Policy)
+			for _, f := range report.Findings {
+				fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s/%s %s: %v\n", f.Disposition, f.Collection, f.Key, f.Field, f.Evidence)
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "blocked=%v; expected collection counts=%v\n", report.Blocked(), report.Counts)
+		}
+	}
+	return err
 }

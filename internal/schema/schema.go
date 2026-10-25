@@ -72,9 +72,15 @@ type HistoryEntry struct {
 
 // InProgress is the journal record of a migration that has started.
 type InProgress struct {
-	Migration string `json:"migration"`
-	Step      string `json:"step,omitempty"`
-	Snapshot  string `json:"snapshot,omitempty"`
+	Migration          string `json:"migration"`
+	TransactionID      string `json:"transaction_id,omitempty"`
+	ManifestSHA256     string `json:"manifest_sha256,omitempty"`
+	Journal            string `json:"journal,omitempty"`
+	SourceFormat       int    `json:"source_format,omitempty"`
+	TargetFormat       int    `json:"target_format,omitempty"`
+	TargetBinarySHA256 string `json:"target_binary_sha256,omitempty"`
+	Step               string `json:"step,omitempty"`
+	Snapshot           string `json:"snapshot,omitempty"`
 }
 
 // MigrationInterrupted reports whether the journal records a migration that
