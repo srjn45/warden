@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -105,13 +103,7 @@ func TestProjectWorkspaceProgressiveHelp(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want, err := os.ReadFile(filepath.Join("testdata", "help_"+name+".golden"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got != string(want) {
-			t.Fatalf("%s golden mismatch\n--- want ---\n%s\n--- got ---\n%s", name, want, got)
-		}
+		requireGolden(t, name, got)
 	}
 }
 

@@ -4798,15 +4798,6 @@
     "json": true
   },
   {
-    "path": "workspace conflicts",
-    "use": "conflicts",
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
     "path": "workspace list",
     "use": "list",
     "runnable": true,
@@ -4887,15 +4878,6 @@
       "config"
     ],
     "json": true
-  },
-  {
-    "path": "workspace who-is-editing",
-    "use": "who-is-editing \u003cfile\u003e",
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
   },
   {
     "path": "worktree",
