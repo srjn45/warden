@@ -11,6 +11,8 @@
 
 ## 1. What exists today (audit of plan 01 at `dae3cbd4`)
 
+> **Historical audit.** This section describes the code at `dae3cbd4`. Since then, plan 02 and 02b-01…05 added the independent PTY holder (a direct terminal now survives daemon restart/update/crash and is re-adopted), durable runtime pins, and the runtime identity document. Current behavior and limits: [`../RUNBOOK-pty-rollout.md`](../RUNBOOK-pty-rollout.md).
+
 | Layer | Package | What it actually is |
 |---|---|---|
 | Contract | `internal/ptyevent` | Types, redaction, `Arbitrate` (human > operator > warden input), `Step` state reducer, prompt/posture/TOCTOU. Pure. |
@@ -213,6 +215,8 @@ Stages (`TestStagesShadowIsAgentOnlyAndNonAuthoritative`):
 | `S4` | legacy-drain | agent, terminal | yes | legacy sessions finish naturally; plan 03 entry gate |
 
 Cohort rollback changes **future launches only**; live PTY sessions keep their runtime and control (no unsafe live conversion).
+
+> **Correction (02b-05).** The `agent` entries for `S2`–`S4` are the *target* ladder, not current behavior. Today no AI adapter is direct-capable and the agent readiness gate has no production caller, so direct-agent stages are BLOCKED and agents stay in tmux. Cohorts exist only as library calls (no config key, CLI or API); the only operator levers are the global `runtime.pty` and which new terminals you create. The earlier claim that these stages were satisfied by fixtures is withdrawn: stage promotion needs observed evidence. See [`../RUNBOOK-pty-rollout.md`](../RUNBOOK-pty-rollout.md).
 
 ### 7.1 Budgets (`terminalcontract.Default`; pass/fail on the fixtures)
 

@@ -1,221 +1,309 @@
-# Operator Runbook: PTY Plain-Terminal & AI Runtime Staged Rollout
+# Operator Runbook: PTY Runtime Staged Rollout
 
-This runbook documents the operational lifecycle, rollout stages, per-session runtime pinning, downgrade boundaries, and parity verification for the PTY plain-terminal migration (`02-pty-plain-terminal-migration-and-rollout`).
+Release and operator procedure for the warden-owned PTY runtime. It separates
+three things that earlier revisions of this runbook blurred:
 
----
+1. **Implemented and fixture-tested** capability (what the code can do),
+2. **Operator-reachable** capability (what a running daemon will actually do for you), and
+3. **Observed deployment evidence** (what a real cohort has measurably shown).
 
-## 1. Rollout Ladder & Stages
+Only (3) can promote a stage, and **no observed evidence exists yet** (§9).
 
-The rollout proceeds through five strictly sequenced stages (`docs/specs/2026-10-19-plain-terminal-inventory-and-contract.md` §7):
-
-| Stage | Name | Kinds | Authoritative | Description |
-|---|---|---|---|---|
-| `S0` | `off` | agent, terminal | No | Default baseline. All sessions run in tmux with no PTY runtime or event journal. |
-| `S1` | `shadow` | agent only | No | Observe-only mirrors via tmux `pipe-pane`. **Never mutates authoritative status and never sends input.** Terminals are excluded from shadow (a second owner of one PTY master cannot exist). |
-| `S2` | `opt-in` | agent, terminal | Yes | Per-cohort `runtime.pty: on`. Direct sessions run on warden-owned PTY with independent holder process (`internal/ptyholder`). Survival and fencing gates (`G1`–`G4`) active. |
-| `S3` | `default-new` | agent, terminal | Yes | Default for all new supported sessions once all numeric budgets are verified over `MinSessionsPerStage` × `MinSoakHoursPerStage`. |
-| `S4` | `legacy-drain` | agent, terminal | Yes | Legacy tmux sessions complete naturally. Entry gate for Plan 03 (no forced live conversions). |
-
----
-
-## 2. Per-Session Runtime Pinning & Cohort Rollback
-
-### Runtime Pinning
-- Every session's runtime mode (`off`, `shadow`, or `on`) is **pinned at creation time**.
-- Flipping `runtime.pty` in config or changing cohort settings affects **future launches only**.
-- Already-running direct sessions keep their direct PTY host, their independent holder process, and remain authoritative (`IsAuthoritative(name) == true`).
-- Live PTY sessions are **never unsafely converted live** into tmux panes or killed on config changes.
-
-### Cohort Management & Rollback
-- Cohorts can be assigned per session or project:
-  - `Manager.SetCohortMode(cohort, mode)` configures cohort runtime mode.
-  - `Manager.SetSessionCohort(name, cohort)` assigns a session to a cohort.
-  - `Manager.SetSessionRuntimePin(name, mode)` explicitly overrides runtime for an individual session.
-- Rolling back a cohort or global mode:
-  - Updates the mode for subsequent launches in that cohort.
-  - Appends an audit entry to the rollback ledger (`Manager.Rollbacks()`).
-  - Active sessions in the rolled-back cohort continue running undisturbed until completion or explicit termination.
+> **Status at the 02b-05 validation slice.**
+> - **Plain-shell terminals (`kind=terminal`)** can be hosted directly with
+>   `runtime.pty: on`. This is the only operator-reachable direct path.
+> - **Direct AI-agent hosting is NOT shippable.** No AI adapter is direct-capable
+>   (`ptyhost.IsAdapterDirectCapable` is true only for `terminal`/`shell`), and the
+>   agent readiness guard (`Manager.AgentDirectReady`, default `false`) has no
+>   production caller; only tests flip it. Every AI agent launches in tmux in every
+>   mode, and `runtime.pty: on` never converts agents, including after an upgrade.
+> - The agent-direct evidence in the repo is **fixture-only** (fake CLIs, loopback,
+>   no live provider smoke). See
+>   [`rollout/2026-10-25-02b-05-t1-adversarial-matrix.md`](rollout/2026-10-25-02b-05-t1-adversarial-matrix.md).
+> - Nothing in this runbook deploys, promotes, restarts or tears down anything.
+>   Every step below is an operator action, taken deliberately.
+> - Completed plan status (`plan-48de9357`, `plan-23988b36`, 02b-01…05) and green
+>   CI are **claims about code**, never proof of deployment, a cohort, a soak or a
+>   legacy drain.
 
 ---
 
-## 3. Observational Shadow Boundaries (`S1`)
+## 1. What each mode really does
 
-- **Observe-Only:** Shadow sessions connect in observe mode (`Interactive: false`, `Controller: false`).
-- **No Input:** Fenced input frames (`Type: "input"`), binary keystroke frames, and takeover attempts are strictly rejected and dropped.
-- **No Dual Ownership:** Shadow mirrors read from tmux `pipe-pane` only; the tmux server remains the sole process owner of the pane.
-- **Non-Authoritative:** Pollers remain 100% authoritative for session state in `agentstore` and `terminalstore`. Classifier state transitions in shadow mode log discrepancies for observability but do not update authoritative store status.
+`runtime.pty` (`off` | `shadow` | `on`, default `off`, hot-reloaded). A change
+applies to sessions created **afterwards**; existing sessions keep the runtime
+they were created with (durable per-session pin).
 
----
-
-## 4. Broker Protocol Compatibility & Supported Downgrade Boundaries
-
-### Protocol Versioning (`ProtoVersion = 1`)
-- The holder wire protocol embeds `ProtoVersion` in every handshake, request, and reply.
-- The daemon client checks holder socket permissions (`0600`), peer UID (`SO_PEERCRED` / `LOCAL_PEERCRED`), 256-bit per-session credential, holder and child identity `(pid, start-time)`, and protocol version.
-
-### Downgrade Boundary & Refusal Contract
-- **Old binary connecting to new broker (`Proto < ProtoVersion`):**
-  - The broker rejects the handshake with `protocol X unsupported (holder speaks Y)`.
-  - The refusal is audited to `<session_id>.audit`.
-  - The running shell process is **untouched and remains alive**.
-- **New binary connecting to old broker (`Proto < ProtoVersion`):**
-  - The client detects the protocol mismatch and returns `ErrProto`.
-  - The client refuses adoption without terminating or corrupting the process.
-- **Operational Downgrade Procedure:**
-  - A downgraded warden binary (older than the broker protocol) **cannot adopt or control broker-hosted sessions**.
-  - Before downgrading to a pre-plan-02 binary:
-    1. Check for active broker-hosted terminals: `wd agent list --kind terminal`.
-    2. Allow active sessions to drain naturally, or terminate them gracefully (`wd agent stop <id>`).
-    3. Verify all holder processes have exited.
-    4. Downgrade the binary.
-
----
-
-## 5. Parity & Acceptance Budgets
-
-Thresholds defined in `internal/terminalcontract.Default`:
-
-- **Parity:**
-  - `ParityByteExactPct = 100%`: Visible output in attached clients must match legacy tmux output byte-for-byte (`F-PAR-01`).
-  - `ReplayOrderViolations = 0`: Replay and live streams maintain monotonic cursor ordering without duplicate or dropped events.
-  - `StateAccuracyPct >= 98%`: AI session activity and permission prompt detection vs labelled ground truth (`F-PAR-02`).
-  - `PromptFalseApprovals = 0`: Zero false auto-approvals.
-  - `ShellClassifierEvents = 0`: Plain human shell sessions must produce zero classifier prompt events or state mutations.
-- **Resource Limits (Idle Shell):**
-  - RSS per session: ≤ 16 MiB.
-  - File descriptors: ≤ 6.
-  - Goroutines: ≤ 6.
-  - Journal retention bound: ≤ 64 MiB.
-- **Evidence Recording:**
-  - Unit and integration tests (e.g. `F-PAR-01`, `F-PAR-02`, `F-RES-01`, `F-RES-02`, `F-PRIV-01`, `F-ROLL-04`) verify deterministic contractual bounds.
-  - Real production deployment evidence must be recorded separately during stage bake periods and explicitly labelled as observed data.
-  - **No automated deployment or fabricated evidence:** Operators must never synthesize or fake soak logs, and the system must never auto-promote stages without human validation.
-
----
-
-## 6. Staged Deployment, Soak & Rollback Procedures
-
-### Stage Advancement & Promotion Ladder
-
-Promotion between stages requires satisfying strict numeric sample size and soak time thresholds across all active cohorts:
-
-| Parameter | Threshold | Scope | Enforcement |
+| Mode | AI agents | Plain-shell terminals | Journal / stream |
 |---|---|---|---|
-| `MinSessionsPerStage` | ≥ 20 sessions | Per cohort | Gate check prior to advancing stage |
-| `MinSoakHoursPerStage` | ≥ 24 hours | Per cohort | Continuous soak without interruption |
-| `MaxStageErrorRatePct` | < 1.0% | Stage-wide | **> 1.0% aborts stage immediately** |
-| `MaxStageFallbackPct` | < 5.0% | Stage-wide | **> 5.0% aborts stage immediately** |
+| `off` (default) | tmux | tmux | none |
+| `shadow` | tmux; output mirrored read-only via `pipe-pane`; pollers stay authoritative | tmux, mirrored | yes, observe-only |
+| `on` | **tmux (+ read-only mirror). Not direct. No operator opt-in exists.** | **direct** on a warden-owned PTY under an independent holder process | yes; interactive for direct terminals |
 
-### Latency, Resource & Safety Acceptance Thresholds
+Verify, never assume: `wd inspect pty runtime <id>` (API
+`GET /api/v1/sessions/{id}/runtime`, MCP `session_runtime`) returns
+`actual_kind`, `process_owner`, `authoritative`, `evidence_source`,
+`evidence_freshness`, `unsupported_reason`. `requested_mode` is informational
+only. A tmux mirror is always `actual_kind: tmux`, `authoritative: false`.
+`evidence_freshness: fresh` is the only liveness proof; `recorded` is not.
 
-Every promoted stage must demonstrate compliance with the objective bounds in `terminalcontract.Default`:
+Capabilities that do **not** exist today (do not plan around them):
 
-- **Latency (p99, idle loopback, 80×24):**
-  - Keystroke echo: `KeystrokeEchoP99 ≤ 50 ms`
-  - Attach to first byte: `AttachToFirstByteP99 ≤ 250 ms`
-  - Window resize: `ResizeToSIGWINCHP99 ≤ 100 ms`
-  - Adoption after recovery: `AdoptAfterRestoreP99 ≤ 2 s`
-  - Controller lease takeover: `LeaseTakeoverP99 ≤ 200 ms`
-- **Steady-State Resources (idle shell):**
-  - Resident memory: `PerSessionRSSKiB ≤ 16 MiB` (16,384 KiB)
-  - Open descriptors: `PerSessionFDs ≤ 6`
-  - Runtime threads/goroutines: `PerSessionGoroutines ≤ 6`
-  - Journal retention bound: `JournalMaxBytes ≤ 64 MiB`
-  - Concurrency capacity: `SoakSessions = 50 concurrent` (`F-RES-01` clean)
-- **Safety & Error Budgets (zero-tolerance):**
-  - `SurvivalLossPct = 0%`: 0 lost shell/agent processes across daemon restarts/updates.
-  - `DuplicateProcesses = 0`: 0 duplicate processes spawned during recovery.
-  - `DuplicateInputBytes = 0`: 0 duplicate keystrokes across reconnects or controller handoffs.
-  - `StaleControllerWrites = 0`: 0 writes accepted from stale lease generations.
-  - `SecretLeaksInDurable = 0`: 0 secrets leaked to durable journals, audit logs, or snapshots (`F-PRIV-01`).
-  - `ActionableErrorPct = 100%`: 100% of failure modes report clear cause and remediation steps.
+- Operator-configurable cohorts. `Manager.SetCohortMode` /
+  `SetSessionCohort` / `SetSessionRuntimePin` are library functions with no
+  config key, CLI command or API. There is no `cohorts.<name>.runtime.pty`
+  setting. The only operator levers are the global `runtime.pty` and which
+  sessions you create while it is set (§4).
+- A direct-agent readiness gate or per-adapter capability declaration.
+- Autopilot-owned direct agents (BLOCKED, #919) and graceful stop under
+  autopilot load (BLOCKED, #918). See §8.
+- A production direct cohort, soak, or parity data of any kind.
 
-### Metric Scraping & Observability
+## 2. Rollout ladder
 
-Operators must monitor live health via daemon Prometheus metrics:
+The numeric ladder lives in `internal/terminalcontract.Stages`. Stage names
+describe the **target** design; the "Reachable today" column is the truth.
+
+| Stage | Name | Target kinds | Reachable today |
+|---|---|---|---|
+| `S0` | off | agent, terminal | Yes (default). |
+| `S1` | shadow | agent only | Yes. Read-only mirrors; never mutates status, never sends input. Terminals are excluded (a second owner of one PTY master cannot exist). |
+| `S2` | opt-in direct cohort | agent, terminal | **Terminals only.** Direct agents: BLOCKED. |
+| `S3` | default-new | agent, terminal | **Terminals only, and only after S2 evidence exists.** Direct agents: BLOCKED. |
+| `S4` | legacy-drain | agent, terminal | Terminals only. Legacy tmux sessions are never converted or killed; they finish naturally. |
+
+Agent rows of S2–S4 stay **BLOCKED** until a later, separately reviewed plan
+adds the readiness gate and per-adapter capability and produces its own evidence
+(including a live provider smoke that was explicitly authorized). Do not read the
+`agent` column as a commitment that already works.
+
+## 3. Release procedure
+
+No step is automatic. Each needs a human, and each gate is evidence that must be
+**observed on a running system**, not derived from tests.
+
+### Step 0 — Shadow baseline (`S1`)
+1. Confirm the installed binary and its source SHA: `wd version`; record both.
+2. Run with `runtime.pty: shadow` (or `off`). Shadow is observe-only.
+3. Record the baseline per session class: error rate, status accuracy of the
+   existing pollers, resource use. This is the comparison point for later steps.
+4. Exit criterion: baseline recorded (template A, §10). Shadow itself proves nothing
+   about direct hosting.
+
+### Step 1 — Operator-authorized small direct cohort (`S2`, terminals only)
+1. The operator explicitly authorizes the cohort, scope and window in writing
+   (template B). No agent or script may do this.
+2. Prerequisite: the daemon runs a release containing plans 01, 02 and 02b-01…05,
+   **deployed** (not merely merged). Verify from `wd version`, not from plan status.
+3. `warden config set runtime.pty on`. This changes future launches only.
+4. Create the cohort deliberately: only plain terminals you create now are direct.
+   Existing terminals and every agent stay on tmux.
+5. **Verify actual runtime per session** (mandatory, every cohort member):
+   `wd inspect pty runtime <id>` must show `actual_kind: direct`,
+   `process_owner` = the holder/daemon, `authoritative: true`,
+   `evidence_freshness: fresh`. A session reporting `tmux` is not a cohort member
+   and must not be counted.
+6. Do not enroll an AI agent. There is no supported way to, and `unsupported_reason`
+   will say so.
+
+### Step 2 — Validate TUI / CLI / native workflows
+For each cohort member, on each OS you intend to support (Linux has fixture
+evidence; **macOS has none — NOT-RUN, compile/vet only; a darwin cohort needs its
+own runtime evidence first**):
+- `wd attach <id>`: Ctrl-C, EOF, job control, fullscreen program, resize,
+  UTF-8/ANSI, detach with Ctrl-], `.`.
+- Cockpit: the terminal pane and `a` full-screen attach (presentation tmux stays;
+  the child is direct).
+- `wd send`, `wd agent list`, `wd agent restore`, `wd inspect pty runtime`.
+- API / CLI / MCP consistency of the runtime document.
+- Web cockpit xterm against a direct session (**NOT-RUN in fixtures** — must be
+  observed).
+- Daemon restart and update (graceful, SIGKILL): same pid and start time, no
+  relaunch, `lifecycle{recovered}` in the journal. Run these with **autopilot
+  idle** (§8).
+
+### Step 3 — Measured soak and parity (`S2` → `S3` gate)
+Per cohort, all must hold **from observed data** (template C):
+
+| Parameter | Threshold | Notes |
+|---|---|---|
+| Sessions | ≥ 20 (`MinSessionsPerStage`) | per cohort, counted by §3 step 1.5 verification |
+| Soak | ≥ 24 h (`MinSoakHoursPerStage`) | continuous, per cohort |
+| Stage error rate | < 1.0 % | ≥ 1.0 % aborts the stage |
+| Stage fallback rate | < 5.0 % | ≥ 5.0 % aborts the stage |
+
+The minimum 20 sessions / 24 h per cohort is unchanged by this runbook. Lowering it
+needs an explicitly justified, reviewed change to
+`internal/terminalcontract` and this document, not an operator judgment call.
+
+Latency (p99, idle loopback, 80×24): keystroke echo ≤ 50 ms · attach→first byte
+≤ 250 ms · resize→SIGWINCH ≤ 100 ms · adopt after recovery ≤ 2 s · lease takeover
+≤ 200 ms.
+Resources (idle shell, per session): RSS ≤ 16 MiB · FDs ≤ 6 · goroutines ≤ 6 ·
+journal ≤ 64 MiB · 50 concurrent clean.
+Zero-tolerance: survival loss 0 % · duplicate processes 0 · duplicate input bytes 0 ·
+stale-controller writes 0 · secret leaks to durable stores 0 · actionable-error
+rate 100 % · false auto-approvals 0 · classifier events from human shells 0.
+Parity: byte-exact visible output vs legacy 100 % · replay order violations 0 ·
+state accuracy ≥ 98 %.
+
+Fixture results (the t1 matrix) show the code *can* meet these budgets. They are
+not observed cohort data and never satisfy this step.
+
+Monitor live: `curl -s http://127.0.0.1:8765/api/v1/metrics | grep warden_pty`
+(use your bearer token), plus `wd inspect pty metrics`. Alerts and dashboard:
+`deploy/observability/`.
+
+### Step 4 — Expand new sessions (`S3`)
+Only when Step 3 passed for every cohort and the operator signs off (template D):
+leave `runtime.pty: on` as the default for **new plain terminals**. Existing
+sessions keep their pin. Re-check Step 1.5 on a sample of new sessions.
+
+### Step 5 — Natural legacy drain (`S4`)
+Do nothing to existing tmux sessions. They end when their owners finish or exit.
+Never live-convert a tmux pane and never terminate a session to speed this up.
+Track inventory (§7) until the legacy plain-terminal count is 0 by attrition.
+
+## 4. Per-session runtime pinning
+
+- Every session records its runtime (`direct`, `tmux`, mirror) when created.
+- Flipping `runtime.pty` affects future launches only; existing sessions keep their
+  host, holder process and authority.
+- A direct terminal keeps working after the global mode is set back to `off` or
+  `shadow`; restart adoption of live direct sessions follows the durable pin, not
+  the current global mode.
+- Unknown or unsupported adapters fail with a typed unsupported result before any
+  pane, holder or process is created. They never silently claim direct.
+
+## 5. Rollback, downgrade and control recovery
+
+### Rollback (future launches)
+```bash
+warden config set runtime.pty off      # or shadow
+```
+Effects: new sessions launch in tmux again. **Running direct terminals are not
+touched** and remain controllable. Confirm with
+`wd inspect pty runtime <id>`. There is no per-cohort rollback command; rollback
+is global.
+
+Abort conditions (stop and roll back immediately): stage error rate ≥ 1.0 %,
+fallback ≥ 5.0 %, any lost or duplicated process, any stale-controller write, any
+secret in a durable store, or an unexplained `orphaned` terminal.
+
+### Control recovery of existing direct sessions
+- Daemon restarted or crashed: the next daemon authenticates to the holder and
+  re-adopts the same process. It never relaunches a live shell.
+- Holder gone, stale identity, recycled pid or wrong credential: the terminal is
+  shown `orphaned` with the cause in its journal. Nothing is relaunched.
+  `wd agent restore <id>` explicitly starts a **fresh** shell (process state is
+  not preserved).
+- Controller lease stuck: `wd attach <id>` takes control (human precedence;
+  stale generations are fenced).
+- `WARDEN_PTY_HOLDER=off` hosts shells as daemon children (they die with the
+  daemon). Do not use this in a cohort that has a survival requirement.
+- Daemon stopped for a long time: output blocks at the kernel PTY buffer (no
+  spool). A chatty child stalls until the daemon returns.
+
+### Downgrade
+The holder protocol is versioned (`ProtoVersion = 1`). A binary older than the
+holder protocol **cannot adopt or control holder-hosted sessions** (refused with
+`protocol X unsupported`; the process is left running). Before downgrading to a
+pre-plan-02 binary:
+1. List direct terminals: `wd agent list --kind terminal`.
+2. Let them finish, or stop them deliberately: `wd agent stop <id>`.
+3. Verify no holder process remains.
+4. Only then install the older binary.
+
+Never downgrade while direct sessions you need are running.
+
+## 6. Observational shadow boundaries
+
+Shadow sessions are observe-only (`Interactive: false`, `Controller: false`).
+Input frames, binary keystrokes and takeover attempts are rejected. The tmux
+server remains the sole owner of the pane, and the pollers remain authoritative.
+
+## 7. Legacy inventory and compatibility
 
 ```bash
-# Query active PTY runtime metrics
-curl -s http://127.0.0.1:8765/api/v1/metrics | grep pty
-
-# Inspect PTY redaction activity
-curl -s http://127.0.0.1:8765/api/v1/metrics | grep warden_pty_redactions_total
+wd agent list --kind terminal     # terminals and their host
+wd agent list --json              # per-session runtime document
 ```
 
-### Operational Rollback Procedure
-
-If error rate exceeds `1.0%` or fallback exceeds `5.0%`:
-
-1. **Cohort-scoped Rollback:**
-   ```bash
-   # Revert cohort to legacy tmux path for all future launches
-   # (Active sessions remain undisturbed and authoritative)
-   warden config set cohorts.<name>.runtime.pty off
-   ```
-2. **Global Emergency Rollback:**
-   ```bash
-   # Revert all new launches globally to tmux
-   warden config set runtime.pty off
-   ```
-3. **Verify Rollback Ledger:**
-   Confirm rollback event is recorded in daemon memory and logs:
-   `WARN ptyhost: cohort rolled back (live sessions retain runtime) ...`
-
----
-
-## 7. Legacy Session Inventory & Drain Tracking
-
-### Inventory Inspection
-
-Operators monitor active session presentation and runtime pinning using the CLI:
-
-```bash
-# List all active terminals and their runtime host
-wd agent list --kind terminal
-
-# Inspect detailed session JSON for runtime presentation (direct vs tmux)
-wd agent list --json
-```
-
-### Supported vs. Retained Compatibility Matrix
-
-| Session Kind | OS / Platform | PTY Runtime Status | Retained Legacy Path |
+| Session kind | Platform | Direct PTY | Retained path |
 |---|---|---|---|
-| Plain Shell (`kind: terminal`) | Linux, macOS | Direct PTY (`S2`–`S4`) | Tmux fallback supported via `runtime.pty: off` |
-| AI Agent (`kind: agent`) | Linux, macOS | Observe Shadow (`S1`–`S4`) | Tmux authoritative host (required for Plan 02) |
-| Non-PTY Platforms | Windows | Unsupported (`//go:build !linux && !darwin`) | Tmux / legacy execution must remain functional |
-| Unmanaged Terminals | Any | Unsupported | External sessions remain untouched |
-| Holder-Disabled (`WARDEN_PTY_HOLDER=off`) | Linux, macOS | Direct PTY (daemon-owned) | Process does not survive daemon SIGKILL |
+| Plain shell | Linux | Supported (fixture-verified; no observed cohort) | tmux via `runtime.pty: off` |
+| Plain shell | macOS | Compiles and vets only; **runtime NOT-RUN** | tmux |
+| AI agent (any adapter) | Linux, macOS | **BLOCKED. No adapter is direct-capable** | tmux is the process owner |
+| Any | Windows | Unsupported (`!linux && !darwin`) | tmux / legacy |
+| Unmanaged terminals | Any | Unsupported | untouched |
+| Autopilot-owned agent | Any | BLOCKED (#919) | tmux |
 
-### Natural Drain Protocol (`S4`)
+Unsupported compatibility paths are **retained**, not scheduled for removal, until
+the plan-03 gate (§11) passes.
 
-- Under Stage `S4 (legacy-drain)`:
-  - Existing tmux sessions finish naturally as human operators exit or tasks complete.
-  - **No forced live conversions:** A running tmux pane is never live-converted into a PTY master (doing so causes process corruption).
-  - **No code removal in Plan 02:** All legacy tmux execution paths, poller loops, and lifecycle hooks MUST be preserved intact throughout Plan 02.
+## 8. Known issues and limits
 
----
+| Item | Impact on this rollout |
+|---|---|
+| **#918** `Controller.mu` held across guardian I/O | Graceful daemon stop during autopilot activity can exceed the systemd timeout and become a SIGKILL. Run restart/update scenarios with autopilot idle and record stop duration. A stop > 30 s is reported as blocked-by-#918, never as a pass. |
+| **#919** boot recovery builds run records before `PlanSource` is wired | Autopilot-owned direct-agent restart survival is unverified/BLOCKED. |
+| Direct AI agents not operator-enableable | Rollout of direct agents BLOCKED (§1). |
+| macOS runtime NOT-RUN | No darwin cohort without runtime evidence. |
+| Busy AI CLI RSS (≤ 16 MiB budget) not measured with a real provider CLI | Needs authorized live smoke. |
+| Web xterm against a direct session NOT-RUN | Observe in Step 2. |
+| Emulator is a bounded VT subset, not xterm; resize is crop/pad | Replay and snapshot are `redacted-text`; only live frames after `head` are exact. |
+| Secret detection is shape-based | Shapeless echoed secrets, base64-wrapped secrets (e.g. OSC 52) and secrets split across control sequences are not caught. |
+| Resize bounds 1024×1024 / 256 Ki cells | Larger requests are refused; a legacy `/attach` client gets no message. |
+| Viewer cap 16 per session | Over-cap attach returns HTTP 429. |
 
-## 8. Plan 03 Entry Gate Contract
+## 9. Evidence status (observed)
 
-Plan 03 (`legacy-runtime-retirement`) is **strictly gated** and may not begin until all prerequisites are fulfilled:
+| Evidence | Status |
+|---|---|
+| Fixture matrix (Linux) | PASS at the t1 slice (automated; not observed deployment) |
+| Shadow baseline on the installed daemon | **MISSING** |
+| Operator-authorized direct terminal cohort | **MISSING** (none has ever existed) |
+| ≥ 20 sessions × ≥ 24 h per cohort | **MISSING** |
+| Error / fallback rates | **MISSING** |
+| Parity and latency on a live system | **MISSING** |
+| macOS runtime | **MISSING** |
+| Direct AI agents (any evidence beyond fixtures) | **MISSING / BLOCKED** |
+| Legacy drain | **MISSING** (nothing has begun draining) |
+| Rollback verified on a live cohort | **MISSING** |
 
-1. **Both Plans Merged & Released:**
-   - Plan 01 (`01-pty-runtime-and-permission-decision-engine`, PR #979) is merged.
-   - Plan 02 (`02-pty-plain-terminal-migration-and-rollout`) is merged to the main trunk and tagged in a production release.
-2. **Staged Rollout Completion:**
-   - Stages `S0` through `S3` completed with verifiable soak logs recorded by human operators.
-   - `MinSessionsPerStage ≥ 20` and `MinSoakHoursPerStage ≥ 24` satisfied for every active cohort.
-3. **Parity & Budget Verification:**
-   - Byte-exact visible output parity verified (`ParityByteExactPct = 100%`).
-   - Classifier parity verified (`StateAccuracyPct ≥ 98%`, 0 false approvals).
-   - Zero resource leaks over 50-session soak (`F-RES-01`, `F-RES-02`).
-   - Zero privacy leaks (`F-PRIV-01`).
-4. **Natural Drain Evidence:**
-   - Production telemetry confirms 100% of legacy tmux plain-terminal sessions have completed naturally.
-   - Active tmux plain-terminal count is 0 in `S4`.
-5. **Retained Compatibility Verified:**
-   - Platform limitations (Windows) and AI agent execution models are ratified before any legacy code is retired.
-6. **No Deletions in Plan 02:**
-   - Zero legacy tmux code removed in this plan.
+Operators must never synthesize soak logs. Nothing here auto-promotes.
 
+## 10. Evidence templates
+
+Fill these with observed values only. Leave a field `MISSING` rather than guess.
+Store filled copies under `docs/rollout/` (one file per cohort and date); the
+blank forms are in
+[`rollout/2026-10-25-02b-05-evidence-templates.md`](rollout/2026-10-25-02b-05-evidence-templates.md).
+
+## 11. Plan 03 entry gate (`plan-5cd3c58b`, legacy retirement)
+
+Plan 03 must not start until **every** item below is satisfied from observed
+evidence. Plan status and green CI count for none of them.
+
+- [ ] Plans 01 (`plan-48de9357`), 02 (`plan-23988b36`) and 02b-01…05
+      (`plan-8eb533f5`, `plan-06a9917e`, `plan-ce2a039b`, `plan-30011980`,
+      `plan-e5fdd3fb`) are **merged, released and deployed**; deployed SHA/version
+      recorded from `wd version` on the running daemon.
+- [ ] Supported agents **and** shells are demonstrably direct: per-session
+      `wd inspect pty runtime` shows `actual_kind: direct` for the supported set.
+      (Today: shells only; agents are BLOCKED — this item cannot pass until the
+      agent readiness gate and adapter capabilities exist and are proven.)
+- [ ] Measured soak/parity met per cohort (≥ 20 sessions, ≥ 24 h, error < 1 %,
+      fallback < 5 %, all §3 Step 3 budgets) with filed templates.
+- [ ] Metrics healthy: `warden_pty_*` clean, zero-tolerance counters at 0.
+- [ ] No supported workflow still needs tmux as the process owner.
+- [ ] Legacy inventory drained naturally (count 0), with no forced conversion or
+      termination.
+- [ ] Unsupported compatibility retained (Windows, unmanaged terminals, any
+      adapter not direct-capable) and ratified.
+- [ ] Rollback/downgrade and control recovery verified on a live cohort.
+- [ ] #918 / #919 resolved or their affected scenarios explicitly accepted.
+- [ ] Plan 03 text references the corrective plan IDs above and requires a
+      separately authorized deployment.
+
+This runbook performs none of plan 03 and removes no code.
