@@ -522,8 +522,12 @@ embedded job projection provenance, reserved context authority, original
 definition hashing, updater handoff and both rollback paths against source.
 `git diff --check` passed. `wd check` passed all configured checks (`test`,
 `lint`, `fmt`, `build`) after generating the normal web assets with `make ui`;
-the initial attempt was blocked by absent `web/dist`. Only this design document
-is included in the change. These checks validate the existing checkout and
+the initial attempt was blocked by absent `web/dist`. The design is accompanied
+by restoration of the empty `web/dist/.gitkeep` placeholder: CI's clean-checkout
+Go embed, vet and CLI documentation builds otherwise fail before UI assets are
+generated. The full `wd check` suite and `make gendocs-check` also passed with
+only that placeholder present, without generated UI assets. No feature code is
+changed. These checks validate the existing checkout and
 documentation hygiene; schema-3 acceptance tests in §7 are future implementation
 requirements, not tests claimed to exist or pass here.
 
@@ -532,3 +536,13 @@ The worker remains Plan-bound (`role=worker`, task `design`); task progress stay
 sent to `orchestrator-8bed8d7b` through warden messaging for this exact Plan
 revision/hash. No `job done`, task completion, merge or follow-on implementation
 is authorized by this document.
+
+User-directed stacking policy: keep design PR
+[#1066](https://github.com/srjn45/warden/pull/1066) open with head
+`docs-2b66cf75` and base `main`. After explicit human design approval, the
+orchestrator assigns `migrate` from the final design head, with its PR based on
+`docs-2b66cf75`; `cutover` starts from the migrate head, with its PR based on
+the migrate branch. All PRs stay open and unmerged until the complete Plan is
+ready; the user merges the entire stack. No worker enables auto-merge, marks
+design done or calls `job done`. Each deliverable remains subject to human
+approval. Branch/head/PR/CI evidence accompanies the Plan-bound handoff.
