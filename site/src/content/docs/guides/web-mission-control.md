@@ -10,7 +10,7 @@ warden daemon
 open http://localhost:8765
 ```
 
-![The warden web dashboard on its Cockpit home: a routed mission-control shell with a Fleet summary header (totals · busy · waiting · errored · pressure) above the agent grid, grouped by directory, with Pipelines, Metrics, Archive, and Others tabs alongside.](/warden/media/web-cockpit.png)
+![The warden web Cockpit home: a Fleet summary with totals, busy, waiting, errored, and pressure above the expanded api-gateway project tree, including its plan and active Autopilot run.](/warden/media/web-cockpit.png)
 
 ## Routes & tabs
 
@@ -29,11 +29,18 @@ The dashboard is a **URL-routed mission-control shell**. Tabs are **real URLs** 
 
 `/` redirects to `/cockpit`, so there is a single canonical home URL. Deep-linking and refresh work because the daemon serves the SPA for any non-API path.
 
-In the Cockpit you can **group the fleet** by directory, task type, status, tag, or **agent** (the AI backend — claude/aider/…) to keep a large fleet legible:
+The Cockpit's project tree keeps related work together: projects contain plans,
+Autopilot runs, pipelines and their jobs, and agent rows.
 
-![The Cockpit grouped by task type: agents collected under collapsible *analysis* and *development* sections, each with a per-group count.](/warden/media/web-cockpit-grouped.png)
+![A scrolled web Cockpit project tree: the billing-svc project contains the webhook-retry-fix pipeline, its root span-out, analyze, implement, and blocked review jobs, plus active worker agent cards.](/warden/media/web-cockpit-grouped.png)
 
 Each agent card also shows the **brand logo of the backend** driving it in the tile header, so you can spot claude vs aider agents at a glance. An agent with no recorded backend (anything spawned before backend selection shipped) shows as **claude**; an unrecognized backend falls back to a small monochrome lettermark.
+
+The top-bar **Backends** control opens the local backend registry. It shows the
+detected backend rows and their installed state, selected tier, default choice,
+and enabled setting; the modal also provides **Rescan**.
+
+![The web Backends modal lists aider, antigravity, claude, codex, crush, cursor, goose, and opencode with Installed, Tier, Default, Enabled, and Limited columns, plus a Rescan button.](/warden/media/web-backends.png)
 
 ## What it does
 
@@ -58,6 +65,12 @@ Each agent card also shows the **brand logo of the backend** driving it in the t
 | **Search & archive** | Full-text search across the fleet; browse archived (closed) agents from the Archive tab. |
 | **Theme toggle** | Light / dark / system theming. |
 | **Keyboard shortcuts** | Global shortcuts for navigation and actions (`1`–`9` jump to a tab, `j`/`k` next/previous, `Esc` close), with a `?` help overlay listing them. |
+
+When a run is active, the top-bar **Autopilot** control opens its run detail:
+state and supervision, integration base, plan tasks, and workers. The capture
+shows the modal for one active SSO rollout.
+
+![The web Autopilot modal for an active SSO rollout, showing its supervisor, integration base, task checklist, worker, and Pause and Stop controls.](/warden/media/web-autopilot-run.png)
 
 The web dashboard also has a **Pipelines** tab: it lists pipelines, shows a selected pipeline's jobs as status-colored cards with dependency chips, and a per-job drawer with the prompt/handoff/output, a **Cancel** (pipeline) / **Retry** (job) control, and an **Open terminal** link to a running job's session. (Creating / editing pipelines in the browser is not yet available — use `warden pipeline create <spec.yaml>` or `-f`.)
 
@@ -113,9 +126,9 @@ single agent (above) instead.
 
 ## Metrics view
 
-![The Metrics tab, upper half: CPU per agent beside Total CPU, Memory per agent beside Total memory, and a Cost-per-agent card (total · today · this week, with per-agent input/output token counts).](/warden/media/web-metrics.png)
+![The Metrics tab: CPU per agent beside Total CPU, with Memory per agent beside Total memory below.](/warden/media/web-metrics.png)
 
-![The Metrics tab, lower half: Number of agents, the Tokens-saved trend with a 24h/48h/7d/30d/All window picker and a cumulative line, a Savings-by-feature stacked area (compact / llm_offload / check / commit), and the Live-footprint resource chart.](/warden/media/web-metrics-2.png)
+![The Metrics tab's Fast / Thinking brain telemetry: admission, queue, cache, coalescing, preemption, and abandonment counters; per-tier activity; runner and circuit state; controls; and recent decisions. The next Live footprint panel begins below.](/warden/media/web-metrics-2.png)
 
 The **Metrics** tab (`/metrics`) is a responsive grid of self-contained uPlot chart cards — **two columns** on wide screens (each per-agent chart sits beside its fleet-wide total), collapsing to a **single column** on phones:
 

@@ -32,7 +32,7 @@ agents and gives you exactly one place to see all of them. It started Claude-onl
 it now drives [multiple agent backends](/warden/concepts/agent-backends/), Claude
 Code being the default.
 
-![warden in action: spawning and monitoring a fleet of coding agents from one cockpit](/warden/media/hero.gif)
+![A terminal session starting warden and listing managed coding agents.](/warden/media/hero.gif)
 
 ## The core idea: agents are cattle, not pets
 
@@ -60,13 +60,13 @@ directory, an Approvals row for anything blocked on me, a shell, and the
 selected agent's *live* session in a full-height pane. I drive the entire fleet
 without leaving it.
 
-![The warden TUI cockpit: a live agents list grouped by directory, an Approvals row, a shell, and the selected agent's session in the detail pane](/warden/media/tui-cockpit.gif)
+![The warden TUI cockpit: its project tree and approvals section, terminal pane, and selected agent session.](/warden/media/tui-cockpit.gif)
 
 If I'm not at my terminal, the same fleet is a self-hosted web dashboard —
 Fleet summary, grouped agents, and a Metrics tab with per-agent and fleet-total
 CPU/memory:
 
-![The warden web dashboard: the Cockpit home, then the Metrics tab with per-agent and fleet-total CPU/memory charts](/warden/media/web-monitor.gif)
+![The warden web dashboard moving from the Cockpit home to Metrics, with per-agent and fleet-wide resource charts.](/warden/media/web-monitor.gif)
 
 No SaaS, no login, no telemetry. It's a loopback REST API and an embedded
 file-backed store on disk. Runs on my laptop or a box I SSH into. By default nothing leaves the
