@@ -698,7 +698,7 @@ func agyAffirmative(opts []string) (idx int, sticky bool) {
 // --append-system-prompt equivalent on its launch command (its customization is
 // skills/rules/AGENTS.md based; Caps.SystemPromptInject stays false — that flag means
 // specifically a launch-time flag). warden instead delivers the same
-// pipeline/collab/git addendum out-of-band via the AGENTS.md rules file `agy` reads on
+// pipeline/Git addendum out-of-band via the AGENTS.md rules file `agy` reads on
 // startup — see InjectContext (agentbackend.ContextInjector) and the gap doc.
 func (Antigravity) SystemPromptFlag(string) (string, bool) { return "", false }
 
@@ -802,7 +802,7 @@ func (Antigravity) PrepareWorkspace(workdir string) error {
 // InjectContext implements agentbackend.ContextInjector. `agy` has no
 // --append-system-prompt flag (Caps.SystemPromptInject=false) but reads an AGENTS.md
 // rules file from its working directory on startup, so warden delivers its
-// collab/git/pipeline addendum by writing that text into <workdir>/AGENTS.md.
+// Git/pipeline addendum by writing that text into <workdir>/AGENTS.md.
 // It also ensures the workdir is recorded in trustedWorkspaces as a secondary
 // guarantee.
 // Lifecycle calls this post-worktree-creation / pre-launch so the file is present

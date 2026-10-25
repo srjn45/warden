@@ -648,7 +648,7 @@ pre-roles stores need no migration). The persona is re-resolved from the embedde
 `internal/role` registry at every (re)launch — nothing persona-shaped is ever
 written to disk, so switching a role and resuming re-injects the new persona
 automatically. Injection reuses the **same seam** warden already uses for its
-collab/git/pipeline hints: Claude gets it via `--append-system-prompt` (file-backed
+Git/pipeline hints: Claude gets it via `--append-system-prompt` (file-backed
 under `HintsDir`, never inlined on the tmux launch line so the 1024-byte MAX_CANON
 limit is safe); the injecting backends (Codex/OpenCode/Cursor/Antigravity/Crush/Goose)
 get it prepended into their rules-file drop (`AGENTS.md` etc.); Aider, which has no
@@ -1153,7 +1153,7 @@ opens it in `$EDITOR`. Like `warden check`/`warden git review` it is CLI-local (
 daemon round-trip, no MCP twin).
 
 The curated file is **projected into every spawned agent** via the same system-prompt
-seam the collab/pipeline/git hints ride — **Claude** via `--append-system-prompt`
+seam the Git/pipeline hints use — **Claude** via `--append-system-prompt`
 (file-backed, so it never bloats the launch line), **codex/cursor/opencode/antigravity**
 via their `AGENTS.md` warden block, **crush** via `CRUSH.md`, **goose** via
 `.goosehints`; **aider** degrade-skips (neither seam). 7/8 backends project with zero
@@ -2081,7 +2081,7 @@ home — `/` redirects here), `/pipelines`, `/metrics`, `/archive`, `/others`
 busy/waiting/errored, pressure, per-dir counts) above the live SSE agent grid
 with busy/idle badges. **Others** (`/others`) is the renamed former *Overview*,
 now a catch-all for the **attention queue** (agents in
-`waiting_for_input`/`errored`/`orphaned`), **file conflicts**, and **recent
+`waiting_for_input`/`errored`/`orphaned`) and **recent
 activity**. The **+ New agent** prompt box (with a directory picker) sits in the
 header alongside a small **🗒 Context & Messages** button that opens a dismissible
 overlay (Esc closes). Pin an agent to its own tab to get a **live, interactive
@@ -2266,13 +2266,13 @@ mid-run typo can't wipe your settings. Keys that genuinely need a restart are
 - **Hot-reloads on the next tick/spawn:** the whole `autopilot` block
   (plan/manager/merge template, backend ladder, guardian heal thresholds, and the
   per-repo reconcile), `auto_approve` policy, `tokens.*` (context/token guard),
-  `rails.*`, `model_default`, `default_permission_mode`, the pipeline/collab/memory
+  `rails.*`, `model_default`, `default_permission_mode`, the pipeline/memory
   hint gates, `notify.*` + webhook, `api_docs`, and the `scheduler_enabled` route
   gate.
 - **Still needs a restart (logged on change):** `addr`, `data_dir`,
   `claude_projects_dir`, `metrics`, the scheduler reconcile-loop cadence,
   `trusted_proxies`, `http.timeout_*`, `plugins.*`, `local_llm.*`,
-  `collab.*`/`branch_track.*` interval loops, `rate_limit.*` timers,
+  `branch_track.*` interval loops, `rate_limit.*` timers,
   `auto_restart.*`, `log.*`, `memory.curate`, snapshots, and the autopilot
   guardian tick `interval`.
 
@@ -2325,7 +2325,7 @@ restart list; everything else takes effect on save.
 the `auto_restart.*` knobs, the `rate_limit.*` knobs (§12.1), and the
 `log.level` / `log.format` logging knobs.
 
-> **Config namespacing:** Related settings are organized into YAML blocks — `rails`, `tokens`, `notify`, `worktree`, `pipeline`, `auto_restart`, `collab`, `memory`, `branch_track`, `rate_limit`, `http`, `log`, `plugins`. Old flat keys (e.g. `token_guard`, `local_llm_url`, `notify`, `spawn_gate`, `worktree_keep_done`, `isolation_guard`, `git_redirect`, `collab_enabled`, `memory_inject`, `log_level`, `plugin_registry`) are deprecated aliases — they still load correctly, emit a one-time deprecation warning, and are permanently migrated into the nested form when `warden config init` is re-run.
+> **Config namespacing:** Related settings are organized into YAML blocks — `rails`, `tokens`, `notify`, `worktree`, `pipeline`, `auto_restart`, `memory`, `branch_track`, `rate_limit`, `http`, `log`, `plugins`. Retired collaboration keys are ignored and removed when configuration is reconciled. Other old flat keys (e.g. `token_guard`, `local_llm_url`, `notify`, `spawn_gate`, `worktree_keep_done`, `isolation_guard`, `git_redirect`, `memory_inject`, `log_level`, `plugin_registry`) remain deprecated aliases and are migrated into nested form when `warden config init` is re-run.
 
 > The old `WARDEN_*` configuration environment variables are no longer read — the
 > daemon warns once at startup if any are still set. `WARDEN_TOKEN` and

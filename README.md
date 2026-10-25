@@ -665,7 +665,7 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 
 `warden config` lists every setting, including `worktree.spawn_gate` / `worktree.spawn_gate_max_agents`, `tokens.budget_gate` / `tokens.budget_daily_usd` / `tokens.budget_weekly_usd`, `metrics`, `allow_nonloopback`, `pipeline.keep_done` / `pipeline.hint`, `worktree.keep_done` / `worktree.auto_prune`, the `auto_restart.*` and `rate_limit.*` knobs.
 
-> Related settings are grouped into namespaced blocks (`pipeline.*`, `auto_restart.*`, `collab.*`, `memory.*`, `branch_track.*`, `rate_limit.*`, `http.*`, `log.*`, `plugins.*`, alongside the existing `rails.*` / `tokens.*` / `notify.*` / `worktree.*` / `local_llm.*`). The old flat keys (`collab_enabled`, `log_level`, `memory_inject`, …) still load as **deprecated aliases** — they work but emit a one-time deprecation warning; `warden config` rewrites them into the nested form.
+> Related settings are grouped into namespaced blocks (`pipeline.*`, `auto_restart.*`, `memory.*`, `branch_track.*`, `rate_limit.*`, `http.*`, `log.*`, `plugins.*`, alongside the existing `rails.*` / `tokens.*` / `notify.*` / `worktree.*` / `local_llm.*`). Retired collaboration keys are ignored and removed when the configuration is reconciled; other supported flat keys (such as `log_level` and `memory_inject`) remain deprecated aliases and are rewritten into their nested form.
 
 > **Config namespacing:** Settings are grouped into five YAML blocks — `rails`, `tokens`, `notify`, `worktree` (plus the retired, ignored `local_llm`). Old flat keys (e.g. `token_guard`, `local_llm_url`, `notify`) are still accepted as deprecated aliases and migrate to the namespaced form automatically when `warden config init` is re-run.
 
@@ -1182,7 +1182,7 @@ warden project memory --edit           # open it in $EDITOR (auto-creates it fir
 warden project memory --path           # just the resolved path (scriptable; no auto-create)
 ```
 
-At **every spawn** warden projects the budgeted, navigational render into the agent's system prompt through the same seam the collab/pipeline/git hints ride: **Claude** via `--append-system-prompt` (file-backed, so it never bloats the launch line), **codex / cursor / opencode / antigravity** via their `AGENTS.md` warden block, **crush** via `CRUSH.md`, **goose** via `.goosehints`; **aider** degrade-skips. **7 of 8 backends project with zero new adapter code.** It is config-gated by `memory.inject` (default on) — off, or an empty/absent file, makes the launch **byte-identical** to no injection. warden **reads but never rewrites** your CLAUDE.md/AGENTS.md/CONVENTIONS.md; `.warden/memory.md` is warden's own. `warden project memory` is CLI-local like `warden check`/`warden git review` (no daemon round-trip, no MCP twin).
+At **every spawn** warden projects the budgeted, navigational render into the agent's system prompt through the same Git/pipeline hint seam: **Claude** via `--append-system-prompt` (file-backed, so it never bloats the launch line), **codex / cursor / opencode / antigravity** via their `AGENTS.md` warden block, **crush** via `CRUSH.md`, **goose** via `.goosehints`; **aider** degrade-skips. **7 of 8 backends project with zero new adapter code.** It is config-gated by `memory.inject` (default on) — off, or an empty/absent file, makes the launch **byte-identical** to no injection. warden **reads but never rewrites** your CLAUDE.md/AGENTS.md/CONVENTIONS.md; `.warden/memory.md` is warden's own. `warden project memory` is CLI-local like `warden check`/`warden git review` (no daemon round-trip, no MCP twin).
 
 **Auto-curation (`memory.curate`, default OFF).** warden can also *propose* memory for you: on the existing completion-digest hook, a debounced extraction pass reads finished agents' digests + the current memory and writes **durable, reusable facts** back as `- [unverified · <date> · <provenance>] <fact>`. It is deliberately never authoritative — proposals land in the **working tree only** (warden **never commits and never pushes** them, so the committed diff is the human review gate), promote to `trusted` only when corroborated by a second agent or a human, **supersede** older contradicting facts (struck with a tombstone), **age out** past a TTL, and get **flagged stale** when a named path vanishes. It runs on Fast-Brain (latency-bounded, fail-open) and never sits on a paid critical path. This is the core defence against memory *poisoning*: one agent's wrong belief can never silently mislead the fleet.
 
@@ -1430,7 +1430,7 @@ worker → brain topology. **Legacy aliases:** `reviewer`, `implementer`, and
 but the three names still resolve to the `worker` role for back-compat.
 
 The persona is injected through the same system-prompt seam warden already uses
-for its collab/git/pipeline hints (Claude via `--append-system-prompt`, the
+for its Git/pipeline hints (Claude via `--append-system-prompt`, the
 injecting backends via their rules file); only the role **name** is persisted,
 so the persona re-resolves from the registry at every (re)launch — nothing
 persona-shaped is stored on disk. Role default flags fill only the fields you
@@ -1796,7 +1796,7 @@ The dashboard is a **routed mission-control shell**. Tabs are **real URLs** (His
 | Route | Tab | What's there |
 |---|---|---|
 | `/cockpit` | ⊞ **Cockpit** | **The home view** (`/` redirects here). A slim **Fleet** header (totals · busy · waiting · errored, pressure, dirs) above the full agent grid. |
-| `/others` | ▦ **Others** | The former *Overview*, now a **catch-all**: *Needs you* (attention queue), *File conflicts*, and *Recent activity*. |
+| `/others` | ▦ **Others** | The former *Overview*, now a **catch-all**: *Needs you* (attention queue) and *Recent activity*. |
 | `/pipelines` | ⛓ **Pipelines** | Pipeline list + live DAG / job drawer. |
 | `/metrics` | 📊 **Metrics** | Per-agent and fleet-wide charts — see below. |
 | `/archive` | 🗄 **Archive** | Ended sessions with since/type filters. |

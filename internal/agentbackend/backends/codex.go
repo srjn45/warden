@@ -925,7 +925,7 @@ func codexAffirmative(opts []string) (idx int, sticky bool) {
 // --append-system-prompt equivalent on its command line (Caps.SystemPromptInject
 // stays false — that flag means specifically a launch-time flag). Codex's
 // customization is config/AGENTS.md/`-c` based, so warden delivers the same
-// pipeline/collab/git addendum out-of-band via the AGENTS.md rules file Codex reads
+// pipeline/Git addendum out-of-band via the AGENTS.md rules file Codex reads
 // on startup — see InjectContext (agentbackend.ContextInjector) and the gap doc.
 func (Codex) SystemPromptFlag(string) (string, bool) { return "", false }
 
@@ -936,7 +936,7 @@ const codexAgentsFile = "AGENTS.md"
 // InjectContext implements agentbackend.ContextInjector. Codex has no
 // --append-system-prompt flag (Caps.SystemPromptInject=false) but reads an AGENTS.md
 // rules file from its working directory on startup, so warden delivers its
-// collab/git/pipeline addendum by writing that text into <workdir>/AGENTS.md — the
+// Git/pipeline addendum by writing that text into <workdir>/AGENTS.md — the
 // AGENTS.md counterpart to Claude's launch-time flag. Lifecycle calls this
 // post-worktree-creation / pre-launch so the file is present when Codex starts.
 //
