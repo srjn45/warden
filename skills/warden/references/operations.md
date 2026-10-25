@@ -194,12 +194,12 @@ Notable settings (see the generated file for the full set with defaults):
 - **Retired `local_llm.*`:** Fast-Brain replaced the local Ollama provider; legacy keys
   (`local_llm.enabled/url/model/timeout/tier/escalate/classifier/repl`) still parse but are ignored.
 - **Deprecated flat-key aliases:** old keys like `token_guard`, `local_llm_url`, `notify`,
-  `spawn_gate`, `worktree_keep_done`, `isolation_guard`, `git_redirect`, `collab_enabled`,
+  `spawn_gate`, `worktree_keep_done`, `isolation_guard`, `git_redirect`,
   `memory_inject`, `pipeline_hint`, `auto_restart_max`, `rate_limit_buffer`, `http_timeout_slow`,
   `log_level`, `plugin_registry` still work and migrate automatically (a one-time deprecation
   warning) — prefer the namespaced form in new config files.
 - **Misc:** `metrics`, `snapshots`, `insights`, `plugins.enabled`/`plugins.registry`,
-  `scheduler_enabled`, `api_docs`, `collab.*`, `branch_track.*`, `tutorial`,
+  `scheduler_enabled`, `api_docs`, `branch_track.*`, `tutorial`,
   `allow_nonloopback`, `log.level`/`log.format`.
 
 > The old `WARDEN_*` env vars are no longer read (the daemon warns once if set).

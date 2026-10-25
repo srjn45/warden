@@ -7,7 +7,6 @@ package daemon
 import (
 	"github.com/srjn45/warden/internal/approval"
 	"github.com/srjn45/warden/internal/branchtrack"
-	"github.com/srjn45/warden/internal/collab"
 	"github.com/srjn45/warden/internal/snapshot"
 	"github.com/srjn45/warden/internal/store"
 )
@@ -69,10 +68,6 @@ type approvalsResponse struct {
 
 type branchesResponse struct {
 	Branches []branchtrack.BranchStatus `json:"branches"`
-}
-
-type conflictsResponse struct {
-	Conflicts []collab.Conflict `json:"conflicts"`
 }
 
 type snapshotListResponse struct {

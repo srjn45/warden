@@ -23,22 +23,21 @@ func TestMethodsSurfaceStatusErrors(t *testing.T) {
 	ctx := context.Background()
 
 	cases := map[string]func() error{
-		"Search":          func() error { _, e := c.Search(ctx, SearchParams{Query: "x"}); return e },
-		"History":         func() error { _, e := c.History(ctx, HistoryParams{}); return e },
-		"GitCommit":       func() error { _, e := c.GitCommit(ctx, "", "/d", "m"); return e },
-		"GitPush":         func() error { _, e := c.GitPush(ctx, "", "/d", false); return e },
-		"Check":           func() error { _, e := c.Check(ctx, "", "/d", ""); return e },
-		"ListWorktrees":   func() error { _, e := c.ListWorktrees(ctx, "/r"); return e },
-		"Prune":           func() error { _, e := c.Prune(ctx, PruneParams{Repo: "/r"}); return e },
-		"CreatePR":        func() error { _, e := c.CreatePR(ctx, "A-1", ""); return e },
-		"Output":          func() error { _, e := c.Output(ctx, "A-1", 10); return e },
-		"CollabConflicts": func() error { _, e := c.CollabConflicts(ctx); return e },
-		"BranchStatuses":  func() error { _, e := c.BranchStatuses(ctx); return e },
-		"PipelineList":    func() error { _, e := c.PipelineList(ctx); return e },
-		"PipelineGet":     func() error { _, e := c.PipelineGet(ctx, "p"); return e },
-		"ScheduleList":    func() error { _, e := c.ScheduleList(ctx); return e },
-		"GetMetrics":      func() error { _, e := c.GetMetrics(ctx); return e },
-		"SnapshotList":    func() error { _, e := c.SnapshotList(ctx, ""); return e },
+		"Search":         func() error { _, e := c.Search(ctx, SearchParams{Query: "x"}); return e },
+		"History":        func() error { _, e := c.History(ctx, HistoryParams{}); return e },
+		"GitCommit":      func() error { _, e := c.GitCommit(ctx, "", "/d", "m"); return e },
+		"GitPush":        func() error { _, e := c.GitPush(ctx, "", "/d", false); return e },
+		"Check":          func() error { _, e := c.Check(ctx, "", "/d", ""); return e },
+		"ListWorktrees":  func() error { _, e := c.ListWorktrees(ctx, "/r"); return e },
+		"Prune":          func() error { _, e := c.Prune(ctx, PruneParams{Repo: "/r"}); return e },
+		"CreatePR":       func() error { _, e := c.CreatePR(ctx, "A-1", ""); return e },
+		"Output":         func() error { _, e := c.Output(ctx, "A-1", 10); return e },
+		"BranchStatuses": func() error { _, e := c.BranchStatuses(ctx); return e },
+		"PipelineList":   func() error { _, e := c.PipelineList(ctx); return e },
+		"PipelineGet":    func() error { _, e := c.PipelineGet(ctx, "p"); return e },
+		"ScheduleList":   func() error { _, e := c.ScheduleList(ctx); return e },
+		"GetMetrics":     func() error { _, e := c.GetMetrics(ctx); return e },
+		"SnapshotList":   func() error { _, e := c.SnapshotList(ctx, ""); return e },
 	}
 	for name, call := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -40,21 +40,6 @@ A *working* agent is never interrupted (woken only when idle/waiting). `msg wait
 with no busy-loop. Identity defaults to `$WARDEN_SESSION_ID`; override with `--as
 <id>`.
 
-## File-conflict detection (don't overwrite a peer)
-
-The daemon watches each active agent's worktree (real-time fsnotify + a `git diff`
-poll safety net) and warns — via the inbox, deduplicated — when two agents are
-editing the same file. **Before editing a file a peer might also be changing,
-check first and coordinate via `send_message` rather than overwriting.**
-
-- MCP `who_is_editing_file {file}` — which agents share that repo-relative file.
-- MCP `get_collaboration_status` — the current conflict picture.
-- CLI `warden workspace conflicts` / `warden workspace who-is-editing <file>`.
-- Also check `read_inbox` for file-conflict warnings the daemon delivers.
-
-Tunable via `collab.enabled` / `collab.interval` / `collab.git_reconcile_interval` / `collab.hint`. Spawned agents
-get a system-prompt hint to do exactly this before editing shared files.
-
 ## Branch & CI tracking (read-only, informational)
 
 Opt-in daemon monitor (`branch_track.enabled`, off by default;

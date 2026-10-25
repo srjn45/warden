@@ -311,12 +311,6 @@ func newDaemonRunCmd() *cobra.Command {
 			srv.SetAutoApprovePersist(func(p approval.Policy) error {
 				return config.WriteAutoApprove(cfgPath, p)
 			})
-			if cfg.Collab.Enabled {
-				srv.SetCollabInterval(cfg.CollabIntervalDuration())
-				srv.SetCollabGitReconcileInterval(cfg.CollabGitReconcileIntervalDuration())
-			} else {
-				srv.SetCollabInterval(0)
-			}
 			snapStore := stores.Snapshots
 			srv.SetSnapshots(cfg.Snapshots, snapshot.New(runner, snapStore))
 			// Token-savings ledger: the store is created regardless of the gate so

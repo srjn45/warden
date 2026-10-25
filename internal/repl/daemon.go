@@ -33,7 +33,6 @@ type Daemon interface {
 	CtxList(ctx context.Context, prefix string) ([]client.ContextEntry, error)
 	PipelineList(ctx context.Context) ([]*pipeline.Pipeline, error)
 	PipelineGet(ctx context.Context, id string) (*pipeline.Pipeline, error)
-	CollabConflicts(ctx context.Context) ([]client.Conflict, error)
 	// mutations
 	Spawn(ctx context.Context, p client.SpawnParams) (*store.Session, error)
 	Input(ctx context.Context, id, text string) error

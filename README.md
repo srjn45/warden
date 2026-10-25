@@ -659,7 +659,6 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 | `auto_approve` | `false` | Auto-answer recognized permission prompts. Bare on/off, or an allow/deny **rule policy** (by tool / glob / regex / paths, with per-agent overrides) — see `warden approval auto set` |
 | `router.use_fast_brain` | `false` | Opt-in prompt-complexity tier routing: for a spawn that pins no tier, task, role, model or ai_cli, Fast-Brain rates the prompt (`tier-1` trivial tweaks / `tier-2` standard / `tier-3` deep refactors) and the router uses it only at confidence ≥ 0.8. Lowest-precedence input; recorded as a `tier-route` event on the agent. Hot-reloaded |
 | `notify.webhook_enabled` / `notify.webhook_url` | `false` / _(empty)_ | POST a JSON payload to `webhook_url` on attention + context-size alerts (a Slack incoming-webhook URL works out of the box); runs alongside `notify.enabled` |
-| `collab.enabled` / `collab.interval` / `collab.git_reconcile_interval` / `collab.hint` | `true` / `10s` / `2m` / `true` | File-conflict detection: fsnotify-first dirty tracking, watch-reconcile interval, git-diff backstop, and the spawn-time coordination hint |
 | `rails.isolation_guard` / `rails.git_redirect` / `rails.check_redirect` / `rails.git_conventions` | `true` | Boundary-enforcement hooks (see [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement)) |
 | `log.level` / `log.format` | `info` / `text` | Daemon log verbosity (`debug`/`info`/`warn`/`error`) and format (`text`/`json`); `warden daemon --log-level`/`--log-format` override |
 | `local_llm.*` | — | **Retired.** Legacy `local_llm` keys still parse but are ignored; Fast-Brain replaced the local Ollama provider (no config needed) |
@@ -1133,17 +1132,6 @@ warden message inbox --as agent-9c1d
 warden message wait --as agent-9c1d --timeout 120   # block in the daemon until a message arrives
 ```
 
-### File-conflict detection — `warden workspace`
-
-The daemon watches each active agent's worktree (fsnotify, with a `git diff` poll as a safety net) and warns — via the inbox, deduplicated — when two agents edit the same file. Spawned agents also get a system-prompt hint to check before editing shared files, so they coordinate rather than overwrite.
-
-```sh
-warden workspace conflicts                 # current cross-agent file conflicts
-warden workspace who-is-editing <file>     # which agents (if any) are touching a file
-```
-
-Tunable via the `collab.enabled` / `collab.interval` / `collab.git_reconcile_interval` / `collab.hint` config settings; also exposed as the `get_collaboration_status` / `who_is_editing_file` MCP tools and a **File conflicts** card on the dashboard.
-
 ### Git & check lifecycle — `warden commit` / `push` / `sync` / `check`
 
 First-class, deterministic commands that move git and test/lint/build work off the agent and return compact results instead of raw tool-spam. PreToolUse hooks (config-gated, fail-open) steer agents toward these and deny-redirect the raw escapes — see [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement).
@@ -1607,7 +1595,7 @@ warden daemon mcp
 warden daemon mcp --addr 127.0.0.1:8765
 ```
 
-Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `adopt_agent`, `send_to_agent`, `get_agent_output`, `stop_agent`, `terminate_agent`, `restore_agent`, `delete_agent`, `remove_worktree`, `ctx_set`, `ctx_get`, `ctx_list`, `ctx_cas`, `ctx_append`, `send_message`, `read_inbox`, `wait_for_message`, `list_approvals`, `approve`, `commit`, `push`, `sync`, `check`, `get_collaboration_status`, `who_is_editing_file`, `get_branch_status`, `create_pipeline`, `start_pipeline`, `show_pipeline`, `list_pipelines`, `cancel_pipeline`, `list_schedules`, `snapshot_create`, `snapshot_list`, `snapshot_restore`, `insights`, `savings`, `spend`.
+Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `adopt_agent`, `send_to_agent`, `get_agent_output`, `stop_agent`, `terminate_agent`, `restore_agent`, `delete_agent`, `remove_worktree`, `ctx_set`, `ctx_get`, `ctx_list`, `ctx_cas`, `ctx_append`, `send_message`, `read_inbox`, `wait_for_message`, `list_approvals`, `approve`, `commit`, `push`, `sync`, `check`, `get_branch_status`, `create_pipeline`, `start_pipeline`, `show_pipeline`, `list_pipelines`, `cancel_pipeline`, `list_schedules`, `snapshot_create`, `snapshot_list`, `snapshot_restore`, `insights`, `savings`, `spend`.
 
 ### `warden completion <shell>`
 
@@ -1663,7 +1651,6 @@ Once registered, the orchestrator session can call these tools directly:
 | `list_approvals` / `approve` | List recognized pending tool-permission prompts / answer one by option number |
 | `commit` / `push` / `sync` | Git lifecycle on the agent's pinned worktree (staged commit with auto-message, push — `force` uses `--force-with-lease`, rebase-sync) returning compact structs instead of raw git output |
 | `check` | Run the project's `.warden/check.yml` checks, returning pass/fail with output for only the failing ones |
-| `get_collaboration_status` / `who_is_editing_file` | File-conflict view across the fleet / who (if anyone) is editing a given file |
 | `create_pipeline` / `start_pipeline` / `show_pipeline` / `list_pipelines` / `cancel_pipeline` | Drive a DAG pipeline — create from a YAML spec, start entry jobs, inspect, list, cancel |
 
 > Pipeline MCP tools are thin wrappers over the same daemon routes the CLI uses,

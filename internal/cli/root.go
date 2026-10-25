@@ -124,7 +124,6 @@ func newRootCmd() *cobra.Command {
 		{newCleanCmd(), "warden workspace clean", markCompatibilityCommand},
 		{newSnapshotCmd(), "warden workspace snapshot", markCompatibilityCommand},
 		{newBranchesCmd(), "warden workspace branches", markCompatibilityCommand},
-		{newCollabCmd(), "warden workspace", func(cmd *cobra.Command, _ string) { markWorkspaceCollabCompatibility(cmd) }},
 	} {
 		legacy.mark(legacy.cmd, legacy.canonical)
 		root.AddCommand(legacy.cmd)

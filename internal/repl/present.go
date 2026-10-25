@@ -46,10 +46,6 @@ func present(name, raw string) string {
 		if out, ok := renderInbox(raw); ok {
 			return out
 		}
-	case "get_collaboration_status":
-		if out, ok := renderConflicts(raw); ok {
-			return out
-		}
 	case "list_approvals":
 		if out, ok := renderApprovals(raw); ok {
 			return out
@@ -166,28 +162,6 @@ func renderInbox(raw string) (string, bool) {
 		}
 		fmt.Fprintf(&b, "%s from %s (%s): %s", mark, dash(m.From), since(m.TS), clip(flatten(m.Body), 80))
 		if i < len(ms)-1 {
-			b.WriteByte('\n')
-		}
-	}
-	return b.String(), true
-}
-
-func renderConflicts(raw string) (string, bool) {
-	var cs []client.Conflict
-	if err := json.Unmarshal([]byte(raw), &cs); err != nil {
-		return "", false
-	}
-	if len(cs) == 0 {
-		return "no inter-agent file conflicts", true
-	}
-	var b strings.Builder
-	for i, c := range cs {
-		ids := make([]string, 0, len(c.Agents))
-		for _, a := range c.Agents {
-			ids = append(ids, a.ID)
-		}
-		fmt.Fprintf(&b, "%s — %s", c.File, strings.Join(ids, ", "))
-		if i < len(cs)-1 {
 			b.WriteByte('\n')
 		}
 	}

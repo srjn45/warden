@@ -633,18 +633,6 @@ func NewServer(daemonBase string) *Server {
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
-		Name:        "get_collaboration_status",
-		Description: "List files currently being edited by more than one agent (inter-agent file conflicts). Use to check whether another agent is touching the same code before you dig in.",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
-		conflicts, err := s.cl.CollabConflicts(ctx)
-		if err != nil {
-			return textResult("error: " + err.Error()), nil, nil
-		}
-		res, err := jsonResult(conflicts)
-		return res, nil, err
-	})
-
-	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
 		Name:        "get_branch_status",
 		Description: "Per-agent CI + branch-vs-main status: each tracked agent's latest GitHub CI run and how its branch sits against origin/main (behind/ahead/merged). Read-only. Empty if the branch tracker is disabled.",
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, _ listArgs) (*mcpsdk.CallToolResult, any, error) {
@@ -654,23 +642,6 @@ func NewServer(daemonBase string) *Server {
 		}
 		res, err := jsonResult(statuses)
 		return res, nil, err
-	})
-
-	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{
-		Name:        "who_is_editing_file",
-		Description: "Show which agents are currently editing a specific file. Returns the agents sharing that file, or a note that no other agent is.",
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a whoIsEditingArgs) (*mcpsdk.CallToolResult, any, error) {
-		conflicts, err := s.cl.CollabConflicts(ctx)
-		if err != nil {
-			return textResult("error: " + err.Error()), nil, nil
-		}
-		for _, c := range conflicts {
-			if c.File == a.File {
-				res, err := jsonResult(c.Agents)
-				return res, nil, err
-			}
-		}
-		return textResult("no other agent is editing " + a.File), nil, nil
 	})
 
 	mcpsdk.AddTool(s.mcp, &mcpsdk.Tool{

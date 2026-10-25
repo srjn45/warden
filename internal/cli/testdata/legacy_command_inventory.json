@@ -278,32 +278,6 @@
     "json": true
   },
   {
-    "path": "collab",
-    "use": "collab",
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
-    "path": "collab conflicts",
-    "use": "conflicts",
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
-    "path": "collab who-is-editing",
-    "use": "who-is-editing <file>",
-    "runnable": true,
-    "inherited_flags": [
-      "addr",
-      "config"
-    ]
-  },
-  {
     "path": "commit",
     "use": "commit [paths...]",
     "runnable": true,

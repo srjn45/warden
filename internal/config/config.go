@@ -141,14 +141,6 @@ type AutoRestartConfig struct {
 	Reset string `yaml:"reset"`
 }
 
-// CollabConfig groups the file-conflict collaboration settings.
-type CollabConfig struct {
-	Enabled              bool   `yaml:"enabled"`
-	Interval             string `yaml:"interval"`
-	GitReconcileInterval string `yaml:"git_reconcile_interval"`
-	Hint                 bool   `yaml:"hint"`
-}
-
 // MemoryConfig groups the project-memory (.warden/memory.md) settings.
 type MemoryConfig struct {
 	Inject bool `yaml:"inject"`
@@ -391,9 +383,9 @@ type AutopilotGuardianConfig struct {
 // (AutoRestartResetDuration, etc.) to read them.
 //
 // Related settings are grouped into namespaced YAML blocks (rails, tokens,
-// notify, worktree, local_llm, pipeline, auto_restart, collab, memory,
+// notify, worktree, local_llm, pipeline, auto_restart, memory,
 // branch_track, rate_limit, http, log, plugins). Old flat keys (e.g.
-// token_guard, collab_enabled) are transparently migrated at load time and are
+// token_guard) are transparently migrated at load time and are
 // kept as deprecated aliases — they still work but emit a deprecation warning
 // once per daemon start.
 type Config struct {
@@ -464,7 +456,6 @@ type Config struct {
 	LocalLLM     LocalLLMConfig     `yaml:"local_llm"` // Deprecated: parsed, ignored
 	Pipeline     PipelineConfig     `yaml:"pipeline"`
 	AutoRestart  AutoRestartConfig  `yaml:"auto_restart"`
-	Collab       CollabConfig       `yaml:"collab"`
 	Memory       MemoryConfig       `yaml:"memory"`
 	BranchTrack  BranchTrackConfig  `yaml:"branch_track"`
 	Activity     ActivityConfig     `yaml:"activity"`
@@ -526,7 +517,6 @@ var schema = []setting{
 	{"local_llm", "Local-model, REPL, and LLM-offload settings (previously flat keys: local_llm, local_llm_url, local_llm_model, local_llm_timeout, local_llm_escalate, local_llm_tier, local_llm_classifier, repl). Sub-keys: enabled (was local_llm), url, model, timeout, escalate, tier, classifier, repl. Flat keys still load as deprecated aliases."},
 	{"pipeline", "Pipeline-execution settings (previously flat keys: pipeline_keep_done, pipeline_hint). Sub-keys: keep_done (keep a pipeline job's agent alive after it completes), hint (append the pipeline-decomposition hint to standalone agents), brain_consult (per-pipeline override for brain-consult; set false to silence brain consults for one pipeline; default true — see brain_consult block for the global switch). Flat keys still load as deprecated aliases. Values: true | false"},
 	{"auto_restart", "Auto-restart supervisor for errored opted-in agents (previously flat keys: auto_restart_max, auto_restart_reset). Sub-keys: max (integer >= 0, max restart attempts), reset (Go duration, e.g. 5m — sustained-health window that resets the counter). Flat keys still load as deprecated aliases."},
-	{"collab", "File-conflict collaboration settings (previously flat keys: collab_enabled, collab_interval, collab_hint). Sub-keys: enabled (warn agents editing the same file), interval (Go duration, e.g. 10s — watch reconcile + in-memory scan), git_reconcile_interval (Go duration, e.g. 2m — git diff backstop when fsnotify is active), hint (append the conflict-check hint to spawned agents). Flat keys still load as deprecated aliases."},
 	{"memory", "Project-memory (.warden/memory.md) settings (previously flat keys: memory_inject, memory_curate, memory_ground). Sub-keys: inject (project the repo's curated durable facts into every spawned agent via its system-prompt seam; off or an empty/absent file is byte-identical to no injection), curate (auto-propose UNVERIFIED entries from completion digests into the WORKING TREE only, gated by the committed diff — default OFF, opt-in), ground (answer project questions locally in `wd repl` on the local model, read-only, default ON — it REMOVES cloud round-trips). Flat keys still load as deprecated aliases. Values: true | false"},
 	{"branch_track", "Branch/CI tracker settings (previously flat keys: branch_track_enabled, branch_track_interval). Sub-keys: enabled (monitor each agent's branch for CI failures and drift from main, delivering informational inbox/desktop alerts), interval (Go duration, e.g. 2m — scan interval). Flat keys still load as deprecated aliases."},
 	{"activity", "Live activity-badge settings: the 3-5 word status badge shown next to each agent in the TUI. Sub-keys: enabled (default false; set true to make cosmetic activity-summary model calls), interval (Go duration, e.g. 15s — minimum gap between badge refreshes per agent; refreshed only while the agent's pane is changing, so idle agents cost no calls)."},
@@ -642,12 +632,6 @@ func defaults() Config {
 		AutoRestart: AutoRestartConfig{
 			Max:   3,
 			Reset: "5m",
-		},
-		Collab: CollabConfig{
-			Enabled:              true,
-			Interval:             "10s",
-			GitReconcileInterval: "2m",
-			Hint:                 true,
 		},
 		Memory: MemoryConfig{
 			Inject: true,
@@ -829,6 +813,7 @@ func LoadStrict(path string) (Config, error) {
 		return Config{}, fmt.Errorf("parse config %q: %w", path, err)
 	}
 	if len(doc.Content) > 0 && doc.Content[0].Kind == yaml.MappingNode {
+		retireCollabKeys(doc.Content[0])
 		migrateFlatToNamespaced(doc.Content[0])
 		migrateAutoApprove(doc.Content[0])
 		migrateAiCliDefault(doc.Content[0])
@@ -884,8 +869,6 @@ func validate(c *Config) {
 		c.Runtime.TraceMaxAgeDays = d.Runtime.TraceMaxAgeDays
 	}
 	c.AutoRestart.Reset = validDuration(c.AutoRestart.Reset, d.AutoRestart.Reset)
-	c.Collab.Interval = validDuration(c.Collab.Interval, d.Collab.Interval)
-	c.Collab.GitReconcileInterval = validDuration(c.Collab.GitReconcileInterval, d.Collab.GitReconcileInterval)
 	c.BranchTrack.Interval = validDuration(c.BranchTrack.Interval, d.BranchTrack.Interval)
 	c.Activity.Interval = validDuration(c.Activity.Interval, d.Activity.Interval)
 	c.RateLimit.RetryInterval = validDuration(c.RateLimit.RetryInterval, d.RateLimit.RetryInterval)
@@ -1032,7 +1015,8 @@ func Reconcile(path string) error {
 
 	// Migrate deprecated flat keys to namespaced blocks. Must run before the
 	// auto_approve migration and the add-missing loop, which use the same node.
-	changed := migrateFlatToNamespaced(mapping)
+	changed := retireCollabKeys(mapping)
+	changed = migrateFlatToNamespaced(mapping) || changed
 	// Migrate a legacy flat auto_approve (scalar bool, plus the Stage-A
 	// auto_approve_allow_sticky key) into the nested policy block.
 	changed = migrateAutoApprove(mapping) || changed
@@ -1139,11 +1123,6 @@ var flatKeyGroups = []keyGroup{
 		{"auto_restart_max", "max"},
 		{"auto_restart_reset", "reset"},
 	}},
-	{"collab", []keyAlias{
-		{"collab_enabled", "enabled"},
-		{"collab_interval", "interval"},
-		{"collab_hint", "hint"},
-	}},
 	{"memory", []keyAlias{
 		{"memory_inject", "inject"},
 		{"memory_curate", "curate"},
@@ -1184,6 +1163,28 @@ func migrateFlatToNamespaced(mapping *yaml.Node) bool {
 		if migrateGroup(mapping, g.block, g.keys) {
 			changed = true
 		}
+	}
+	return changed
+}
+
+// retireCollabKeys accepts configuration for the removed file-conflict detector
+// as a no-op. It runs before decode and duration validation, so old invalid
+// intervals cannot make an otherwise valid configuration fail. Reconcile calls
+// the same function to permanently strip the retired block and flat aliases.
+func retireCollabKeys(mapping *yaml.Node) bool {
+	changed := false
+	if findValue(mapping, "collab") != nil {
+		slog.Warn("config: retired collab block ignored; file-conflict detection was removed", "key", "collab")
+		removeKey(mapping, "collab")
+		changed = true
+	}
+	for _, key := range []string{"collab_enabled", "collab_interval", "collab_hint"} {
+		if findValue(mapping, key) == nil {
+			continue
+		}
+		slog.Warn("config: retired collab key ignored; file-conflict detection was removed", "key", key)
+		removeKey(mapping, key)
+		changed = true
 	}
 	return changed
 }
@@ -1721,10 +1722,6 @@ func (c Config) GetPipelineHint() bool { return c.Pipeline.Hint }
 // installed into spawned agents (blocks edits that escape the agent's worktree).
 func (c Config) GetIsolationGuard() bool { return c.Rails.IsolationGuard }
 
-// GetCollabHint reports whether the conflict-check hint is appended to spawned
-// agents so they coordinate on files other agents are editing.
-func (c Config) GetCollabHint() bool { return c.Collab.Hint }
-
 // GetMemoryInject reports whether the repo's curated .warden/memory.md is
 // projected into spawned agents via the system-prompt seam (#53 PR-1). Default
 // on; off (or an empty/absent memory file) makes a spawn byte-identical to no
@@ -1886,17 +1883,6 @@ func (c Config) RateLimitRetryIntervalDuration() time.Duration {
 // retrying an agent parked on a monthly spend cap, which carries no reset time.
 func (c Config) RateLimitSpendRetryIntervalDuration() time.Duration {
 	return durOr(c.RateLimit.SpendRetryInterval, 6*time.Hour)
-}
-
-// CollabIntervalDuration returns the file-conflict watch-reconcile interval.
-func (c Config) CollabIntervalDuration() time.Duration {
-	return durOr(c.Collab.Interval, 10*time.Second)
-}
-
-// CollabGitReconcileIntervalDuration returns how often git diff refreshes dirty
-// file state when fsnotify is active.
-func (c Config) CollabGitReconcileIntervalDuration() time.Duration {
-	return durOr(c.Collab.GitReconcileInterval, 2*time.Minute)
 }
 
 // BranchTrackIntervalDuration returns the branch-tracker scan interval.

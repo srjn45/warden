@@ -121,7 +121,7 @@ Complete command tree:
   warden project-groups members        Manage project group members
   warden project-groups members add    Add a project to a project group
   warden project-groups members remove Remove a project from a project group
-  warden workspace                     Inspect and manage warden git worktrees, snapshots, branches, and file collisions
+  warden workspace                     Inspect and manage warden git worktrees, snapshots, and branches
   warden workspace list                List warden worktrees under .worktrees, joined to active/archived records
   warden workspace prune               Reclaim orphaned warden worktrees under .worktrees (always asks; --force overrides guards)
   warden workspace clean               Delete merged local/origin branches and prune stale worktrees (previews, then asks)
@@ -130,8 +130,6 @@ Complete command tree:
   warden workspace snapshot list       List snapshots for an agent (newest first); --all for every session
   warden workspace snapshot restore    Re-apply a snapshot onto its recorded worktree (refuses a dirty tree unless --force)
   warden workspace branches            Per-agent CI + branch-vs-main status
-  warden workspace conflicts           List files currently being edited by more than one agent
-  warden workspace who-is-editing      Show which agents are editing a specific file
   warden git                           Commit, push, sync, and review an agent worktree on warden rails
   warden git commit                    Stage and commit the worktree (warden rails + hooks + bookkeeping)
   warden git push                      Push the current branch to origin (warden rails + bookkeeping)
@@ -283,9 +281,6 @@ Compatibility aliases:
   warden branches -> warden workspace branches (compatibility)
   warden check ls -> warden check list (compatibility)
   warden clean -> warden workspace clean (compatibility)
-  warden collab -> warden workspace (compatibility)
-  warden collab conflicts -> warden workspace conflicts (compatibility)
-  warden collab who-is-editing -> warden workspace who-is-editing (compatibility)
   warden cost (compatibility; no canonical equivalent)
   warden cost savings -> warden usage savings (compatibility)
   warden cost spend -> warden usage spend (compatibility)

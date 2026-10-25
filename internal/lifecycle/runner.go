@@ -145,9 +145,6 @@ type FakeConfig struct {
 	// PipelineHintOff disables the pipeline hint; the zero value leaves it on,
 	// matching the production default.
 	PipelineHintOff bool
-	// CollabHintOff disables the collab hint; the zero value leaves it on,
-	// matching the production default.
-	CollabHintOff bool
 	// IsolationGuardOff disables the PreToolUse isolation guard; the zero value
 	// leaves it on, matching the production default.
 	IsolationGuardOff bool
@@ -182,8 +179,6 @@ func (f *FakeConfig) GetDefaultPermissionMode() string {
 func (f *FakeConfig) GetModelDefault() string { return f.ModelDefault }
 
 func (f *FakeConfig) GetPipelineHint() bool { return !f.PipelineHintOff }
-
-func (f *FakeConfig) GetCollabHint() bool { return !f.CollabHintOff }
 
 // GetMemoryInject mirrors production's default-on: the zero value projects
 // .warden/memory.md; set MemoryInjectOff to exercise the disabled path.

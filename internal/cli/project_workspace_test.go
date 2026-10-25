@@ -26,8 +26,7 @@ func TestProjectWorkspaceNamespaceCanonicalAndCompatibilityPaths(t *testing.T) {
 		"workspace": "worktree", "workspace list": "worktree list", "workspace prune": "prune",
 		"workspace snapshot": "snapshot", "workspace snapshot create": "snapshot create",
 		"workspace snapshot list": "snapshot list", "workspace snapshot restore": "snapshot restore",
-		"workspace branches":  "branches",
-		"workspace conflicts": "collab conflicts", "workspace who-is-editing": "collab who-is-editing",
+		"workspace branches": "branches",
 	}
 	for canonical, legacy := range projectPairs {
 		assertCanonicalAliasPair(t, root, canonical, legacy, false)

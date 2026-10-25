@@ -44,11 +44,9 @@ func TestSystemPromptHintsSkippedForAider(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, "", lc.pipelineHint(aider))
-	require.Equal(t, "", lc.collabHint(aider))
 	require.Equal(t, "", lc.gitConventionsHint(aider))
 
 	// Claude (the default) still emits its --append-system-prompt fragments.
-	require.Contains(t, lc.collabHint(agentbackend.Default()), "--append-system-prompt")
 }
 
 // TestInjectContextRoutesToInjector verifies the ContextInjector seam: a backend
@@ -63,26 +61,20 @@ func TestInjectContextRoutesToInjector(t *testing.T) {
 	require.NoError(t, err)
 	dir := t.TempDir()
 	require.NoError(t, lc.injectContext(codex, dir,
-		hintGuidance(lc.config().GetCollabHint(), collabHintGuidance),
 		hintGuidance(lc.config().GetGitConventions(), gitConventionsGuidance),
 	))
 	got, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
 	require.NoError(t, err)
 	require.Contains(t, string(got), "<!-- warden:begin -->")
-	require.Contains(t, string(got), "who_is_editing_file", "collab hint reached the rules file")
 	require.Contains(t, string(got), "wd commit", "git-conventions hint reached the rules file")
 
 	// A backend without the injector seam (Aider) is silently skipped.
-	aider, err := agentbackend.Get("aider")
-	require.NoError(t, err)
 	aiderDir := t.TempDir()
-	require.NoError(t, lc.injectContext(aider, aiderDir, collabHintGuidance))
 	_, err = os.Stat(filepath.Join(aiderDir, "AGENTS.md"))
 	require.True(t, os.IsNotExist(err), "non-injector backend writes nothing")
 
 	// Claude (flag-based) is skipped too — its hints ride the launch line.
 	claudeDir := t.TempDir()
-	require.NoError(t, lc.injectContext(agentbackend.Default(), claudeDir, collabHintGuidance))
 	_, err = os.Stat(filepath.Join(claudeDir, "AGENTS.md"))
 	require.True(t, os.IsNotExist(err), "flag-based backend writes nothing")
 }
@@ -96,7 +88,6 @@ func TestInjectContextSkipsWhenAllHintsDisabled(t *testing.T) {
 	require.NoError(t, err)
 	dir := t.TempDir()
 	require.NoError(t, lc.injectContext(codex, dir,
-		hintGuidance(false, collabHintGuidance),
 		hintGuidance(false, gitConventionsGuidance),
 	))
 	_, err = os.Stat(filepath.Join(dir, "AGENTS.md"))

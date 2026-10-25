@@ -264,31 +264,6 @@ func (l *Lifecycle) injectContext(b agentbackend.Backend, workdir string, guidan
 	return inj.InjectContext(workdir, text)
 }
 
-// collabHintGuidance is appended to a freshly spawned agent's system prompt so
-// it cooperates with any agents running alongside it: check before editing a
-// file another agent already has open, and act on the daemon conflict warnings
-// that land in its inbox, instead of blindly overwriting concurrent work. The
-// daemon's collab monitor only ever warns; whether a warning changes behaviour
-// is up to the agent, and this hint is what makes it do so. Worded conditionally
-// so a solo agent (no concurrent peers) does nothing extra. No apostrophes —
-// keeps the single-quoted shell form (shellQuoteArg) clean.
-const collabHintGuidance = "warden may run other agents concurrently, each in its own git worktree. " +
-	"Before editing a file that peers are likely to touch, call who_is_editing_file " +
-	"(or get_collaboration_status) to see whether another agent is already changing it; " +
-	"if so, coordinate through send_message rather than overwriting their work. " +
-	"Check read_inbox for file-conflict warnings from the daemon and reconcile before you commit. " +
-	"This applies only when you share a repo with concurrent agents; for a solo task there is nothing to coordinate."
-
-// collabHint returns the claude flag fragment that injects collabHintGuidance as
-// a system-prompt addendum, or "" when the collab_hint config setting is
-// disabled. The leading space lets callers concatenate it directly onto a
-// claudeLaunch string. Applied to every spawn path that launches claude —
-// plain agents and pipeline jobs alike, since parallel jobs are the prime
-// file-conflict scenario.
-func (l *Lifecycle) collabHint(b agentbackend.Backend) string {
-	return systemPromptHint(b, l.config().GetCollabHint(), collabHintGuidance)
-}
-
 // gitConventionsGuidance steers a spawned agent toward warden's git lifecycle
 // tools instead of raw git Bash: warden enforces the branch rail, runs hooks
 // deterministically, and links the SHA to this agent record. This is the soft
@@ -1087,7 +1062,6 @@ type ConfigProvider interface {
 	GetDefaultPermissionMode() string
 	GetModelDefault() string
 	GetPipelineHint() bool
-	GetCollabHint() bool
 	GetMemoryInject() bool
 	GetIsolationGuard() bool
 	GetGitConventions() bool
@@ -2201,7 +2175,6 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, agent *
 	if err := l.injectContext(b, agent.Workdir,
 		persona,
 		hintGuidance(l.config().GetPipelineHint(), pipelineHintGuidance),
-		hintGuidance(l.config().GetCollabHint(), collabHintGuidance),
 		mem,
 		peers,
 	); err != nil {
@@ -2210,7 +2183,6 @@ func (l *Lifecycle) spawnFreeForm(ctx context.Context, req SpawnRequest, agent *
 	hints := l.systemPromptHints(ctx, b, agent.ID,
 		hintSpec{persona != "", persona},
 		hintSpec{l.config().GetPipelineHint(), pipelineHintGuidance},
-		hintSpec{l.config().GetCollabHint(), collabHintGuidance},
 		hintSpec{l.config().GetMemoryInject(), mem},
 		hintSpec{peers != "", peers})
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{
@@ -2316,7 +2288,6 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, agent *age
 	if err := l.injectContext(b, agent.Workdir,
 		persona,
 		hintGuidance(l.config().GetPipelineHint(), pipelineHintGuidance),
-		hintGuidance(l.config().GetCollabHint(), collabHintGuidance),
 		hintGuidance(l.config().GetGitConventions(), gitConventionsGuidance),
 		mem,
 		peers,
@@ -2331,7 +2302,6 @@ func (l *Lifecycle) spawnTyped(ctx context.Context, req SpawnRequest, agent *age
 	hints := l.systemPromptHints(ctx, b, agent.ID,
 		hintSpec{persona != "", persona},
 		hintSpec{l.config().GetPipelineHint(), pipelineHintGuidance},
-		hintSpec{l.config().GetCollabHint(), collabHintGuidance},
 		hintSpec{l.config().GetGitConventions(), gitConventionsGuidance},
 		hintSpec{l.config().GetMemoryInject(), mem},
 		hintSpec{peers != "", peers})
@@ -2693,7 +2663,6 @@ func (l *Lifecycle) SwitchRole(ctx context.Context, agent *agentstore.Agent) err
 	if err := l.injectContext(b, agent.Workdir,
 		persona,
 		hintGuidance(l.config().GetPipelineHint(), pipelineHintGuidance),
-		hintGuidance(l.config().GetCollabHint(), collabHintGuidance),
 		hintGuidance(l.config().GetGitConventions(), gitConventionsGuidance),
 		mem,
 		peers,
@@ -2703,7 +2672,6 @@ func (l *Lifecycle) SwitchRole(ctx context.Context, agent *agentstore.Agent) err
 	hints := l.systemPromptHints(ctx, b, agent.ID,
 		hintSpec{persona != "", persona},
 		hintSpec{l.config().GetPipelineHint(), pipelineHintGuidance},
-		hintSpec{l.config().GetCollabHint(), collabHintGuidance},
 		hintSpec{l.config().GetGitConventions(), gitConventionsGuidance},
 		hintSpec{l.config().GetMemoryInject(), mem},
 		hintSpec{peers != "", peers})
@@ -3604,7 +3572,6 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 	peers := l.peerGuidance(ctx, agent)
 	if err := l.injectContext(b, agent.Workdir,
 		persona,
-		hintGuidance(l.config().GetCollabHint(), collabHintGuidance),
 		mem,
 		peers,
 	); err != nil {
@@ -3612,7 +3579,6 @@ func (l *Lifecycle) SpawnJob(ctx context.Context, req JobSpawnRequest) (*agentst
 	}
 	hints := l.systemPromptHints(ctx, b, id,
 		hintSpec{persona != "", persona},
-		hintSpec{l.config().GetCollabHint(), collabHintGuidance},
 		hintSpec{l.config().GetMemoryInject(), mem},
 		hintSpec{peers != "", peers})
 	launch := b.LaunchCmd(agentbackend.LaunchOpts{

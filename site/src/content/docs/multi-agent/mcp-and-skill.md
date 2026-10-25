@@ -45,7 +45,6 @@ Register `warden daemon mcp` as an MCP server in your orchestrator agent's MCP c
 | `set_auto_approve` / `set_auto_approve_policy` | Per-agent auto-approve toggle / manage the allow-deny rule policy (tool/glob/regex/paths, per-agent overrides) |
 | `set_permission_mode` | Change an agent's permission mode |
 | `commit` / `push` / `sync` / `check` | The git + check lifecycle on an agent's branch (warden rails) |
-| `get_collaboration_status` / `who_is_editing_file` | See which agents are editing the same files |
 | `get_branch_status` | Per-agent CI status + standing vs `origin/main` (the branch monitor, read-only) |
 | `create_pipeline` / `validate_pipeline` / `list_pipeline_templates` | Author / locally validate / list templates for a DAG pipeline |
 | `start_pipeline` / `pause_pipeline` / `resume_pipeline` / `cancel_pipeline` | Run / pause / resume / cancel a pipeline |
@@ -71,7 +70,7 @@ Example orchestrator prompts:
 - *"Spawn a debug-ci agent in /path/to/repo"* → `spawn_agent` with `type`+`repo`
 - *"Stop PROJ-350"* → `terminate_agent` (reversible); "clear its record too" → `delete_agent`; *"tear PROJ-350 down completely"* → `stop_agent` (default: terminate + clear record + remove worktree)
 - *"Kick off the analyze-implement-review pipeline on /path/to/repo"* → `create_pipeline` (template) + `start_pipeline`
-- *"Commit and push agent-4f2a's branch"* → `commit` then `push`; *"is anyone else editing auth.go?"* → `who_is_editing_file`
+- *"Commit and push agent-4f2a's branch"* → `commit` then `push`
 
 > Prefer natural language over tool calls? `warden repl` is a Fast-Brain conductor REPL that drives these same operations from plain English without an orchestrator agent session — see [Interactive REPL](/warden/multi-agent/repl/).
 

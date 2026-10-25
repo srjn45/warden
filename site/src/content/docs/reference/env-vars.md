@@ -69,10 +69,6 @@ Common settings (run `warden config` for the complete, live list):
 | `savings` | `true` | Record the token-savings ledger (`warden usage savings`, `GET /api/v1/savings`) |
 | `savings_samples` | `false` | Retain raw-vs-kept provenance samples for `warden usage savings --audit` (may hold sensitive output) |
 | `scheduler_enabled` | `false` | Enable the native cron/at scheduler (`warden schedule create/list/show/run/edit/enable/disable/delete`) |
-| `collab.enabled` | `true` | File-conflict detection across agent worktrees |
-| `collab.interval` | `10s` | Watch-reconcile + in-memory conflict scan interval |
-| `collab.git_reconcile_interval` | `2m` | Git-diff backstop when fsnotify is active (polling-only mode uses `collab.interval` instead) |
-| `collab.hint` | `true` | Append the conflict-check coordination hint to spawned agents |
 | `branch_track.enabled` | `false` | Enable the per-agent branch monitor (`warden workspace branches`) |
 | `branch_track.interval` | `2m` | Poll interval for the branch monitor |
 | `activity.interval` | `15s` | Minimum gap between live activity-badge refreshes per agent (the 3-5 word status badge on each TUI agent row). Refreshes only while the agent's pane is changing, so idle agents cost no Fast-Brain calls; a failed/empty decision keeps the previous badge |

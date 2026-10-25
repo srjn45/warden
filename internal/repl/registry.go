@@ -195,18 +195,6 @@ func NewRegistry() *Registry {
 			},
 		},
 		{
-			Schema: llm.ToolSchema{Name: "get_collaboration_status",
-				Description: "List files currently edited by more than one agent (inter-agent conflicts).",
-				Parameters:  objSchema(map[string]any{})},
-			invoke: func(ctx context.Context, d Daemon, _ map[string]any) (string, error) {
-				c, err := d.CollabConflicts(ctx)
-				if err != nil {
-					return "", err
-				}
-				return jsonish(c), nil
-			},
-		},
-		{
 			Schema: llm.ToolSchema{Name: "read_inbox",
 				Description: "Read directed messages addressed to an agent (marks them read).",
 				Parameters: objSchema(map[string]any{
