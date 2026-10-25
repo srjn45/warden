@@ -26,10 +26,13 @@ that can observe or directly host that session.
 |---|---|---|---|
 | `off` (default) | tmux, exactly as before | tmux, exactly as before | none |
 | `shadow` | tmux, same launch path; output mirrored with `tmux pipe-pane` | tmux, mirrored | yes, observe-only |
-| `on` | as `shadow` | hosted **directly** on a warden-owned PTY (no tmux session) | yes; interactive for terminals |
+| `on` | as `shadow`; not direct-agent opt-in | hosted **directly** on a warden-owned PTY (no tmux session) | yes; interactive for terminals |
 
 - **Shadow never writes to a pane.** The pollers keep deciding status and answering
   approvals exactly as today; the journal is a side channel.
+- **Compatibility:** upgrading to a version with this runtime never converts agents:
+  `on` applies only to new plain-shell terminals. Agents remain tmux-hosted until a
+  separate explicit operator gate and adapter capability are available.
 - **Turning it back to `off`** stops every mirror (the panes keep running). Direct
   terminals keep running until they exit.
 - **Restart:** tmux panes survive a daemon restart, and the next daemon re-adopts their
@@ -103,7 +106,7 @@ fixture replay, with an expiry and confidence floor.
 Every client renders the same documents:
 
 ```sh
-warden inspect pty runtime <id>      # state, typed waiting reason, evidence, input owner, route, posture
+warden inspect pty runtime <id>      # requested vs actual host/authority, evidence source/freshness, state and posture
 warden inspect pty decisions <id>    # redacted, append-only decision trace (newest first)
 warden inspect pty metrics           # warden_pty_* snapshot (Prometheus text at /api/v1/pty/metrics.prom)
 ```

@@ -111,6 +111,15 @@ func FormatRuntime(v ptyobs.RuntimeView) string {
 	}
 	fmt.Fprintf(&b, "session   %s\n", v.SessionID)
 	fmt.Fprintf(&b, "runtime   %s (supervised=%t authoritative=%t)\n", v.Mode, v.Supervised, v.Authoritative)
+	if v.RequestedMode != "" || v.ActualKind != "" || v.ProcessOwner != "" {
+		fmt.Fprintf(&b, "host      requested=%s actual=%s owner=%s\n", v.RequestedMode, v.ActualKind, v.ProcessOwner)
+	}
+	if v.EvidenceSource != "" || v.EvidenceFreshness != "" {
+		fmt.Fprintf(&b, "evidence  source=%s freshness=%s\n", v.EvidenceSource, v.EvidenceFreshness)
+	}
+	if v.UnsupportedReason != "" {
+		fmt.Fprintf(&b, "readiness %s\n", v.UnsupportedReason)
+	}
 	fmt.Fprintf(&b, "posture   %s\n", v.Posture)
 	if !v.Supervised {
 		b.WriteString("(no PTY event stream backs this session; state comes from the legacy poller)\n")

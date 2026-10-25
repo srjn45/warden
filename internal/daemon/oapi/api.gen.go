@@ -1764,7 +1764,7 @@ type PTYDecisionRecord = ptyobs.TraceRecord
 // PTYMetricsSnapshot Point-in-time copy of every warden_pty_* metric family.
 type PTYMetricsSnapshot = ptyobs.Snapshot
 
-// PTYRuntimeView Live runtime status (state, typed reason, evidence trail, input owner, posture/danger, decision route, prompt summary).
+// PTYRuntimeView Live runtime status (requested versus observed host/authority, evidence source/freshness, typed reason and evidence trail, input owner, posture/danger, decision route, prompt summary). A shadow mirror is never direct or authoritative.
 type PTYRuntimeView = ptyobs.RuntimeView
 
 // PermissionSummary Human-readable permission prompt: class, capabilities, subject, target, scope, question, offered options (with the chosen one), fingerprint, provenance, confidence and a one-sentence text.

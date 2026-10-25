@@ -143,6 +143,9 @@ func TestPTYRuntimeViewActualKindTruthfulWhenGlobalModeDiffers(t *testing.T) {
 	require.Equal(t, "off", rv.RequestedMode, "requested_mode reports requested global mode")
 	require.Equal(t, "direct", rv.ActualKind, "actual_kind is truthful even when global mode is off")
 	require.Equal(t, "daemon", rv.ProcessOwner)
+	require.Equal(t, "live", rv.EvidenceSource)
+	require.Equal(t, "fresh", rv.EvidenceFreshness)
+	require.Empty(t, rv.UnsupportedReason)
 
 	// 2. Mirrored agent under tmux
 	agentID := "agent-tmux"
@@ -166,4 +169,26 @@ func TestPTYRuntimeViewActualKindTruthfulWhenGlobalModeDiffers(t *testing.T) {
 	require.Equal(t, "on", rv.RequestedMode, "requested_mode reports requested global mode")
 	require.Equal(t, "tmux", rv.ActualKind, "actual_kind is truthful even when global mode is on")
 	require.Equal(t, "tmux", rv.ProcessOwner)
+	require.False(t, rv.Authoritative, "a mirrored agent is never authoritative")
+	require.Equal(t, "record", rv.EvidenceSource, "no live mirror is attached, so the kind comes from the durable record")
+	require.Equal(t, "recorded", rv.EvidenceFreshness)
+	require.Contains(t, rv.UnsupportedReason, "observe-only")
+}
+
+func TestPTYRuntimeViewRecordedEvidenceIsNotLiveAuthority(t *testing.T) {
+	_, _, ts, fs := ptyServer(t, ptyhost.ModeOn)
+	ctx := context.Background()
+	require.NoError(t, fs.Insert(ctx, &agentstore.Agent{
+		ID: "agent-recorded", TmuxSession: "agent-recorded",
+		Runtime: &store.SessionRuntime{Kind: "direct", PinnedMode: "on"},
+	}))
+
+	code, body := getBody(t, ts.URL+"/api/v1/sessions/agent-recorded/runtime")
+	require.Equal(t, http.StatusOK, code, body)
+	var rv ptyobs.RuntimeView
+	require.NoError(t, json.Unmarshal([]byte(body), &rv))
+	require.Equal(t, "direct", rv.ActualKind)
+	require.False(t, rv.Authoritative, "durable metadata is not a live control claim")
+	require.Equal(t, "record", rv.EvidenceSource)
+	require.Equal(t, "recorded", rv.EvidenceFreshness)
 }

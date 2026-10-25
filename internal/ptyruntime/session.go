@@ -154,6 +154,11 @@ var (
 	ErrAbandoned = errors.New("ptyruntime: automatic input abandoned (human kept the line); re-decide")
 	ErrInputRej  = errors.New("ptyruntime: input rejected")
 	ErrEmitKind  = errors.New("ptyruntime: event kind is runtime-owned")
+	// ErrPreempted: a human typed after the automated input was issued, so the
+	// (now stale) input is dropped rather than written over their line.
+	ErrPreempted = errors.New("ptyruntime: input preempted by a human; stale automated input dropped")
+	// ErrDuplicate: a sequence with the same OnceKey was already issued.
+	ErrDuplicate = errors.New("ptyruntime: duplicate once-only input refused")
 )
 
 type item struct {
@@ -195,7 +200,12 @@ type Session struct {
 	// Controller lease (guarded by writer.mu): one controller per session.
 	ctl       controller
 	genSeq    uint64
-	lastInput map[string]uint64 // client -> highest applied fenced input id
+	lastInput map[string]uint64   // client -> highest applied fenced input id
+	once      map[string]struct{} // OnceKeys already issued (guarded by writer.mu)
+	// seqMu serializes automatic multi-part writes.  It intentionally does not
+	// cover human Input: a human can always preempt a sequence during its gap,
+	// and the per-part HumanSeq fence then drops the remaining automatic input.
+	seqMu sync.Mutex
 }
 
 // Start launches cfg.Argv on a new PTY and starts journaling. The first event
@@ -397,6 +407,13 @@ type Write struct {
 	// Fence, when set, makes the write conditional on the client still holding
 	// the controller lease it was issued under, and de-duplicates resent input.
 	Fence *Fence
+	// FenceHuman drops the write (ErrPreempted) when a human has typed since
+	// HumanSeq: the input was decided against a screen/line the human has since
+	// changed. HumanSeqOut, when set, receives the lease's HumanSeq at the
+	// moment of a successful write (read under the same lock).
+	FenceHuman  bool
+	HumanSeq    uint64
+	HumanSeqOut *uint64
 }
 
 // Input arbitrates w against the input lease (human always wins; automatic
@@ -418,6 +435,9 @@ func (s *Session) Input(w Write) (ptyevent.Arbitration, error) {
 	if s.pendingGap {
 		_ = s.gap()
 	}
+	if w.FenceHuman && s.lease.HumanSeq != w.HumanSeq {
+		return ptyevent.Arbitration{Verdict: ptyevent.VerdictReject, Reason: ErrPreempted.Error()}, ErrPreempted
+	}
 	req := ptyevent.InputRequest{Origin: w.Origin, ClientID: w.ClientID, At: time.Now(), Seq: s.j.NextSeq(),
 		Data: w.Data, DecisionID: w.DecisionID, Reason: w.Reason, FirstDeferredAt: w.FirstDeferredAt}
 	lease, arb := ptyevent.Arbitrate(s.lease, req, s.opt.Ownership)
@@ -426,6 +446,9 @@ func (s *Session) Input(w Write) (ptyevent.Arbitration, error) {
 		return arb, nil
 	}
 	defer func() { s.lease = ptyevent.Release(s.lease, w.Origin) }()
+	if w.HumanSeqOut != nil {
+		*w.HumanSeqOut = s.lease.HumanSeq
+	}
 	mode, merr := ttyMode(s.master)
 	secret := s.credPrompt
 	if merr != nil {
@@ -843,5 +866,91 @@ func (s *Session) Close() error {
 		s.hub.close()
 		s.wg.Wait()
 	})
+	return nil
+}
+
+// WriteSequence writes q as one authority-checked unit through the same input
+// lease every client uses. Rules:
+//
+//   - a human typing always wins: the first part waits for them (operator) or
+//     is abandoned (warden past MaxDefer), exactly like WriteWait;
+//   - warden sequences are fenced at issue time — if a human typed between the
+//     call and the first write the sequence is dropped (ErrPreempted), because
+//     what it was decided against is stale;
+//   - once the first part is in, any human keystroke before the next part drops
+//     the rest (an Enter would submit the human's text mixed with ours);
+//   - OnceKey makes the sequence idempotent (ErrDuplicate). The key is released
+//     only when nothing was written, so a retry after a clean failure works but
+//     a possibly-delivered sequence is never replayed.
+func (s *Session) WriteSequence(ctx context.Context, q ptyevent.Sequence) error {
+	if q.Origin != ptyevent.OriginOperator && q.Origin != ptyevent.OriginWarden {
+		return fmt.Errorf("%w: sequence origin %q", ErrInputRej, q.Origin)
+	}
+	if len(q.Parts) == 0 {
+		return nil
+	}
+	// Take this snapshot before waiting for another sequence.  In particular, a
+	// warden decision is about the screen at call time, not the later time when
+	// it reaches the front of the automatic-input queue.
+	s.mu.Lock()
+	issued := s.lease.HumanSeq
+	if q.OnceKey != "" {
+		if _, dup := s.once[q.OnceKey]; dup {
+			s.mu.Unlock()
+			return ErrDuplicate
+		}
+		if s.once == nil {
+			s.once = map[string]struct{}{}
+		}
+		s.once[q.OnceKey] = struct{}{}
+	}
+	s.mu.Unlock()
+
+	// Do not hold s.mu here: human input must remain able to preempt a queued or
+	// in-progress automatic sequence.  This only excludes other automatic
+	// sequences, so their paste/submit parts cannot interleave.
+	s.seqMu.Lock()
+	defer s.seqMu.Unlock()
+	written := false
+	release := func() {
+		if q.OnceKey != "" && !written {
+			s.mu.Lock()
+			delete(s.once, q.OnceKey)
+			s.mu.Unlock()
+		}
+	}
+	defer release()
+
+	base := issued
+	for i, p := range q.Parts {
+		w := Write{Origin: q.Origin, Data: p.Data, DecisionID: q.DecisionID, Reason: q.Reason}
+		switch {
+		case i > 0:
+			w.FenceHuman, w.HumanSeq = true, base
+		case q.Origin == ptyevent.OriginWarden:
+			w.FenceHuman, w.HumanSeq = true, base
+		}
+		if i == 0 {
+			// Capture the human sequence atomically with the first write, so an
+			// operator send that waited out a human fences from the moment it landed.
+			w.HumanSeqOut = &base
+		}
+		if err := s.WriteWait(ctx, w); err != nil {
+			return err
+		}
+		written = true
+		if p.Gap > 0 && i < len(q.Parts)-1 {
+			t := time.NewTimer(p.Gap)
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return ctx.Err()
+			case <-s.closing:
+				t.Stop()
+				return ErrClosed
+			case <-t.C:
+			}
+		}
+	}
 	return nil
 }

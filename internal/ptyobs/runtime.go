@@ -25,6 +25,13 @@ type RuntimeView struct {
 	RequestedMode string `json:"requested_mode,omitempty"`
 	ActualKind    string `json:"actual_kind,omitempty"`
 	ProcessOwner  string `json:"process_owner,omitempty"`
+	// EvidenceSource and EvidenceFreshness say what substantiates the runtime
+	// identity. A durable record is useful history, never proof of live control.
+	EvidenceSource    string `json:"evidence_source,omitempty"`
+	EvidenceFreshness string `json:"evidence_freshness,omitempty"`
+	// UnsupportedReason is an actionable, safe explanation when direct-agent
+	// authority is unavailable. It is deliberately not an enablement control.
+	UnsupportedReason string `json:"unsupported_reason,omitempty"`
 	// Supervised is false when no event stream backs the session (runtime off
 	// at spawn); the remaining fields are then zero.
 	Supervised    bool   `json:"supervised"`

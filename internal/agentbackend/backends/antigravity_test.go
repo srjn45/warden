@@ -805,6 +805,20 @@ func TestAntigravityParseRateLimitReset_ResetsAt(t *testing.T) {
 	}
 }
 
+func TestAntigravityParseClockResetPreservesWallClockAcrossDST(t *testing.T) {
+	loc, err := time.LoadLocation("Europe/Madrid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Europe/Madrid falls back overnight on 2026-10-25. A reset at 15:30
+	// requested after 15:30 on the 24th must still be 15:30 the next day;
+	// adding a fixed 24 hours incorrectly produces 14:30.
+	now := time.Date(2026, time.October, 24, 16, 0, 0, 0, loc)
+	got, ok := antigravityParseClockReset("quota reached. resets at 15:30", now)
+	require.True(t, ok)
+	require.Equal(t, time.Date(2026, time.October, 25, 15, 30, 0, 0, loc), got)
+}
+
 // TestAntigravityParseRateLimitReset_NoTime verifies that a pane with no clock
 // time returns ok=false — the scheduler then applies the fallback retry interval.
 func TestAntigravityParseRateLimitReset_NoTime(t *testing.T) {

@@ -66,14 +66,57 @@ func (s *Server) wirePromptEngine() {
 			}
 			return agentbackend.Default()
 		},
-		CLIVersion: newVersionProbe().Version,
-		Notify:     s.notify,
-		Trace:      s.openDecisionTrace(),
-		Metrics:    s.ptyMetrics,
+		CLIVersion:      newVersionProbe().Version,
+		StrategyContext: s.canonicalStrategyContext,
+		Notify:          s.notify,
+		Trace:           s.openDecisionTrace(),
+		Metrics:         s.ptyMetrics,
 	}, rt, s.store, router, classif, learner)
 	s.promptEngine = eng
 	s.classifier.OnPrompt = eng.OnPrompt
 	s.classifier.OnUnreadable = eng.OnUnreadable
+}
+
+// canonicalStrategyContext deliberately reads the daemon's canonical plan
+// store, never a plans/*.yaml export. A missing plan/task returns no context;
+// decisionrouter then fences the strategic answer as needs_attention.
+func (s *Server) canonicalStrategyContext(ctx context.Context, ag *agentstore.Agent, runID string) promptengine.StrategyContext {
+	if s.plans == nil || ag == nil || runID == "" || strings.TrimSpace(ag.PlanID) == "" {
+		return promptengine.StrategyContext{}
+	}
+	p, err := s.plans.Get(ctx, ag.PlanID)
+	if err != nil || p == nil || p.AutopilotRunID != runID {
+		return promptengine.StrategyContext{}
+	}
+	var task string
+	for _, candidate := range p.Tasks {
+		if candidate.ID == ag.AutopilotTaskID {
+			task = candidate.Prompt
+			break
+		}
+	}
+	// Manager prompts do not carry a worker task id. They may still be routed
+	// only when the canonical plan identifies exactly one active task; ambiguity
+	// remains fenced rather than selecting an arbitrary task.
+	if task == "" && ag.AutopilotTaskID == "" {
+		for _, candidate := range p.Tasks {
+			if p.TaskProgress[candidate.ID] != "in_progress" {
+				continue
+			}
+			if task != "" {
+				return promptengine.StrategyContext{}
+			}
+			task = candidate.Prompt
+		}
+	}
+	if task == "" {
+		return promptengine.StrategyContext{}
+	}
+	return promptengine.StrategyContext{
+		PlanGoal:    p.Goal,
+		ActiveTask:  task,
+		Constraints: strings.Join(p.Constraints, "\n"),
+	}
 }
 
 // ptyRuntime adapts the PTY manager to promptengine.Runtime. A direct session

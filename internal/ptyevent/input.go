@@ -170,3 +170,29 @@ func humanLineOpen(open bool, data []byte) bool {
 	}
 	return open
 }
+
+// SeqPart is one write of an input Sequence.
+type SeqPart struct {
+	Data []byte
+	// Gap is how long to wait AFTER this part before the next one (a TUI needs
+	// a beat between a bracketed paste and the Enter that submits it).
+	Gap time.Duration
+}
+
+// Sequence is a multi-write automatic or operator input that must land as one
+// unit: a paste followed by its submit, a seed, a resume. It is the single
+// authority-aware shape every non-human writer uses, so human typing,
+// operator sends and warden automation all arbitrate through one lease.
+type Sequence struct {
+	// Origin is OriginOperator or OriginWarden; human input never uses a
+	// Sequence (it is written immediately and takes the lease).
+	Origin Origin
+	// DecisionID / Reason: one is required for OriginWarden (seed, resume…).
+	DecisionID string
+	Reason     string
+	// OnceKey, when set, makes the sequence idempotent for the life of the
+	// session: a second sequence with the same key is refused, never replayed.
+	// Use it for the initial seed and rate-limit/compact resumes.
+	OnceKey string
+	Parts   []SeqPart
+}

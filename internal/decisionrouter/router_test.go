@@ -50,7 +50,7 @@ type mockInputWriter struct {
 	origins []ptyevent.Origin
 }
 
-func (w *mockInputWriter) WriteInput(ctx context.Context, data []byte, origin ptyevent.Origin, decisionID string) error {
+func (w *mockInputWriter) WriteInput(ctx context.Context, data []byte, origin ptyevent.Origin, decisionID string, _ uint64) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.written = append(w.written, data...)
@@ -321,6 +321,12 @@ func TestStrategicDecisionHumanInboxVsAutopilotConsult(t *testing.T) {
 	}
 	if res.Decision.Action != ptyevent.ActionNeedsAttention {
 		t.Errorf("expected needs_attention on brain consult failure, got %s", res.Decision.Action)
+	}
+	if res.Decision.Rule != "canonical-plan-context-missing" {
+		t.Errorf("missing canonical context must fence before consult, got rule %q", res.Decision.Rule)
+	}
+	if len(consultorFail.reqs) != 0 {
+		t.Errorf("missing canonical context must not call consultor")
 	}
 }
 

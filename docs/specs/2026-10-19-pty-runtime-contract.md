@@ -236,6 +236,10 @@ Origins: `human` (keyboard in an attached client), `operator` (explicit API/CLI/
 3. Automatic input is **deferred** while a human holds the lease: within `HumanQuiet` (3 s) of their last keystroke, **or** while they have a half-typed line open. Enter closes the line; Ctrl-C, Ctrl-U and a lone Esc clear it; arrow keys don't open it. A warden write deferred past `MaxDefer` (30 s) is **abandoned** and re-decided from fresh evidence. Operator writes simply wait.
 4. Otherwise → `write`. `Release` frees the line when the write completes.
 
+**Sequences (02b-04).** Every non-human writer on a directly hosted AI agent goes through `Session.WriteSequence(ptyevent.Sequence)` — one authority for operator sends, seeds and resumes (`Lifecycle.InputAs` / `SendKeysAs`, `routed.AuthoredInput`). A sequence is a paste plus its submit as one unit: a warden sequence is fenced at *issue* time (a human keystroke after it was decided drops it, `ErrPreempted`), and for any automatic or operator sequence a human keystroke between parts drops the rest, so an Enter never submits a human's half-typed line. `OnceKey` makes a seed/resume idempotent for the session (`ErrDuplicate`); the key is released only when nothing was written. Warden-origin input to a shell terminal is refused (`ErrNotManagedAI`) and a non-direct session reports `ErrNotDirect` so legacy tmux keeps its path. A nested, manually launched AI CLI lives inside a shell, so it is never a managed agent.
+
+**State ownership (02b-04).** For a record with `Runtime.Kind == "direct"` the poller stands down from status, approvals, trust/limit menus and input (`poller/direct.go`); it keeps only provider session-id discovery, quota-scope observation and the once-per-episode rate-limit observation for the scheduler. The classifier writes store status only for live `direct` records, never the process end (the lifecycle observer owns it, with the exit code) and never over a final status. Legacy/explicit-tmux records are unchanged.
+
 The lease's `HumanSeq` (journal seq of the last human input) feeds TOCTOU (§11). Resize uses no lease (last writer wins), but every resize is journaled with its origin.
 
 ---
