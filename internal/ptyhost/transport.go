@@ -54,6 +54,8 @@ import (
 //   - text {"type":"controller","generation":N} — answers takeover.
 //   - text {"type":"rejected","reason"} — an input frame was refused (stale
 //     generation); the client must re-take control before typing.
+//   - text {"type":"notice","reason"} — informational (additive; older clients
+//     ignore it): e.g. a resize beyond the screen-model bounds was refused.
 
 // ClientFrame is a client text frame.
 type ClientFrame struct {
@@ -138,6 +140,53 @@ func (a *acks) get(name, client string) (ptyevent.Cursor, bool) {
 	return c, ok
 }
 
+// MaxViewersPerSession caps concurrent attach clients (any mode, any
+// transport) per session — budget ViewersPerSession. Each viewer may pin up to
+// SlowViewerMaxBytes, so an unbounded count is unbounded daemon memory.
+const MaxViewersPerSession = 16
+
+// ErrTooManyViewers refuses an attach beyond MaxViewersPerSession.
+var ErrTooManyViewers = errors.New("ptyhost: too many viewers attached to this session (limit 16); close another attach, cockpit pane or browser tab of it and retry")
+
+// viewers counts attach clients per session name.
+type viewers struct {
+	mu sync.Mutex
+	n  map[string]int
+}
+
+// AdmitViewer reserves one of name's attach slots for the lifetime of a
+// client connection; release frees it (idempotent). Callers admit BEFORE
+// upgrading the connection so a refusal is a plain HTTP error.
+func (m *Manager) AdmitViewer(name string) (release func(), err error) {
+	v := &m.viewers
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.n[name] >= MaxViewersPerSession {
+		return nil, ErrTooManyViewers
+	}
+	if v.n == nil {
+		v.n = map[string]int{}
+	}
+	v.n[name]++
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			v.mu.Lock()
+			defer v.mu.Unlock()
+			if v.n[name]--; v.n[name] <= 0 {
+				delete(v.n, name)
+			}
+		})
+	}, nil
+}
+
+// ViewerCount reports name's admitted attach clients.
+func (m *Manager) ViewerCount(name string) int {
+	m.viewers.mu.Lock()
+	defer m.viewers.mu.Unlock()
+	return m.viewers.n[name]
+}
+
 // Serve speaks the §6 protocol for t over conn until the client leaves, ctx
 // ends, or the session closes. clientID names this socket (input and resize
 // origin); a hello may override it to resume its own acked cursor.
@@ -195,6 +244,14 @@ func (m *Manager) Serve(ctx context.Context, conn *websocket.Conn, t Target, cli
 		}
 	}
 	defer stopStream()
+
+	// resize applies the controller's size; an out-of-bounds size is refused
+	// (the session keeps its size) and the client is told why.
+	resize := func(cols, rows uint16) {
+		if err := t.Direct.Resize(cols, rows, ptyevent.OriginHuman, clientID); errors.Is(err, ptyruntime.ErrResizeTooLarge) {
+			_ = writeText(ServerFrame{Type: "notice", Reason: err.Error()})
+		}
+	}
 
 	hctx, hcancel := context.WithTimeout(ctx, helloTimeout)
 	defer hcancel()
@@ -266,7 +323,7 @@ func (m *Manager) Serve(ctx context.Context, conn *websocket.Conn, t Target, cli
 					watchDemotion(c)
 					ci.controller, ci.gen = true, c.Generation
 					if f.Cols > 0 && f.Rows > 0 {
-						_ = t.Direct.Resize(f.Cols, f.Rows, ptyevent.OriginHuman, clientID)
+						resize(f.Cols, f.Rows)
 					}
 				case errors.Is(err, ptyruntime.ErrControllerBusy):
 					ci.holder, ci.gen = t.Direct.ControllerInfo()
@@ -309,7 +366,7 @@ func (m *Manager) Serve(ctx context.Context, conn *websocket.Conn, t Target, cli
 			// Resize follows the controller (last controller wins); a viewer's
 			// size is ignored so it cannot reflow someone else's session.
 			if interactive && t.Direct != nil && held.Load() != nil && f.Cols > 0 && f.Rows > 0 {
-				_ = t.Direct.Resize(f.Cols, f.Rows, ptyevent.OriginHuman, clientID)
+				resize(f.Cols, f.Rows)
 			}
 		case "ack":
 			if j := t.Stream.Journal(); f.Seq > 0 && f.Seq <= j.Last().Seq {

@@ -500,6 +500,10 @@ func (s *Session) WriteWait(ctx context.Context, w Write) error {
 	}
 }
 
+// ErrResizeTooLarge refuses a size beyond the screen-model bounds; the
+// session keeps its current size.
+var ErrResizeTooLarge = errors.New("ptyruntime: terminal size exceeds the supported maximum (1024 columns, 1024 rows, 262144 cells); shrink the window and retry")
+
 // Resize applies a window size (last writer wins) and journals it with its
 // origin.
 func (s *Session) Resize(cols, rows uint16, origin ptyevent.Origin, clientID string) error {
@@ -510,6 +514,9 @@ func (s *Session) Resize(cols, rows uint16, origin ptyevent.Origin, clientID str
 	}
 	if cols == 0 || rows == 0 {
 		return ptyevent.ErrResize
+	}
+	if !FitsScreen(int(cols), int(rows)) {
+		return fmt.Errorf("%w: %dx%d", ErrResizeTooLarge, cols, rows)
 	}
 	if !origin.Valid() {
 		return ptyevent.ErrOrigin
