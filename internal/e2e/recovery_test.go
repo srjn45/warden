@@ -74,11 +74,11 @@ func TestMembershipConflictsAndStaleEntries(t *testing.T) {
 	ctx := context.Background()
 	s, closeDB := e.openShared()
 	for _, id := range []string{"a-1", "a-2", "a-3"} {
-		require.NoError(t, s.Insert(ctx, &agentstore.Agent{ID: id, Name: id, Status: store.StatusWorking}))
+		require.NoError(t, s.Insert(ctx, &agentstore.Agent{ID: id, Name: id, Scope: "system", Status: store.StatusWorking}))
 	}
 	// a-1: duplicate identity (archived copy AND a fresh active record).
 	require.NoError(t, s.Archive(ctx, "a-1"))
-	require.NoError(t, s.Insert(ctx, &agentstore.Agent{ID: "a-1", Name: "a-1", Status: store.StatusWorking}))
+	require.NoError(t, s.Insert(ctx, &agentstore.Agent{ID: "a-1", Name: "a-1", Scope: "system", Status: store.StatusWorking}))
 	closeDB()
 
 	ps, closePS := e.openSharedProjects()

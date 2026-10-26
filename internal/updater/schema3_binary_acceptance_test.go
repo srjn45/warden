@@ -1,6 +1,7 @@
 package updater
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/schema"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -151,6 +153,9 @@ func testSchema3WaypointUpdateStartAndRollback(t *testing.T) {
 	require.NoError(t, tr.handoff())
 
 	daemon := exec.CommandContext(ctx, installed, "--config", filepath.Join(tr.dir, "config.yaml"), "daemon")
+	var daemonLog bytes.Buffer
+	daemon.Stdout = &daemonLog
+	daemon.Stderr = &daemonLog
 	require.NoError(t, daemon.Start())
 	t.Cleanup(func() {
 		if daemon.Process != nil {
@@ -160,7 +165,7 @@ func testSchema3WaypointUpdateStartAndRollback(t *testing.T) {
 	})
 	healthURL := "http://" + addr + "/healthz"
 	var h Health
-	require.Eventually(t, func() bool {
+	ready := assert.Eventually(t, func() bool {
 		resp, err := http.Get(healthURL) // #nosec G107 -- loopback test daemon
 		if err != nil {
 			return false
@@ -171,6 +176,7 @@ func testSchema3WaypointUpdateStartAndRollback(t *testing.T) {
 		}
 		return json.NewDecoder(resp.Body).Decode(&h) == nil && h.Status == "ok" && h.SchemaVersion == 3 && strings.TrimPrefix(h.Version, "v") == "13.0.0"
 	}, 20*time.Second, 100*time.Millisecond)
+	require.True(t, ready, "target daemon output:\n%s", daemonLog.String())
 
 	out, err = exec.CommandContext(ctx, installed, "migrate", "--verify-ownership", "--data-dir", tr.dir, "--transaction", tr.id, "--target-sha", tr.manifest.TargetBinaryHash, "--manifest-sha", tr.manifestHash).CombinedOutput()
 	require.NoError(t, err, "%s", out)

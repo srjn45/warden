@@ -56,6 +56,9 @@ Upgrade and fresh install share the same migration code path.`,
 
 			migrated := false
 			if l.SchemaVersion < schema.SchemaVersion {
+				if schema.SchemaVersion >= 3 {
+					return fmt.Errorf("schema-%d migration requires the matching warden update transaction; run `wd update`", schema.SchemaVersion)
+				}
 				// A migration (notably the schema-2 cutover) must own the data dir
 				// exclusively, exactly like `warden migrate --apply`: refuse while
 				// a daemon or another CLI holds it.

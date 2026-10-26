@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -174,10 +175,47 @@ and rolls the binary and data back if it fails.`,
 			}
 			runner := migrate.NewRunner(nil)
 			if targetVer == 3 {
-				if checkFlag || planFlag {
-					return runSchema3Plan(cmd, dataDir, jsonFlag)
+				// Schema 3 is a paired update transaction, not a standalone
+				// migration.  Its read-only commands still need to describe the
+				// generation that is actually on disk: schema-1 fixtures retain
+				// the schema-2 preflight, schema-2 gets the ownership plan, and
+				// an already-promoted schema-3 generation gets the ordinary
+				// whole-store health check below.
+				current := 0
+				l, loadErr := schema.Load(dataDir)
+				if loadErr == nil {
+					if l.MigrationInterrupted() {
+						return schema.Check(dataDir, l)
+					}
+					current = l.SchemaVersion
+				} else if !errors.Is(loadErr, schema.ErrNoLedger) {
+					return fmt.Errorf("migrate: load schema ledger: %w", loadErr)
 				}
-				return migrate.ErrUpdaterTransactionRequired
+				if checkFlag || planFlag {
+					switch {
+					case current == schema.Schema2:
+						return runSchema3Plan(cmd, dataDir, jsonFlag)
+					case current < schema.Schema2:
+						targetVer = schema.Schema2
+					case current > schema.SchemaVersion:
+						return schema.Check(dataDir, l)
+					case current == schema.SchemaVersion && planFlag:
+						if err := validateSchema3Generation(cmd, dataDir); err != nil {
+							return err
+						}
+						if jsonFlag {
+							return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"current_version": current, "target_version": schema.SchemaVersion, "clean": true, "findings": []any{}})
+						}
+						fmt.Fprintln(cmd.OutOrStdout(), "schema 3 ownership format is already current; nothing to plan")
+						return nil
+					case current == schema.SchemaVersion:
+						if err := validateSchema3Generation(cmd, dataDir); err != nil {
+							return err
+						}
+					}
+				} else {
+					return migrate.ErrUpdaterTransactionRequired
+				}
 			}
 
 			switch {
@@ -356,6 +394,17 @@ and rolls the binary and data back if it fails.`,
 	cmd.Flags().StringVar(&stagingDir, "staging-dir", "", "target directory for --staging-export (default: <data-dir>/warden-db-staging)")
 
 	return cmd
+}
+
+func validateSchema3Generation(cmd *cobra.Command, dataDir string) error {
+	g, _, err := schema3.Read(cmd.Context(), filepath.Join(dataDir, schema.WardenDBDir))
+	if err != nil {
+		return fmt.Errorf("migrate: read schema-3 generation: %w", err)
+	}
+	if err := schema3.ValidateTarget(g); err != nil {
+		return fmt.Errorf("migrate: validate schema-3 ownership: %w", err)
+	}
+	return nil
 }
 
 var verifySchema3Ownership = updater.VerifySchema3Ownership

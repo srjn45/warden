@@ -75,11 +75,11 @@ func TestLegacyStoreRetirement_FullLifecycle(t *testing.T) {
 	// -------------------------------------------------------------------------
 	// 2. Upgrade from schema 1 to schema 2
 	// -------------------------------------------------------------------------
-	out, code = e.run(e.root, "--config", cfg, "migrate", "--plan")
+	out, code = e.run(e.root, "--config", cfg, "migrate", "--plan", "--target", "2")
 	require.Zero(t, code, out)
 	require.Contains(t, out, "ready")
 
-	out, code = e.run(e.root, "--config", cfg, "migrate", "--apply")
+	out, code = e.run(e.root, "--config", cfg, "migrate", "--apply", "--target", "2")
 	require.Zero(t, code, out)
 
 	ledger, err := schema.Load(e.data)
@@ -99,8 +99,10 @@ func TestLegacyStoreRetirement_FullLifecycle(t *testing.T) {
 	// -------------------------------------------------------------------------
 	// 3. Daemon boot and restarts on schema 2 (sole runtime authority)
 	// -------------------------------------------------------------------------
-	// Boot 1: boots on warden-db, serves live fleet, reports schema 2
-	d1 := e.startDaemon(freeAddr(t), e.data, e.root)
+	// Boot the released schema-2 waypoint. The current binary is format 3 and
+	// must refuse this historical generation rather than becoming its runtime.
+	waypoint := waypointBinary(t)
+	d1 := e.startDaemonBin(waypoint, freeAddr(t), e.data, e.root)
 	d1.waitUp()
 	code, gotFleet := fleet(t, d1)
 	require.Equal(t, 200, code)
@@ -116,7 +118,7 @@ func TestLegacyStoreRetirement_FullLifecycle(t *testing.T) {
 	d1.stop()
 
 	// Boot 2 (restart 1)
-	d2 := e.startDaemon(freeAddr(t), e.data, e.root)
+	d2 := e.startDaemonBin(waypoint, freeAddr(t), e.data, e.root)
 	d2.waitUp()
 	code, gotFleet = fleet(t, d2)
 	require.Equal(t, 200, code)
@@ -124,7 +126,7 @@ func TestLegacyStoreRetirement_FullLifecycle(t *testing.T) {
 	d2.stop()
 
 	// Boot 3 (restart 2): completes minimum required runtime boots (>= 3)
-	d3 := e.startDaemon(freeAddr(t), e.data, e.root)
+	d3 := e.startDaemonBin(waypoint, freeAddr(t), e.data, e.root)
 	d3.waitUp()
 	code, gotFleet = fleet(t, d3)
 	require.Equal(t, 200, code)
@@ -156,7 +158,7 @@ func TestLegacyStoreRetirement_FullLifecycle(t *testing.T) {
 	// 5. Backup & restore (warden migrate --restore)
 	// -------------------------------------------------------------------------
 	// Calling --restore without an interrupted migration refuses
-	out, code = e.run(e.root, "--config", cfg, "migrate", "--restore")
+	out, code = e.run(e.root, "--config", cfg, "migrate", "--restore", "--target", "2")
 	require.NotZero(t, code, out)
 	require.Contains(t, out, "no migration in progress to resume")
 

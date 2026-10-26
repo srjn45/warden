@@ -188,7 +188,7 @@ func TestRealisticCutover_PreservesLogicalDataset(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	s, err := storage.Open(dir)
+	s, err := storage.OpenSchema2ForMigrationVerification(dir)
 	require.NoError(t, err)
 	defer s.Close()
 	require.NotNil(t, s.DB, "schema-2 ledger must open the shared warden-db")
@@ -358,7 +358,7 @@ func TestRealisticCutover_InterruptedAndResumed(t *testing.T) {
 	var ge *schema.GuardError
 	require.ErrorAs(t, err, &ge)
 	require.Equal(t, schema.VerdictInterrupted, ge.Verdict)
-	_, err = storage.Open(dir)
+	_, err = storage.OpenSchema2ForMigrationVerification(dir)
 	require.ErrorAs(t, err, &ge)
 	require.ErrorIs(t, rn.Apply(Env{DataDir: dir, Context: context.Background()}, schema.Schema2), ErrInterruptedMigration)
 	require.False(t, schema.WardenDBPresent(dir))
@@ -371,7 +371,7 @@ func TestRealisticCutover_InterruptedAndResumed(t *testing.T) {
 	require.Nil(t, l.InProgress)
 	backups, _ := filepath.Glob(filepath.Join(dir, "backups", Schema2BackupPrefix+"*"))
 	require.Len(t, backups, 1)
-	s, err := storage.Open(dir)
+	s, err := storage.OpenSchema2ForMigrationVerification(dir)
 	require.NoError(t, err)
 	live, err := s.Agents.Get(context.Background(), "agent-live")
 	require.NoError(t, err)

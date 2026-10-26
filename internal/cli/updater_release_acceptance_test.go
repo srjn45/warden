@@ -232,7 +232,7 @@ func TestReleaseRegressionAcceptance_UpdaterReportedPath_ExplicitQuarantineAndCu
 	require.NoError(t, schema.Check(d, l))
 
 	// Verify schema-2 database via storage.Open
-	s, err := storage.Open(d)
+	s, err := storage.OpenSchema2ForMigrationVerification(d)
 	require.NoError(t, err)
 	defer s.Close()
 	require.NotNil(t, s.DB)

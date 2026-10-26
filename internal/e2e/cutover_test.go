@@ -60,7 +60,7 @@ func TestCutoverThenSchema2DaemonServesTheSameFleet(t *testing.T) {
 	// command on the target binary before swapping anything): non-clean, machine
 	// readable, carrying the pending marker, so it blocks
 	// before any change instead of swapping into a daemon that cannot boot.
-	out, code := e.run(e.root, "--config", cfg, "migrate", "--check", "--json", "--data-dir", e.data)
+	out, code := e.run(e.root, "--config", cfg, "migrate", "--check", "--target", "2", "--json", "--data-dir", e.data)
 	require.NotZero(t, code, out)
 	var rep struct {
 		Clean    bool `json:"clean"`
@@ -82,23 +82,24 @@ func TestCutoverThenSchema2DaemonServesTheSameFleet(t *testing.T) {
 	require.True(t, pending, out)
 
 	// 2. plan is read-only and ready.
-	out, code = e.run(e.root, "--config", cfg, "migrate", "--plan")
+	out, code = e.run(e.root, "--config", cfg, "migrate", "--plan", "--target", "2")
 	require.Zero(t, code, out)
 	require.Contains(t, out, "ready")
 	require.False(t, schema.WardenDBPresent(e.data))
 
 	// 3. apply (daemon stopped): the cutover runs once; a re-apply is a no-op.
-	out, code = e.run(e.root, "--config", cfg, "migrate", "--apply")
+	out, code = e.run(e.root, "--config", cfg, "migrate", "--apply", "--target", "2")
 	require.Zero(t, code, out)
 	l, err := schema.Load(e.data)
 	require.NoError(t, err)
 	require.Equal(t, schema.Schema2, l.SchemaVersion)
 	require.Nil(t, l.InProgress)
-	out, code = e.run(e.root, "--config", cfg, "migrate", "--apply")
+	out, code = e.run(e.root, "--config", cfg, "migrate", "--apply", "--target", "2")
 	require.Zero(t, code, "re-apply on schema 2 is a no-op: %s", out)
 
-	// 4. the daemon now serves the same fleet on schema 2.
-	live := e.startDaemon(freeAddr(t), e.data, e.root)
+	// 4. The released schema-2 waypoint serves the historical generation. The
+	// current format-3 binary must not silently take authority over it.
+	live := e.startDaemonBin(waypointBinary(t), freeAddr(t), e.data, e.root)
 	live.waitUp()
 	code2, got := fleet(t, live)
 	require.Equal(t, 200, code2)
@@ -113,7 +114,7 @@ func TestCutoverThenSchema2DaemonServesTheSameFleet(t *testing.T) {
 	require.Equal(t, schema.Schema2, hz.SchemaVersion)
 
 	// 5. apply beside the running daemon is refused and changes nothing.
-	out, code = e.run(e.root, "--config", cfg, "migrate", "--apply")
+	out, code = e.run(e.root, "--config", cfg, "migrate", "--apply", "--target", "2")
 	require.NotZero(t, code, out)
 	require.Contains(t, out, "daemon is running", out)
 	live.stop()

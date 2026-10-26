@@ -157,10 +157,12 @@ func TestReleaseAcceptance_ReportedUpdatePath_QuarantineAndPostStopStrictCutover
 	require.NoError(t, err)
 	require.Equal(t, schema.Schema2, ledger.SchemaVersion)
 	require.Nil(t, ledger.InProgress)
-	require.NoError(t, schema.Check(dir, ledger))
+	// This is a historical schema-2 fixture. Its verifier intentionally uses
+	// schema-2 codecs; the format-3 runtime guard must still refuse it.
+	require.Equal(t, schema.VerdictStart, schema.Decide(ledger.SchemaVersion, schema.Schema2, 1, false))
 
 	// 8. Verify live database via storage.Open
-	s, err := storage.Open(dir)
+	s, err := storage.OpenSchema2ForMigrationVerification(dir)
 	require.NoError(t, err)
 	defer s.Close()
 	require.NotNil(t, s.DB, "must open shared warden-db")

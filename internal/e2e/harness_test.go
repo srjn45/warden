@@ -35,6 +35,31 @@ import (
 
 var wardenBin string
 
+// waypointBinary builds the released schema-2 waypoint used to exercise
+// historical schema-1 -> schema-2 lifecycle fixtures.  The current binary is
+// deliberately format 3 and must not be used to boot those fixtures.
+func waypointBinary(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.Abs("../..")
+	require.NoError(t, err)
+	source := t.TempDir()
+	archive := filepath.Join(t.TempDir(), "v12.1.0.tar")
+	cmd := exec.Command("git", "archive", "--format=tar", "--output="+archive, "5fceb280")
+	cmd.Dir = root
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "released waypoint source is required: %s", out)
+	out, err = exec.Command("tar", "-xf", archive, "-C", source).CombinedOutput()
+	require.NoError(t, err, "%s", out)
+	require.NoError(t, os.MkdirAll(filepath.Join(source, "web", "dist"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(source, "web", "dist", ".gitkeep"), nil, 0o600))
+	bin := filepath.Join(t.TempDir(), "warden-v12.1.0")
+	build := exec.Command("go", "build", "-buildvcs=false", "-ldflags", "-X github.com/srjn45/warden/internal/cli.version=12.1.0", "-o", bin, "./cmd/warden")
+	build.Dir = source
+	out, err = build.CombinedOutput()
+	require.NoError(t, err, "build released waypoint: %s", out)
+	return bin
+}
+
 func TestMain(m *testing.M) {
 	if runtime.GOOS == "windows" {
 		os.Exit(0)
@@ -132,7 +157,11 @@ func (e *env) environ() []string {
 }
 
 func (e *env) cmd(ctx context.Context, cwd string, args ...string) *exec.Cmd {
-	c := exec.CommandContext(ctx, wardenBin, args...)
+	return e.cmdBin(ctx, wardenBin, cwd, args...)
+}
+
+func (e *env) cmdBin(ctx context.Context, bin, cwd string, args ...string) *exec.Cmd {
+	c := exec.CommandContext(ctx, bin, args...)
 	c.Dir = cwd
 	c.Env = e.environ()
 	return c
@@ -164,10 +193,14 @@ type daemon struct {
 }
 
 func (e *env) startDaemon(addr, dataDir, cwd string) *daemon {
+	return e.startDaemonBin(wardenBin, addr, dataDir, cwd)
+}
+
+func (e *env) startDaemonBin(bin, addr, dataDir, cwd string) *daemon {
 	e.t.Helper()
 	cfg := e.config(addr, dataDir)
 	d := &daemon{e: e, addr: addr, log: &bytes.Buffer{}, done: make(chan struct{})}
-	d.cmd = e.cmd(context.Background(), cwd, "--config", cfg, "daemon")
+	d.cmd = e.cmdBin(context.Background(), bin, cwd, "--config", cfg, "daemon")
 	d.cmd.Stdout, d.cmd.Stderr = d.log, d.log
 	require.NoError(e.t, d.cmd.Start())
 	go func() { d.err = d.cmd.Wait(); close(d.done) }()

@@ -5,9 +5,8 @@
 Bound assignment: Plan `plan-4a55e219`, revision 3, hash
 `sha256:8c4f9b7a4f96e707b02722c8bc28c546eab0153c4efdb1f5b9f678cfe9da2ea0`,
 task `cutover`, parent `orchestrator-8bed8d7b`, worker `worker-a91c7627`.
-Integration base is `worker-8550efb9`; approved migration head
-`7a9eadb7ac2947553eb0baff95f6b8f43110d0e6` was verified as an ancestor after
-`warden git sync --base worker-8550efb9`.
+Integration base is `main`; the approved schema-2 waypoint is released
+`v12.1.0` at `5fceb280`.
 
 ## Changes in this checkpoint
 
@@ -60,10 +59,10 @@ running it is outside this assignment's authorization.
 
 `wd check schema3-binary-boundary` builds isolated executables from that release
 and this worktree. It verifies the old binary refuses schema-3 before opening a
-fixture, then performs isolated paired promotion, actual target-daemon start and
-health/readiness, target-side `migrate --verify-ownership`, and rollback to the
-byte-identical v12.1.0 binary plus schema-2 data. Ordinary package tests skip
-these explicit builds.
+fixture. Positive target-start/readiness and restored-old-daemon proof remain
+outstanding: the current pending-ledger boot guard rejects the target before it
+can authenticate its transaction. Ordinary package tests skip these explicit
+builds.
 
 ## Acceptance scope still outstanding
 
@@ -93,8 +92,8 @@ no `job done`, task completion, auto-merge or landing is authorized.
 
 ## Updater wiring (waypoint layer)
 
-The updater now drives the format-3 transaction from `warden update` while the
-runtime stays on schema 2. A format-3 target is accepted only when all of these
+The updater now drives the format-3 transaction from `warden update`; after the
+paired promotion the runtime must serve schema 3. A format-3 target is accepted only when all of these
 agree: a validated release manifest (`min_schema=2`, `breaking`, exact
 `Schema3Requirements`, `min_upgrade_from` ≤ the running updater), the staged
 binary's own `version --json` (`version`, `schema_version=3`,

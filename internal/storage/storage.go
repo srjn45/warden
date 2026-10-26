@@ -7,6 +7,7 @@
 package storage
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 	"github.com/srjn45/warden/internal/knownprompts"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/metrics"
+	"github.com/srjn45/warden/internal/migrate/schema3"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planexport"
 	"github.com/srjn45/warden/internal/planstore"
@@ -80,17 +82,47 @@ func Open(dataDir string, opts ...wardendb.Option) (*Stores, error) {
 	if err := requireSharedMode(dataDir); err != nil {
 		return nil, err
 	}
+	l, err := schema.Load(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	return openShared(dataDir, l.SchemaVersion == schema.SchemaVersion, opts...)
+}
+
+// OpenSchema2ForMigrationVerification opens an exact, committed schema-2
+// generation with its historical codecs. It is for offline migration
+// equivalence/retirement verification only; daemon composition must use Open,
+// which refuses schema 2 once format 3 is active.
+func OpenSchema2ForMigrationVerification(dataDir string, opts ...wardendb.Option) (*Stores, error) {
+	l, err := schema.Load(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	if l.MigrationInterrupted() {
+		return nil, &schema.GuardError{Verdict: schema.VerdictInterrupted, DataDir: dataDir, Ledger: *l, Binary: schema.Schema2, Min: 1}
+	}
+	if l.SchemaVersion != schema.Schema2 {
+		return nil, fmt.Errorf("schema-2 verification requires exact committed schema 2")
+	}
+	return openShared(dataDir, false, opts...)
+}
+
+func openShared(dataDir string, schema3Mode bool, opts ...wardendb.Option) (*Stores, error) {
 	db, err := wardendb.Open(dataDir, opts...)
 	if err != nil {
 		return nil, err
 	}
 	fail := func(err error) (*Stores, error) { _ = db.Close(); return nil, err }
-	s := &Stores{DB: db, close: db.Close}
-	l, err := schema.Load(dataDir)
-	if err != nil {
-		return fail(err)
+	if schema3Mode {
+		g, _, err := schema3.Read(context.Background(), wardendb.Dir(dataDir))
+		if err != nil {
+			return fail(fmt.Errorf("storage: read schema-3 generation: %w", err))
+		}
+		if err := schema3.ValidateTarget(g); err != nil {
+			return fail(fmt.Errorf("storage: validate schema-3 generation: %w", err))
+		}
 	}
-	schema3Mode := l.SchemaVersion == 3
+	s := &Stores{DB: db, close: db.Close}
 	if schema3Mode {
 		s.Agents, err = agentstore.NewSchema3StoreFromDB(db)
 	} else {
@@ -217,6 +249,9 @@ func requireSharedMode(dataDir string) error {
 	if err == nil {
 		switch {
 		case l.MigrationInterrupted():
+			if err := schema.PendingSchema3TargetAuthorized(dataDir, l); err == nil {
+				return nil
+			}
 			// Never open stores in the middle of a migration, whichever side of
 			// the promotion it stopped on.
 			return &schema.GuardError{Verdict: schema.VerdictInterrupted, DataDir: dataDir, Ledger: *l, Binary: schema.SchemaVersion, Min: schema.MinSchema}

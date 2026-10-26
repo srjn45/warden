@@ -511,7 +511,7 @@ func TestCutover_ApplyReconcilesDeletedPipelineHistoryEndToEnd(t *testing.T) {
 		}
 	}
 
-	rt, err := storage.Open(d)
+	rt, err := storage.OpenSchema2ForMigrationVerification(d)
 	require.NoError(t, err)
 	defer rt.Close()
 	require.NotNil(t, rt.DB)
@@ -555,7 +555,7 @@ func TestCutover_ApplyReconcilesDeletedPipelineHistoryEndToEnd(t *testing.T) {
 	}
 	time.Sleep(1100 * time.Millisecond) // backup dirs are second-stamped and never reused
 	require.NoError(t, rn.Apply(env, schema.Schema2))
-	again, err := storage.Open(d)
+	again, err := storage.OpenSchema2ForMigrationVerification(d)
 	require.NoError(t, err)
 	defer again.Close()
 	closed, err = again.Agents.ListClosed(ctx)

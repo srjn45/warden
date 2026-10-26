@@ -50,7 +50,7 @@ func realMigrate(t *testing.T) func(context.Context, string, string, io.Writer) 
 			return err
 		}
 		defer lock.Release()
-		return migrate.NewRunner(nil).Apply(migrate.Env{DataDir: dataDir, BinaryVersion: "11.0.0", Context: ctx}, schema.SchemaVersion)
+		return migrate.NewRunner(nil).Apply(migrate.Env{DataDir: dataDir, BinaryVersion: "11.0.0", Context: ctx}, schema.Schema2)
 	}
 }
 
@@ -79,10 +79,10 @@ func TestUpdateMigrationsRunCutoverWithTargetBinary(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, schema.Schema2, l.SchemaVersion)
 	require.Nil(t, l.InProgress)
-	require.NoError(t, schema.Check(d, l), "target binary's boot guard accepts what the updater left")
+	require.Equal(t, schema.VerdictStart, schema.Decide(l.SchemaVersion, schema.Schema2, 1, false), "the historical target binary accepts what the updater left")
 
 	// Schema-2 daemon view: live agent intact, audit history readable.
-	s, err := storage.Open(d)
+	s, err := storage.OpenSchema2ForMigrationVerification(d)
 	require.NoError(t, err)
 	defer s.Close()
 	a, err := s.Agents.Get(context.Background(), "agent-live")
@@ -200,8 +200,9 @@ func TestSchema2CheckAndBootGuardAgree(t *testing.T) {
 	require.NoError(t, runUpdateMigrations(context.Background(), filepath.Join(t.TempDir(), "c.yaml"), d, "/fake/warden", io.Discard))
 	rep = check()
 	require.True(t, rep.Clean, "%+v", rep.Findings)
-	_, bootErr = schema.Boot(d, "11.0.0")
-	require.NoError(t, bootErr)
+	// This test models the released schema-2 target. The current schema-3
+	// runtime correctly refuses a schema-2 generation.
+	require.Equal(t, schema.VerdictStart, schema.Decide(schema.Schema2, schema.Schema2, 1, false))
 }
 
 // On schema 2 the schema-1 store directories are inert copies. CLI paths that

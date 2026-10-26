@@ -112,18 +112,19 @@ func TestMigrateCommand_CheckJSONWithFindings(t *testing.T) {
 func TestMigrateCommand_ApplyAndResume(t *testing.T) {
 	dataDir := t.TempDir()
 
-	// Apply migration to current SchemaVersion
+	// Apply the historical schema-1 -> schema-2 migration explicitly. Format 3
+	// is intentionally only entered by the paired updater transaction.
 	cmd := newMigrateCmd()
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
-	cmd.SetArgs([]string{"--apply", "--data-dir", dataDir})
+	cmd.SetArgs([]string{"--apply", "--target", "2", "--data-dir", dataDir})
 
 	require.NoError(t, cmd.ExecuteContext(context.Background()))
 	require.Contains(t, buf.String(), "migrated")
 
 	updated, err := schema.Load(dataDir)
 	require.NoError(t, err)
-	require.Equal(t, schema.SchemaVersion, updated.SchemaVersion)
+	require.Equal(t, schema.Schema2, updated.SchemaVersion)
 }
 
 func TestMigrateCommand_ApplyRefusedWhenDaemonRunning(t *testing.T) {
@@ -138,7 +139,7 @@ func TestMigrateCommand_ApplyRefusedWhenDaemonRunning(t *testing.T) {
 	defer lock.Release()
 
 	cmd := newMigrateCmd()
-	cmd.SetArgs([]string{"--apply", "--data-dir", dataDir})
+	cmd.SetArgs([]string{"--apply", "--target", "2", "--data-dir", dataDir})
 
 	err = cmd.ExecuteContext(context.Background())
 	require.Error(t, err)
@@ -168,7 +169,7 @@ func TestMigrateCommand_Restore(t *testing.T) {
 	cmd := newMigrateCmd()
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
-	cmd.SetArgs([]string{"--restore", "--data-dir", dataDir})
+	cmd.SetArgs([]string{"--restore", "--target", "2", "--data-dir", dataDir})
 
 	require.NoError(t, cmd.ExecuteContext(context.Background()))
 	require.Contains(t, buf.String(), "restored pre-migration state")
@@ -195,7 +196,7 @@ func TestMigrateCommand_StagingExport(t *testing.T) {
 	cmd := newMigrateCmd()
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
-	cmd.SetArgs([]string{"--staging-export", "--data-dir", dataDir, "--staging-dir", targetDir})
+	cmd.SetArgs([]string{"--staging-export", "--target", "2", "--data-dir", dataDir, "--staging-dir", targetDir})
 
 	require.NoError(t, cmd.ExecuteContext(context.Background()))
 	require.Contains(t, buf.String(), "schema-2 staging export")
@@ -214,7 +215,7 @@ func TestMigrateCommand_PlanRefusesCorruptionWithClassAndRemediation(t *testing.
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
 	cmd.SetErr(&buf)
-	cmd.SetArgs([]string{"--plan", "--data-dir", dataDir})
+	cmd.SetArgs([]string{"--plan", "--target", "2", "--data-dir", dataDir})
 	err := cmd.ExecuteContext(context.Background())
 	require.Error(t, err)
 
@@ -238,7 +239,7 @@ func TestMigrateCommand_PlanJSONCarriesClass(t *testing.T) {
 	cmd := newMigrateCmd()
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
-	cmd.SetArgs([]string{"--plan", "--json", "--data-dir", dataDir})
+	cmd.SetArgs([]string{"--plan", "--target", "2", "--json", "--data-dir", dataDir})
 	require.Error(t, cmd.ExecuteContext(context.Background()))
 
 	var plan migrate.Schema2Plan
