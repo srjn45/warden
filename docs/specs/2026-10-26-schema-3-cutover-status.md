@@ -1,14 +1,10 @@
-# Schema-3 cutover implementation checkpoint
+# Schema-3 cutover implementation
 
-**Incomplete: not a deployable cutover and not a task approval request.**
+The approved schema-2 waypoint is released `v12.1.0` at `5fceb280`. Schema 3
+is activated only by its paired updater transaction; no daemon boot or
+standalone migration command can take that authority.
 
-Bound assignment: Plan `plan-4a55e219`, revision 3, hash
-`sha256:8c4f9b7a4f96e707b02722c8bc28c546eab0153c4efdb1f5b9f678cfe9da2ea0`,
-task `cutover`, parent `orchestrator-8bed8d7b`, worker `worker-a91c7627`.
-Integration base is `main`; the approved schema-2 waypoint is released
-`v12.1.0` at `5fceb280`.
-
-## Changes in this checkpoint
+## Implementation
 
 * Readiness finalization resumes across every intent/completion and ledger-save
   boundary. A finalized ledger with durable readiness intent is validated without
@@ -39,32 +35,27 @@ Integration base is `main`; the approved schema-2 waypoint is released
   `job_count` and `jobs_done`. These known derived counters are now checked against
   the embedded jobs and retired from target headers. Contradictory counters block;
   unknown fields and checksum/numeric-precision refusals remain unchanged.
-* CI branch filters include stacked worker/docs PR targets. The PR can retain its
-  approved integration base while receiving the ordinary CI gates.
+* CI builds the released waypoint from full Git history and runs the isolated
+  schema-3 binary boundary alongside upgrade-fixture coverage.
 
-## Release evidence and unresolved input
+## Waypoint compatibility
 
 The approved updater waypoint is now the released `v12.1.0`, commit
 `5fceb280`, running schema 2. The schema-3 boundary test archives that exact
 commit into an isolated temporary tree; it never reads or changes a live data
 directory or daemon.
 
-`.goreleaser.yaml` runs `cmd/genmanifest` with only `-version` and `-out`.
-The generator's support-window default cannot establish a compatible waypoint;
-schema-3 generation remains explicitly blocked. A real schema-2 updater waypoint
-must implement and pass the positive old/new compatibility contract, be published
-first, and supply the schema-3 release's explicit minimum version and capabilities.
-The release workflow currently triggers on tags and publishes non-draft releases;
-running it is outside this assignment's authorization.
-
 `wd check schema3-binary-boundary` builds isolated executables from that release
-and this worktree. It verifies the old binary refuses schema-3 before opening a
-fixture. Positive target-start/readiness and restored-old-daemon proof remain
-outstanding: the current pending-ledger boot guard rejects the target before it
-can authenticate its transaction. Ordinary package tests skip these explicit
-builds.
+and this worktree. It verifies that the old binary refuses schema 3 before
+opening its data, then runs the real target daemon against a fully materialized
+schema-2 generation. A released-source harness executes the unchanged v12.1.0
+`updater.Apply` and `finish`, including target readiness, rollback, and a
+readiness-failure rollback. It also proves that health is available while the
+target is sealed, mutations receive 503 until the released finalizer clears the
+transaction, and normal API handling resumes afterward. Ordinary package tests
+skip these explicit builds.
 
-## Acceptance scope still outstanding
+## Runtime safety
 
 The format constants and runtime registrations are schema 3. Normalized
 production codecs own agents, projects, pipelines/jobs, plans/tasks and
@@ -75,20 +66,21 @@ startable current format.
 
 The update path invokes the private schema-3 transaction, including capability
 and manifest binding, paired backup, lock handoff and authenticated target
-readiness. The acceptance test uses a real target daemon only inside its isolated
-fixture; rollback's supervisor seam remains deliberately scripted.
+readiness. During the target readiness window, the daemon opens real schema-3
+stores and serves only store-backed health. API traffic and every background
+writer are held until the released updater records `readiness_verified` and
+clears the exact pending ledger. Deferred reconciliation then completes before
+normal traffic is released.
 
 Focused tests cover readiness crash boundaries and ledger identity tampering,
 post-update writes, full paired restore despite unrelated snapshots/`.bak`, absent
 data-loss consent, stop failure, still-answering health, wrong old version/schema,
 interrupted binary replacement, restore replay after later writes, complete
-Pipeline/Plan payloads and conflicting derived counters. Required checks and CI
-results must accompany the exact pushed head in the coordinator handoff.
+Pipeline/Plan payloads and conflicting derived counters.
 
 All changes and tests use isolated fixtures. No real user data was inspected or
 migrated; the fleet daemon was not stopped; no standalone migration apply ran.
-Keep the stacked PR open and unmerged. Plan/task progress remains in progress;
-no `job done`, task completion, auto-merge or landing is authorized.
+No merge, tag, release, or live-data update is part of this work.
 
 ## Updater wiring (waypoint layer)
 

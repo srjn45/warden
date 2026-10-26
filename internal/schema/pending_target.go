@@ -45,10 +45,14 @@ func PendingSchema3TargetAuthorized(dataDir string, l *Ledger) error {
 		To          int    `json:"target_format"`
 		Capability  int    `json:"capability_version"`
 		DataDir     string `json:"data_dir"`
+		Version     string `json:"target_version"`
 		Target      string `json:"target_binary_sha256"`
 	}
-	if json.Unmarshal(raw, &m) != nil || m.Format != 1 || m.Transaction != ip.TransactionID || m.Migration != ip.Migration || m.Policy != "ownership-v1" || m.From != 2 || m.To != 3 || m.Capability != 1 || m.DataDir != root || m.Target != ip.TargetBinarySHA256 {
+	if json.Unmarshal(raw, &m) != nil || m.Format != 1 || m.Transaction != ip.TransactionID || m.Migration != ip.Migration || m.Policy != "ownership-v1" || m.From != 2 || m.To != 3 || m.Capability != 1 || m.DataDir != root || m.Version == "" || m.Version != l.BinaryVersion || m.Target != ip.TargetBinarySHA256 {
 		return fmt.Errorf("schema3 pending target: sealed manifest identity mismatch")
+	}
+	if ip.Snapshot != filepath.Dir(manifestPath) {
+		return fmt.Errorf("schema3 pending target: snapshot path mismatch")
 	}
 	journal := filepath.Join(root, ".schema3-transaction-"+ip.TransactionID+".jsonl")
 	if ip.Journal != journal {

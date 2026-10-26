@@ -299,13 +299,46 @@ func updateRecoveryGuidance(err error) error {
 // wholeStorePreflight runs read-only verification across all ScrivaDB stores.
 func wholeStorePreflight(ctx context.Context, dataDir string) (updater.PreflightResult, error) {
 	runner := migrate.NewRunner(nil)
-	findings, err := runner.Check(migrate.Env{DataDir: dataDir, Context: ctx}, schema.SchemaVersion)
+	// Schema-3 is entered only by the paired updater.  A legacy layout still
+	// needs its schema-2 preflight path so whole-store findings (including the
+	// only valid legacy repair guidance) are retained instead of being hidden by
+	// the intentionally unavailable standalone 0/1 -> 3 plan.
+	target := schema.SchemaVersion
+	if !schema.WardenDBPresent(dataDir) && !schema.InferBaseline(dataDir).Fresh {
+		if l, err := schema.Load(dataDir); errors.Is(err, schema.ErrNoLedger) || (err == nil && l.SchemaVersion < schema.Schema2) {
+			target = schema.Schema2
+		}
+	}
+	findings, err := runner.Check(migrate.Env{DataDir: dataDir, Context: ctx}, target)
 	if err != nil {
 		return updater.PreflightResult{
 			Blockers: []string{fmt.Sprintf("verification failed: %v", err)},
 		}, nil
 	}
-	return findingsToPreflightResult(findings), nil
+	res := findingsToPreflightResult(findings)
+	// A ledger-less/schema-1 layout can still carry recoverable ScrivaDB
+	// history conflicts. That legacy repair command is valid only before the
+	// schema-3 authority cutover; do not suggest it for current ownership data.
+	if len(res.Blockers) > 0 && res.RepairCommand == "" && legacyHistoryRepairEligible(dataDir, findings) {
+		res.RepairCommand = "warden repair all --resolve-history=live-wins"
+	}
+	return res, nil
+}
+
+func legacyHistoryRepairEligible(dataDir string, findings []migrate.Finding) bool {
+	if schema.WardenDBPresent(dataDir) {
+		return false
+	}
+	l, err := schema.Load(dataDir)
+	if !errors.Is(err, schema.ErrNoLedger) && (err != nil || l.SchemaVersion >= schema.Schema2) {
+		return false
+	}
+	for _, f := range findings {
+		if f.Severity == migrate.SeverityBlocking && f.Class == string(migrate.ClassAmbiguity) {
+			return true
+		}
+	}
+	return false
 }
 
 // targetBinaryPreflight runs `targetBin migrate --check --data-dir <dataDir> --json`.

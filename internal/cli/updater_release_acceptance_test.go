@@ -229,7 +229,7 @@ func TestReleaseRegressionAcceptance_UpdaterReportedPath_ExplicitQuarantineAndCu
 	require.NoError(t, err)
 	require.Equal(t, schema.Schema2, l.SchemaVersion)
 	require.Nil(t, l.InProgress)
-	require.NoError(t, schema.Check(d, l))
+	require.Equal(t, schema.VerdictStart, schema.Decide(l.SchemaVersion, schema.Schema2, 1, false))
 
 	// Verify schema-2 database via storage.Open
 	s, err := storage.OpenSchema2ForMigrationVerification(d)

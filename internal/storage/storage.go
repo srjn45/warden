@@ -86,7 +86,7 @@ func Open(dataDir string, opts ...wardendb.Option) (*Stores, error) {
 	if err != nil {
 		return nil, err
 	}
-	return openShared(dataDir, l.SchemaVersion == schema.SchemaVersion, opts...)
+	return openShared(dataDir, l.SchemaVersion == schema.SchemaVersion, l.MigrationInterrupted(), opts...)
 }
 
 // OpenSchema2ForMigrationVerification opens an exact, committed schema-2
@@ -104,10 +104,10 @@ func OpenSchema2ForMigrationVerification(dataDir string, opts ...wardendb.Option
 	if l.SchemaVersion != schema.Schema2 {
 		return nil, fmt.Errorf("schema-2 verification requires exact committed schema 2")
 	}
-	return openShared(dataDir, false, opts...)
+	return openShared(dataDir, false, false, opts...)
 }
 
-func openShared(dataDir string, schema3Mode bool, opts ...wardendb.Option) (*Stores, error) {
+func openShared(dataDir string, schema3Mode, sealedReadiness bool, opts ...wardendb.Option) (*Stores, error) {
 	db, err := wardendb.Open(dataDir, opts...)
 	if err != nil {
 		return nil, err
@@ -134,7 +134,12 @@ func openShared(dataDir string, schema3Mode bool, opts ...wardendb.Option) (*Sto
 	if err = db.OnClose("agentstore", s.Agents.Close); err != nil {
 		return fail(err)
 	}
-	if s.Terminals, err = terminalstore.NewStoreFromDB(db); err != nil {
+	if schema3Mode {
+		s.Terminals, err = terminalstore.NewSchema3StoreFromDB(db)
+	} else {
+		s.Terminals, err = terminalstore.NewStoreFromDB(db)
+	}
+	if err != nil {
 		return fail(err)
 	}
 	if s.Context, err = ctxstore.NewStoreFromDB(db); err != nil {
@@ -166,7 +171,12 @@ func openShared(dataDir string, schema3Mode bool, opts ...wardendb.Option) (*Sto
 	if s.Schedules, err = schedule.NewStoreFromDB(db); err != nil {
 		return fail(err)
 	}
-	if s.Backends, err = backendstore.NewStoreFromDB(db); err != nil {
+	if schema3Mode && sealedReadiness {
+		s.Backends, err = backendstore.NewSchema3StoreFromDB(db)
+	} else {
+		s.Backends, err = backendstore.NewStoreFromDB(db)
+	}
+	if err != nil {
 		return fail(err)
 	}
 	if s.UsageSnapshots, err = backendusage.NewSnapshotStoreFromDB(db); err != nil {
@@ -191,7 +201,12 @@ func openShared(dataDir string, schema3Mode bool, opts ...wardendb.Option) (*Sto
 	if err != nil {
 		return fail(err)
 	}
-	if s.PlanExports, err = planexport.NewStoreFromDB(db); err != nil {
+	if schema3Mode {
+		s.PlanExports, err = planexport.NewSchema3StoreFromDB(db)
+	} else {
+		s.PlanExports, err = planexport.NewStoreFromDB(db)
+	}
+	if err != nil {
 		return fail(err)
 	}
 	if s.Metrics, err = metrics.NewStoreFromDB(db); err != nil {

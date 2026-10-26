@@ -341,6 +341,35 @@ func (e *env) openShared() (*agentstore.Store, func()) {
 	return s, func() { require.NoError(e.t, db.Close()) }
 }
 
+// openSharedSchema2 / openSharedProjectsSchema2 seed an authentic released
+// schema-2 warden-db (ledger at schema 2, schema-2 stores that permit the
+// historical archived+active duplicate identity) for tests that then drive the
+// released waypoint binary. The current schema-3 stores must not be used for
+// such fixtures: they ignore the inverse membership representation.
+func (e *env) openSharedSchema2() (*agentstore.Store, func()) {
+	e.t.Helper()
+	if _, err := schema.Load(e.data); err != nil {
+		require.NoError(e.t, schema.Save(e.data, &schema.Ledger{SchemaVersion: schema.Schema2, BinaryVersion: "e2e",
+			History: []schema.HistoryEntry{{From: 0, To: schema.Schema2, Migration: schema.MigrationBaselineFresh}}}))
+	}
+	db, err := wardendb.Open(e.data)
+	require.NoError(e.t, err)
+	s, err := agentstore.NewStoreFromDB(db)
+	require.NoError(e.t, err)
+	return s, func() { require.NoError(e.t, db.Close()) }
+}
+
+func (e *env) openSharedProjectsSchema2() (*projectstore.Store, func()) {
+	e.t.Helper()
+	_, closeAgents := e.openSharedSchema2() // stamps the ledger
+	closeAgents()
+	db, err := wardendb.Open(e.data)
+	require.NoError(e.t, err)
+	ps, err := projectstore.NewStoreFromDB(db)
+	require.NoError(e.t, err)
+	return ps, func() { require.NoError(e.t, db.Close()) }
+}
+
 // openSharedProjects is openShared for the project store.
 func (e *env) openSharedProjects() (*projectstore.Store, func()) {
 	e.t.Helper()

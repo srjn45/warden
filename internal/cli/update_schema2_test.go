@@ -160,7 +160,7 @@ func TestSchema2CheckAndBootGuardAgree(t *testing.T) {
 		cmd := newMigrateCmd()
 		var buf bytes.Buffer
 		cmd.SetOut(&buf)
-		cmd.SetArgs([]string{"--check", "--json", "--data-dir", d})
+		cmd.SetArgs([]string{"--check", "--target", "2", "--json", "--data-dir", d})
 		_ = cmd.ExecuteContext(context.Background())
 		var rep migrateCheckReport
 		require.NoError(t, json.Unmarshal(buf.Bytes(), &rep), buf.String())

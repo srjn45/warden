@@ -37,8 +37,9 @@ func TestPendingSchema3TargetAuthorized(t *testing.T) {
 			To          int    `json:"target_format"`
 			Capability  int    `json:"capability_version"`
 			DataDir     string `json:"data_dir"`
+			Version     string `json:"target_version"`
 			Target      string `json:"target_binary_sha256"`
-		}{1, id, "0003-ownership-normalization", "ownership-v1", 2, 3, 1, root, target}
+		}{1, id, "0003-ownership-normalization", "ownership-v1", 2, 3, 1, root, "target-test", target}
 		raw, err := json.Marshal(manifest)
 		require.NoError(t, err)
 		backup := filepath.Join(root, "backups", "pre-schema3-"+id)
@@ -65,7 +66,7 @@ func TestPendingSchema3TargetAuthorized(t *testing.T) {
 		require.NoError(t, err)
 		journal := filepath.Join(root, ".schema3-transaction-"+id+".jsonl")
 		require.NoError(t, os.WriteFile(journal, append(journalRaw, '\n'), 0o600))
-		ledger := &Ledger{SchemaVersion: 3, InProgress: &InProgress{Migration: manifest.Migration, TransactionID: id, ManifestSHA256: manifestHash, Journal: journal, SourceFormat: 2, TargetFormat: 3, TargetBinarySHA256: target, Step: "ledger_committed"}}
+		ledger := &Ledger{SchemaVersion: 3, BinaryVersion: manifest.Version, InProgress: &InProgress{Migration: manifest.Migration, TransactionID: id, ManifestSHA256: manifestHash, Journal: journal, Snapshot: backup, SourceFormat: 2, TargetFormat: 3, TargetBinarySHA256: target, Step: "ledger_committed"}}
 		require.NoError(t, Save(root, ledger))
 		return root, ledger, journal
 	}
@@ -78,6 +79,8 @@ func TestPendingSchema3TargetAuthorized(t *testing.T) {
 		"unsafe transaction id": func(t *testing.T, _ string, l *Ledger, _ string) { l.InProgress.TransactionID = "../txn" },
 		"wrong manifest seal":   func(t *testing.T, _ string, l *Ledger, _ string) { l.InProgress.ManifestSHA256 = "sha256:bad" },
 		"wrong executable hash": func(t *testing.T, _ string, l *Ledger, _ string) { l.InProgress.TargetBinarySHA256 = "sha256:bad" },
+		"wrong target version":  func(t *testing.T, _ string, l *Ledger, _ string) { l.BinaryVersion = "wrong-target" },
+		"wrong snapshot":        func(t *testing.T, _ string, l *Ledger, _ string) { l.InProgress.Snapshot = "backups/other" },
 		"replayed journal sequence": func(t *testing.T, _ string, _ *Ledger, journal string) {
 			b, err := os.ReadFile(journal)
 			require.NoError(t, err)

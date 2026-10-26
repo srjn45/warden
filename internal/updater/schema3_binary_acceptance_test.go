@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,7 +15,6 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/schema"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -146,7 +144,11 @@ func testSchema3WaypointUpdateStartAndRollback(t *testing.T) {
 	require.NoError(t, listener.Close())
 	require.NoError(t, os.WriteFile(filepath.Join(tr.dir, "config.yaml"), []byte(fmt.Sprintf("data_dir: %s\naddr: %s\n", tr.dir, addr)), 0600))
 
-	beginSchema3Fixture(t, tr, installed, staged)
+	ledger, err := schema.Load(tr.dir)
+	require.NoError(t, err)
+	ledger.BinaryVersion = "12.1.0"
+	require.NoError(t, schema.Save(tr.dir, ledger))
+	require.NoError(t, tr.begin(ctx, installed, staged, "12.1.0", "13.0.0", []string{"config.yaml"}, 1<<50))
 	require.NoError(t, tr.promote(ctx))
 	_, err = (fsInstaller{bin: installed}).Swap(staged)
 	require.NoError(t, err)
@@ -165,18 +167,11 @@ func testSchema3WaypointUpdateStartAndRollback(t *testing.T) {
 	})
 	healthURL := "http://" + addr + "/healthz"
 	var h Health
-	ready := assert.Eventually(t, func() bool {
-		resp, err := http.Get(healthURL) // #nosec G107 -- loopback test daemon
-		if err != nil {
-			return false
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK {
-			return false
-		}
-		return json.NewDecoder(resp.Body).Decode(&h) == nil && h.Status == "ok" && h.SchemaVersion == 3 && strings.TrimPrefix(h.Version, "v") == "13.0.0"
-	}, 20*time.Second, 100*time.Millisecond)
-	require.True(t, ready, "target daemon output:\n%s", daemonLog.String())
+	require.Eventually(t, func() bool {
+		var err error
+		h, err = httpProber{url: healthURL}.Probe(ctx)
+		return err == nil && h.Status == "ok" && h.SchemaVersion == 3 && strings.TrimPrefix(h.Version, "v") == "13.0.0"
+	}, 20*time.Second, 100*time.Millisecond, "target daemon output:\n%s", daemonLog.String())
 
 	out, err = exec.CommandContext(ctx, installed, "migrate", "--verify-ownership", "--data-dir", tr.dir, "--transaction", tr.id, "--target-sha", tr.manifest.TargetBinaryHash, "--manifest-sha", tr.manifestHash).CombinedOutput()
 	require.NoError(t, err, "%s", out)
@@ -194,7 +189,7 @@ func testSchema3WaypointUpdateStartAndRollback(t *testing.T) {
 	result, err := Rollback(RollbackOptions{DataDir: tr.dir, InstallBin: installed, TransactionID: tr.id, AcceptDataLoss: true, Service: svc, Prober: probe, Clock: newFakeClock()})
 	require.NoError(t, err)
 	require.True(t, result.DataRestored)
-	ledger, err := schema.Load(tr.dir)
+	ledger, err = schema.Load(tr.dir)
 	require.NoError(t, err)
 	require.Equal(t, 2, ledger.SchemaVersion)
 	got, err := os.ReadFile(installed)

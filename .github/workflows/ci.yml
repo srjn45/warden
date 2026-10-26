@@ -65,6 +65,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Process acceptance tests build the released schema-2 waypoint.
+          fetch-depth: 0
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
@@ -100,7 +103,7 @@ jobs:
       - name: Run upgrade fixture and schema-3 binary boundary tests
         env:
           WARDEN_SCHEMA3_BINARY_ACCEPTANCE: "1"
-        run: go test -v ./internal/updater -run 'TestUpgradeFixtures|TestMultiHopUpgrade|TestTxnFault|TestSchema3ActualBinaryBoundary'
+        run: go test -v ./internal/updater -run 'TestUpgradeFixtures|TestMultiHopUpgrade|TestTxnFault|TestSchema3ActualBinaryBoundary|TestSchema3ReleasedWaypointUpdaterAcceptance'
 
   build:
     name: Release build

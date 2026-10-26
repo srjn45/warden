@@ -689,8 +689,23 @@ func (t *schema3Transaction) verifyTarget(ctx context.Context, dir string) error
 	if err = schema3.VerifyIndexes(indexes, t.manifest.SourceIndexes, g); err != nil {
 		return err
 	}
-	if schema3.Digest(schema3.Digests(g)) != schema3.Digest(t.manifest.Report.Target) {
-		return fmt.Errorf("schema3: divergent target generation %s", dir)
+	got := schema3.Digests(g)
+	if schema3.Digest(got) != schema3.Digest(t.manifest.Report.Target) {
+		changed := make([]string, 0)
+		seen := map[string]bool{}
+		for name, want := range t.manifest.Report.Target {
+			seen[name] = true
+			if got[name] != want {
+				changed = append(changed, fmt.Sprintf("%s expected=%s actual=%s", name, want, got[name]))
+			}
+		}
+		for name, actual := range got {
+			if !seen[name] {
+				changed = append(changed, fmt.Sprintf("%s expected=<absent> actual=%s", name, actual))
+			}
+		}
+		sort.Strings(changed)
+		return fmt.Errorf("schema3: divergent target generation %s (%s)", dir, strings.Join(changed, "; "))
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -72,7 +73,7 @@ func TestRecoveryWhileTmuxSessionsExist(t *testing.T) {
 func TestMembershipConflictsAndStaleEntries(t *testing.T) {
 	e := newEnv(t)
 	ctx := context.Background()
-	s, closeDB := e.openShared()
+	s, closeDB := e.openSharedSchema2()
 	for _, id := range []string{"a-1", "a-2", "a-3"} {
 		require.NoError(t, s.Insert(ctx, &agentstore.Agent{ID: id, Name: id, Scope: "system", Status: store.StatusWorking}))
 	}
@@ -81,7 +82,7 @@ func TestMembershipConflictsAndStaleEntries(t *testing.T) {
 	require.NoError(t, s.Insert(ctx, &agentstore.Agent{ID: "a-1", Name: "a-1", Scope: "system", Status: store.StatusWorking}))
 	closeDB()
 
-	ps, closePS := e.openSharedProjects()
+	ps, closePS := e.openSharedProjectsSchema2()
 	repoA, repoB := filepath.Join(e.root, "repoA"), filepath.Join(e.root, "repoB")
 	// ghost = stale member (no such agent); a-2 claimed by BOTH projects (ambiguous); a-3 clean.
 	require.NoError(t, ps.Upsert(projectstore.Project{ID: repoA, Name: "A", Path: repoA, Agents: []string{"a-1", "a-2", "a-3", "ghost"}}))
@@ -89,14 +90,28 @@ func TestMembershipConflictsAndStaleEntries(t *testing.T) {
 	closePS()
 
 	cfg := e.config(freeAddr(t), e.data)
-	d := e.startDaemon(freeAddr(t), e.data, e.root)
+	// Historical schema-2 generation: the released waypoint owns it.
+	waypoint := waypointBinary(t)
+	run := func(args ...string) (string, int) {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		out, err := e.cmdBin(ctx, waypoint, e.root, args...).CombinedOutput()
+		code := 0
+		if err != nil {
+			ee, ok := err.(*exec.ExitError)
+			require.True(t, ok, "run %v: %v", args, err)
+			code = ee.ExitCode()
+		}
+		return string(out), code
+	}
+	d := e.startDaemonBin(waypoint, freeAddr(t), e.data, e.root)
 	d.waitUp()
 	// reconcile refuses while the daemon owns the stores.
-	out, code := e.run(e.root, "--config", cfg, "doctor", "--reconcile-membership")
+	out, code := run("--config", cfg, "doctor", "--reconcile-membership")
 	require.NotZero(t, code, out)
 	d.stop()
 
-	out, code = e.run(e.root, "--config", cfg, "doctor", "--reconcile-membership")
+	out, code = run("--config", cfg, "doctor", "--reconcile-membership")
 	require.Zero(t, code, out)
 	require.Contains(t, out, "CONFLICT", out)
 	for _, id := range []string{"a-1", "a-2"} {
@@ -105,19 +120,19 @@ func TestMembershipConflictsAndStaleEntries(t *testing.T) {
 	require.False(t, strings.Contains(out, "CONFLICT agent a-3"), out)
 
 	// idempotent: a second run changes nothing.
-	again, code := e.run(e.root, "--config", cfg, "doctor", "--reconcile-membership")
+	again, code := run("--config", cfg, "doctor", "--reconcile-membership")
 	require.Zero(t, code, again)
 	require.Contains(t, again, "sessions stamped:  0", again)
 
 	// conflicted agents unstamped; ghost still a member of record.
-	s, closeDB = e.openShared()
+	s, closeDB = e.openSharedSchema2()
 	for _, id := range []string{"a-1", "a-2"} {
 		a, err := s.Get(ctx, id)
 		require.NoError(t, err)
 		require.Empty(t, a.ProjectID, "%s is conflicted and must stay unstamped", id)
 	}
 	closeDB()
-	ps, closePS = e.openSharedProjects()
+	ps, closePS = e.openSharedProjectsSchema2()
 	defer closePS()
 	pa, err := ps.Get(repoA)
 	require.NoError(t, err)

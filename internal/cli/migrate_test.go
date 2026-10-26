@@ -20,7 +20,7 @@ func TestMigrateCommand_CheckClean(t *testing.T) {
 
 	// Initial clean ledger
 	l := &schema.Ledger{
-		SchemaVersion: schema.SchemaVersion,
+		SchemaVersion: schema.Schema2,
 		BinaryVersion: "9.29.0",
 		History:       []schema.HistoryEntry{},
 	}
@@ -29,7 +29,7 @@ func TestMigrateCommand_CheckClean(t *testing.T) {
 	cmd := newMigrateCmd()
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
-	cmd.SetArgs([]string{"--check", "--data-dir", dataDir})
+	cmd.SetArgs([]string{"--check", "--target", "2", "--data-dir", dataDir})
 
 	require.NoError(t, cmd.ExecuteContext(context.Background()))
 	require.Contains(t, buf.String(), "all stores clean")
@@ -39,7 +39,7 @@ func TestMigrateCommand_CheckJSON(t *testing.T) {
 	dataDir := t.TempDir()
 
 	l := &schema.Ledger{
-		SchemaVersion: schema.SchemaVersion,
+		SchemaVersion: schema.Schema2,
 		BinaryVersion: "9.29.0",
 		History:       []schema.HistoryEntry{},
 	}
@@ -48,15 +48,15 @@ func TestMigrateCommand_CheckJSON(t *testing.T) {
 	cmd := newMigrateCmd()
 	var buf bytes.Buffer
 	cmd.SetOut(&buf)
-	cmd.SetArgs([]string{"--check", "--json", "--data-dir", dataDir})
+	cmd.SetArgs([]string{"--check", "--target", "2", "--json", "--data-dir", dataDir})
 
 	require.NoError(t, cmd.ExecuteContext(context.Background()))
 
 	var rep migrateCheckReport
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &rep))
 	require.True(t, rep.Clean)
-	require.Equal(t, schema.SchemaVersion, rep.CurrentVersion)
-	require.Equal(t, schema.SchemaVersion, rep.TargetVersion)
+	require.Equal(t, schema.Schema2, rep.CurrentVersion)
+	require.Equal(t, schema.Schema2, rep.TargetVersion)
 	require.Empty(t, rep.Findings)
 }
 

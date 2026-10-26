@@ -134,6 +134,18 @@ func CollectionIndexes() map[string][]string {
 // collections must not already be registered on it. Like NewStore it seeds
 // defaults into an empty registry.
 func NewStoreFromDB(db *wardendb.DB) (*Store, error) {
+	return newStoreFromDB(db, true)
+}
+
+// NewSchema3StoreFromDB opens the schema-3 backend registry without seeding
+// defaults. During paired-update readiness the released waypoint verifies the
+// exact promoted generation after the target daemon has answered health, so
+// constructor-side writes would invalidate an otherwise valid target.
+func NewSchema3StoreFromDB(db *wardendb.DB) (*Store, error) {
+	return newStoreFromDB(db, false)
+}
+
+func newStoreFromDB(db *wardendb.DB, seedDefaults bool) (*Store, error) {
 	col, err := register[Backend](db, backendsCollection)
 	if err != nil {
 		return nil, err
@@ -179,8 +191,10 @@ func NewStoreFromDB(db *wardendb.DB) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{col: col, modelsCol: modelsCol, rolesCol: rolesCol, handoverCol: handoverCol, quotasCol: quotasCol, rlCooldownsCol: rlCol, catalogScopesCol: scopes, catalogSnapshotsCol: snaps, catalogObservationsCol: obs, catalogProposalsCol: props, catalogRevisionsCol: revs, catalogMetrics: NewCatalogMetrics()}
-	if err := s.seedDefaultsIfEmpty(); err != nil {
-		return nil, err
+	if seedDefaults {
+		if err := s.seedDefaultsIfEmpty(); err != nil {
+			return nil, err
+		}
 	}
 	return s, nil
 }

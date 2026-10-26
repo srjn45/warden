@@ -69,7 +69,7 @@ func TestLegacyStoreRetirement_FullLifecycle(t *testing.T) {
 	require.Contains(t, out, "legacy stores are the live authority")
 
 	// warden migrate --cleanup-legacy refuses on schema-1 data dir
-	out, code = e.run(e.root, "--config", cfg, "migrate", "--cleanup-legacy", "--yes")
+	out, code = e.run(e.root, "--config", cfg, "migrate", "--cleanup-legacy", "--yes", "--target", "2")
 	require.NotZero(t, code, out)
 
 	// -------------------------------------------------------------------------
@@ -192,7 +192,7 @@ func TestLegacyStoreRetirement_FullLifecycle(t *testing.T) {
 	// 7. Retirement criteria evaluation (warden migrate --retirement)
 	// -------------------------------------------------------------------------
 	// Since cutover just occurred, support_window_elapsed (90 days) is the sole blocker
-	out, code = e.run(e.root, "--config", cfg, "migrate", "--retirement", "--json")
+	out, code = e.run(e.root, "--config", cfg, "migrate", "--retirement", "--target", "2", "--json")
 	require.Zero(t, code, out)
 	var ret migrate.RetirementReport
 	require.NoError(t, json.Unmarshal([]byte(out), &ret), out)
@@ -214,7 +214,7 @@ func TestLegacyStoreRetirement_FullLifecycle(t *testing.T) {
 	require.NoError(t, schema.Save(e.data, ledger))
 
 	// Re-evaluate retirement: now eligible!
-	out, code = e.run(e.root, "--config", cfg, "migrate", "--retirement", "--json")
+	out, code = e.run(e.root, "--config", cfg, "migrate", "--retirement", "--target", "2", "--json")
 	require.Zero(t, code, out)
 	ret = migrate.RetirementReport{}
 	require.NoError(t, json.Unmarshal([]byte(out), &ret), out)
@@ -225,7 +225,7 @@ func TestLegacyStoreRetirement_FullLifecycle(t *testing.T) {
 	// 8. Safe backup-gated cleanup (warden migrate --cleanup-legacy)
 	// -------------------------------------------------------------------------
 	// 8a. Dry run: lists candidates, does not move any file
-	out, code = e.run(e.root, "--config", cfg, "migrate", "--cleanup-legacy", "--dry-run", "--json")
+	out, code = e.run(e.root, "--config", cfg, "migrate", "--cleanup-legacy", "--target", "2", "--dry-run", "--json")
 	require.Zero(t, code, out)
 	var dryRep migrate.CleanupReport
 	require.NoError(t, json.Unmarshal([]byte(out), &dryRep), out)
@@ -237,13 +237,13 @@ func TestLegacyStoreRetirement_FullLifecycle(t *testing.T) {
 	require.FileExists(t, filepath.Join(e.data, "snapshots", "snap-1.transcript"))
 
 	// 8b. Refuses unconfirmed without --yes
-	out, code = e.run(e.root, "--config", cfg, "migrate", "--cleanup-legacy")
+	out, code = e.run(e.root, "--config", cfg, "migrate", "--cleanup-legacy", "--target", "2")
 	require.NotZero(t, code, out)
 	require.Contains(t, out, "not confirmed")
 	require.DirExists(t, filepath.Join(e.data, "agents-db"))
 
 	// 8c. Confirmed cleanup with --yes
-	out, code = e.run(e.root, "--config", cfg, "migrate", "--cleanup-legacy", "--yes", "--json")
+	out, code = e.run(e.root, "--config", cfg, "migrate", "--cleanup-legacy", "--target", "2", "--yes", "--json")
 	require.Zero(t, code, out)
 	var cleanRep migrate.CleanupReport
 	require.NoError(t, json.Unmarshal([]byte(out), &cleanRep), out)
@@ -282,7 +282,7 @@ func TestLegacyStoreRetirement_FullLifecycle(t *testing.T) {
 	require.Equal(t, 1, adoptLog.Count(adoption.LegacyCleanup, time.Time{}))
 
 	// 8d. Idempotent re-run: cleanup is a safe no-op when nothing remains
-	out, code = e.run(e.root, "--config", cfg, "migrate", "--cleanup-legacy", "--yes", "--json")
+	out, code = e.run(e.root, "--config", cfg, "migrate", "--cleanup-legacy", "--target", "2", "--yes", "--json")
 	require.Zero(t, code, out)
 	var rerunRep migrate.CleanupReport
 	require.NoError(t, json.Unmarshal([]byte(out), &rerunRep), out)
@@ -292,7 +292,7 @@ func TestLegacyStoreRetirement_FullLifecycle(t *testing.T) {
 	require.Equal(t, 1, adoptLog.Count(adoption.LegacyCleanup, time.Time{}), "no duplicate adoption event on no-op re-run")
 
 	// 8e. Verified schema-2 operation continues uninterrupted
-	dClean := e.startDaemon(freeAddr(t), e.data, e.root)
+	dClean := e.startDaemonBin(waypoint, freeAddr(t), e.data, e.root)
 	dClean.waitUp()
 	code, gotFleet = fleet(t, dClean)
 	require.Equal(t, 200, code)
