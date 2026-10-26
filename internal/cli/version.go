@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/srjn45/warden/internal/schema"
+	"github.com/srjn45/warden/internal/updater"
 )
 
 // Build metadata. version defaults to "dev" for source builds and is overridden
@@ -39,6 +40,11 @@ type buildInfo struct {
 	// from the freshly installed binary to know what the new daemon must report.
 	SchemaVersion int `json:"schema_version"`
 	MinSchema     int `json:"min_schema"`
+	// UpdaterCapabilities are the versioned format-3 update protocols this
+	// binary implements (internal/updater). A format-3 release is accepted by an
+	// updater only when this report, the release manifest and the updater's own
+	// requirement set all agree.
+	UpdaterCapabilities map[string]int `json:"updater_capabilities,omitempty"`
 }
 
 // currentBuildInfo resolves the build metadata, preferring ldflags values and
@@ -54,6 +60,8 @@ func currentBuildInfo() buildInfo {
 
 		SchemaVersion: schema.SchemaVersion,
 		MinSchema:     schema.MinSchema,
+
+		UpdaterCapabilities: updater.Schema3Requirements(),
 	}
 	if bi.Commit == "" || bi.Date == "" {
 		if info, ok := debug.ReadBuildInfo(); ok {

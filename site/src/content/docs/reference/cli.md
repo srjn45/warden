@@ -5945,13 +5945,20 @@ plain binary swap. Otherwise it restores the pre-update snapshot and warns
 that changes made since the update are lost, requiring confirmation (--yes
 to skip confirmation).
 
+Schema-3 rollback requires --transaction <update-id> and --accept-data-loss.
+It restores the selected transaction's paired old binary and full data generation,
+then verifies the old version and schema. --yes alone does not authorize data loss.
+Generic latest snapshots and .bak files are never selected for schema 3.
+
 Usage:
   warden rollback [flags]
 
 Flags:
+      --accept-data-loss         authorize discarding writes since the selected schema-3 update
   -h, --help                     help for rollback
       --json                     output result as JSON
       --ready-timeout duration   overall deadline for the restored daemon to report healthy (default 1m30s)
+      --transaction string       exact schema-3 updater transaction to restore (never latest snapshot)
   -y, --yes                      skip loss-of-changes confirmation prompt
 
 Inherited flags:

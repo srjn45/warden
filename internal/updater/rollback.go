@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -29,6 +30,10 @@ type RollbackOptions struct {
 	Stdout       io.Writer
 	Stderr       io.Writer
 	Confirm      func(prompt string) bool
+	// Schema-3 rollback selects an exact updater transaction. Generic latest
+	// snapshots and .bak files cannot identify a paired data generation.
+	TransactionID  string
+	AcceptDataLoss bool
 }
 
 // RollbackResult is the outcome of a Rollback call.
@@ -72,7 +77,7 @@ func Rollback(opts RollbackOptions) (RollbackResult, error) {
 	}
 	if opts.Service == nil {
 		p := opts.Prober
-		opts.Service = newSystemController("", func(ctx context.Context) bool {
+		opts.Service = newSystemController(runtime.GOOS, func(ctx context.Context) bool {
 			h, err := p.Probe(ctx)
 			return err == nil && h.Status == "ok"
 		})
@@ -82,6 +87,16 @@ func Rollback(opts RollbackOptions) (RollbackResult, error) {
 	}
 
 	ctx := context.Background()
+	if opts.TransactionID != "" {
+		return rollbackSchema3(ctx, opts)
+	}
+	if ledger, err := schema.Load(opts.DataDir); err == nil {
+		if ledger.SchemaVersion >= 3 || ledger.InProgress != nil && ledger.InProgress.TransactionID != "" {
+			return RollbackResult{}, fmt.Errorf("schema3: rollback requires --transaction and --accept-data-loss; generic snapshots and .bak are not paired recovery sources")
+		}
+	} else if !errors.Is(err, schema.ErrNoLedger) {
+		return RollbackResult{}, fmt.Errorf("rollback: cannot establish data format: %w", err)
+	}
 
 	// 1. Find latest snapshot
 	snapDir, snapErr := LatestSnapshot(opts.DataDir)

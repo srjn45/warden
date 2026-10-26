@@ -4082,8 +4082,10 @@
     "use": "rollback",
     "runnable": true,
     "local_flags": [
+      "accept-data-loss",
       "json",
       "ready-timeout",
+      "transaction",
       "yes"
     ],
     "inherited_flags": [

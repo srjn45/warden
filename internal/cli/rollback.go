@@ -15,9 +15,11 @@ import (
 
 func newRollbackCmd() *cobra.Command {
 	var (
-		yes    bool
-		ready  time.Duration
-		asJSON bool
+		yes            bool
+		ready          time.Duration
+		asJSON         bool
+		transaction    string
+		acceptDataLoss bool
 	)
 	cmd := &cobra.Command{
 		Use:   "rollback",
@@ -27,7 +29,12 @@ func newRollbackCmd() *cobra.Command {
 Restores the previous binary (.bak). If no schema change happened it is a
 plain binary swap. Otherwise it restores the pre-update snapshot and warns
 that changes made since the update are lost, requiring confirmation (--yes
-to skip confirmation).`,
+to skip confirmation).
+
+Schema-3 rollback requires --transaction <update-id> and --accept-data-loss.
+It restores the selected transaction's paired old binary and full data generation,
+then verifies the old version and schema. --yes alone does not authorize data loss.
+Generic latest snapshots and .bak files are never selected for schema 3.`,
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -40,12 +47,14 @@ to skip confirmation).`,
 			}
 
 			opts := updater.RollbackOptions{
-				DataDir:      cfg.DataDir,
-				HealthURL:    healthURL,
-				ReadyTimeout: ready,
-				Force:        yes,
-				Stdout:       cmd.OutOrStdout(),
-				Stderr:       cmd.ErrOrStderr(),
+				DataDir:        cfg.DataDir,
+				HealthURL:      healthURL,
+				ReadyTimeout:   ready,
+				Force:          yes,
+				Stdout:         cmd.OutOrStdout(),
+				Stderr:         cmd.ErrOrStderr(),
+				TransactionID:  transaction,
+				AcceptDataLoss: acceptDataLoss,
 			}
 			if home, err := os.UserHomeDir(); err == nil && home != "" {
 				opts.InstallBin = filepath.Join(home, ".local", "bin", "warden")
@@ -64,5 +73,7 @@ to skip confirmation).`,
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip loss-of-changes confirmation prompt")
 	cmd.Flags().DurationVar(&ready, "ready-timeout", 90*time.Second, "overall deadline for the restored daemon to report healthy")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "output result as JSON")
+	cmd.Flags().StringVar(&transaction, "transaction", "", "exact schema-3 updater transaction to restore (never latest snapshot)")
+	cmd.Flags().BoolVar(&acceptDataLoss, "accept-data-loss", false, "authorize discarding writes since the selected schema-3 update")
 	return cmd
 }

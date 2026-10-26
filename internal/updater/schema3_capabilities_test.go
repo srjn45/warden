@@ -30,8 +30,12 @@ func TestSchema3CapabilityEncodingAndVersionGate(t *testing.T) {
 			require.Error(t, ValidateSchema3Release(m))
 		})
 	}
+	// The capability-gated lift: a valid format-3 envelope plans; the per-update
+	// gate (txn.schema3TargetGate) binds the binary, version and data format.
 	_, err := ComputePath("99.0.0", 2, valid, nil)
-	require.ErrorContains(t, err, "cutover")
-	_, err = ComputePath("dev", 1, valid, nil)
-	require.Error(t, err, "dev cannot bypass capabilities")
+	require.NoError(t, err)
+	invalid := valid
+	invalid.Requires.Capabilities = nil
+	_, err = ComputePath("99.0.0", 2, invalid, nil)
+	require.Error(t, err, "a format-3 envelope without capabilities never plans")
 }

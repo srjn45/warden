@@ -76,10 +76,13 @@ type schema3Journal struct {
 type schema3Transaction struct {
 	dir, id, bundle, stage, park, journal string
 	lock                                  *ownerlock.Lock
-	manifest                              *schema3Manifest
-	manifestHash                          string
-	records                               []schema3Journal
-	fault                                 func(string) error
+	// handedOff records that this updater deliberately released the owner lock
+	// so the target daemon can start; it keeps finish authority without the lock.
+	handedOff    bool
+	manifest     *schema3Manifest
+	manifestHash string
+	records      []schema3Journal
+	fault        func(string) error
 }
 
 func schema3Path(data, id string) (*schema3Transaction, error) {
@@ -112,7 +115,7 @@ func acquireSchema3(ctx context.Context, t *schema3Transaction, svc ServiceContr
 		return fmt.Errorf("schema3: explicit service and health controllers required")
 	}
 	state := svc.State(ctx)
-	if state.Kind == ServiceManual || state.Kind == ServiceNone {
+	if state.Kind != ServiceSystemd && state.Kind != ServiceLaunchd {
 		return fmt.Errorf("schema3: managed stopped service required")
 	}
 	if err := svc.Stop(ctx); err != nil {
@@ -120,6 +123,9 @@ func acquireSchema3(ctx context.Context, t *schema3Transaction, svc ServiceContr
 	}
 	if !svc.Exited(ctx) {
 		return fmt.Errorf("schema3: daemon exit unconfirmed")
+	}
+	if after := svc.State(ctx); after.Kind != state.Kind || after.Active {
+		return fmt.Errorf("schema3: stopped supervisor state unconfirmed")
 	}
 	if _, err := probe.Probe(ctx); err == nil {
 		return fmt.Errorf("schema3: daemon still answers health")
@@ -129,6 +135,16 @@ func acquireSchema3(ctx context.Context, t *schema3Transaction, svc ServiceContr
 		return err
 	}
 	t.lock = lock
+	// A supervisor may race the stop/lock interval. Recheck while owning the
+	// data directory so an autorestart cannot authorize source mutation.
+	if after := svc.State(ctx); after.Kind != state.Kind || after.Active || !svc.Exited(ctx) {
+		_ = t.close()
+		return fmt.Errorf("schema3: service restarted during ownership transition")
+	}
+	if _, err := probe.Probe(ctx); err == nil {
+		_ = t.close()
+		return fmt.Errorf("schema3: daemon answers health after ownership transition")
+	}
 	return nil
 }
 func (t *schema3Transaction) close() error { err := t.lock.Release(); t.lock = nil; return err }
@@ -139,7 +155,7 @@ func (t *schema3Transaction) hit(point string) error {
 	return nil
 }
 func (t *schema3Transaction) record(step string, complete bool, input, output string) error {
-	if t.lock == nil {
+	if t.lock == nil && !t.handedOff {
 		return fmt.Errorf("schema3: updater owner lock required")
 	}
 	phase := "intent"
@@ -515,6 +531,17 @@ func (t *schema3Transaction) verifyBundle() error {
 	return nil
 }
 func (t *schema3Transaction) load(targetBin string) error {
+	return t.loadTransaction(targetBin, false)
+}
+
+// Rollback validates the captured target identity in the manifest and journal,
+// rather than requiring the target executable to remain installed. An interrupted
+// paired restore may already have replaced it with the old executable.
+func (t *schema3Transaction) loadForRestore() error {
+	return t.loadTransaction("", true)
+}
+
+func (t *schema3Transaction) loadTransaction(targetBin string, restoring bool) error {
 	if t.lock == nil {
 		return fmt.Errorf("schema3: updater lock required")
 	}
@@ -527,6 +554,9 @@ func (t *schema3Transaction) load(targetBin string) error {
 	}
 	t.manifestHash = plannedHash
 	sealed := schema3Exists(filepath.Join(t.bundle, "MANIFEST.json"))
+	if restoring && !sealed {
+		return fmt.Errorf("schema3: rollback requires a sealed paired backup")
+	}
 	if sealed {
 		if err := t.verifyBundle(); err != nil {
 			return err
@@ -549,12 +579,15 @@ func (t *schema3Transaction) load(targetBin string) error {
 			return err
 		}
 	}
-	h, err := schema3HashFile(targetBin)
-	if err != nil {
-		return err
-	}
-	if h != t.manifest.TargetBinaryHash {
-		return fmt.Errorf("schema3: wrong target binary")
+	h := t.manifest.TargetBinaryHash
+	if !restoring {
+		got, err := schema3HashFile(targetBin)
+		if err != nil {
+			return err
+		}
+		if got != h {
+			return fmt.Errorf("schema3: wrong target binary")
+		}
 	}
 	f, err := os.Open(t.journal)
 	if errors.Is(err, os.ErrNotExist) && !sealed {
@@ -564,6 +597,17 @@ func (t *schema3Transaction) load(targetBin string) error {
 		return err
 	}
 	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Size() == 0 {
+		return fmt.Errorf("schema3: empty/unsafe journal retained")
+	}
+	var tail [1]byte
+	if _, err = f.ReadAt(tail[:], info.Size()-1); err != nil || tail[0] != '\n' {
+		return fmt.Errorf("schema3: unterminated journal retained; completion cannot be established")
+	}
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 4096), 4<<20)
 	prev := ""
@@ -595,6 +639,36 @@ func (t *schema3Transaction) done(step string) bool {
 	}
 	return false
 }
+
+func (t *schema3Transaction) started(step string) bool {
+	for _, r := range t.records {
+		if r.Step == step {
+			return true
+		}
+	}
+	return false
+}
+
+// verifyCommittedTarget permits legitimate writes after readiness, while still
+// checking the complete ownership graph, physical integrity and index contract.
+// The migration-output digest is only meaningful before the target is released.
+func (t *schema3Transaction) verifyCommittedTarget(ctx context.Context) error {
+	l, err := schema.Load(t.dir)
+	if err != nil {
+		return err
+	}
+	if l.SchemaVersion != 3 || l.InProgress != nil || l.BinaryVersion != t.manifest.TargetVersion {
+		return fmt.Errorf("schema3: finalized ledger changed")
+	}
+	g, indexes, err := schema3.Read(ctx, filepath.Join(t.dir, "warden-db"))
+	if err != nil {
+		return err
+	}
+	if err = schema3.ValidateTarget(g); err != nil {
+		return err
+	}
+	return schema3.VerifyIndexes(indexes, t.manifest.SourceIndexes, g)
+}
 func schema3Exists(p string) bool { _, err := os.Lstat(p); return err == nil }
 func (t *schema3Transaction) verifyTarget(ctx context.Context, dir string) error {
 	g, indexes, err := schema3.Read(ctx, dir)
@@ -616,23 +690,26 @@ func (t *schema3Transaction) promote(ctx context.Context) error {
 	if err := t.verifyBundle(); err != nil {
 		return err
 	}
+	if t.started("restore_staged") {
+		return fmt.Errorf("schema3: transaction selected for restore; update cannot promote it again")
+	}
 	source := filepath.Join(t.dir, "warden-db")
 	if t.done("readiness_verified") {
+		return t.verifyCommittedTarget(ctx)
+	}
+	if t.started("readiness_verified") {
 		l, err := schema.Load(t.dir)
 		if err != nil {
 			return err
 		}
-		if l.SchemaVersion != 3 || l.InProgress != nil || l.BinaryVersion != t.manifest.TargetVersion {
-			return fmt.Errorf("schema3: finalized ledger changed")
+		if l.InProgress == nil {
+			// A crash between clearing the ledger and completing the journal
+			// must not replay migration or reintroduce its pending marker.
+			return t.verifyCommittedTarget(ctx)
 		}
-		g, indexes, err := schema3.Read(ctx, source)
-		if err != nil {
-			return err
-		}
-		if err = schema3.ValidateTarget(g); err != nil {
-			return err
-		}
-		return schema3.VerifyIndexes(indexes, t.manifest.SourceIndexes, g)
+	}
+	if _, err := t.pendingLedger(); err != nil {
+		return err
 	}
 	// Always regenerate from the sealed source, never a partially converted DB.
 	g, idx, err := schema3.Read(ctx, filepath.Join(t.bundle, "data", "warden-db"))
@@ -736,15 +813,9 @@ func (t *schema3Transaction) promote(ctx context.Context) error {
 			return err
 		}
 	}
-	l, err := schema.Load(t.dir)
+	l, err := t.pendingLedger()
 	if err != nil {
 		return err
-	}
-	if l.SchemaVersion != 2 && l.SchemaVersion != 3 {
-		return fmt.Errorf("schema3: ledger changed")
-	}
-	if l.InProgress != nil && l.InProgress.Migration != schema3.MigrationID {
-		return fmt.Errorf("schema3: conflicting ledger transaction")
 	}
 	if err = t.record("ledger_committed", false, t.manifest.LedgerHash, schema3.Digest(report.Target)); err != nil {
 		return err
@@ -767,6 +838,23 @@ func (t *schema3Transaction) promote(ctx context.Context) error {
 	return t.record("ledger_committed", true, t.manifest.LedgerHash, schema3.Digest(report.Target))
 }
 
+func (t *schema3Transaction) pendingLedger() (*schema.Ledger, error) {
+	l, err := schema.Load(t.dir)
+	if err != nil {
+		return nil, err
+	}
+	if l.SchemaVersion != 2 && l.SchemaVersion != 3 {
+		return nil, fmt.Errorf("schema3: ledger changed")
+	}
+	if l.InProgress != nil && (*l.InProgress != *t.progress(l.InProgress.Step) || (l.InProgress.Step != "backed_up" && l.InProgress.Step != "ledger_committed")) {
+		return nil, fmt.Errorf("schema3: conflicting ledger transaction")
+	}
+	if l.SchemaVersion == 3 && (l.InProgress == nil || l.BinaryVersion != t.manifest.TargetVersion) {
+		return nil, fmt.Errorf("schema3: committed ledger has no matching readiness intent")
+	}
+	return l, nil
+}
+
 // restore is offline and transaction-paired. It preserves the failed target for
 // evidence and installs a complete verified old generation, never an overlay.
 // Caller must stop even a partly started target and reacquire ownership first.
@@ -779,6 +867,9 @@ func (t *schema3Transaction) restore(ctx context.Context, binaryPath string) err
 	}
 	if binaryPath != t.manifest.BinaryPath {
 		return fmt.Errorf("schema3: restore binary path differs from paired identity")
+	}
+	if t.done("restored") {
+		return t.verifyRestored()
 	}
 	restore := filepath.Join(t.dir, ".schema2-restore-"+t.id)
 	abandoned := filepath.Join(t.dir, ".schema3-abandoned-"+t.id)
@@ -917,14 +1008,75 @@ func (t *schema3Transaction) restore(ctx context.Context, binaryPath string) err
 	return t.record("restored", true, t.manifest.SourceTree, t.manifest.OldBinaryHash)
 }
 
+// A finalized restore is an idempotent no-op only while the restored generation
+// remains unchanged. Replaying it after old-daemon writes would silently discard
+// data with an already consumed rollback authorization.
+func (t *schema3Transaction) verifyRestored() error {
+	if tree, err := schema3Tree(filepath.Join(t.dir, "warden-db")); err != nil || tree != t.manifest.SourceTree {
+		return fmt.Errorf("schema3: completed restore generation has changed; refusing replay")
+	}
+	for _, p := range t.manifest.RestorePaths {
+		if p == "warden-db" {
+			continue
+		}
+		want, err := schema3HashFile(filepath.Join(t.bundle, "data", p))
+		if err != nil {
+			return err
+		}
+		got, err := schema3HashFile(filepath.Join(t.dir, p))
+		if err != nil || got != want {
+			return fmt.Errorf("schema3: completed restore file %s has changed; refusing replay", p)
+		}
+	}
+	if got, err := schema3HashFile(t.manifest.BinaryPath); err != nil || got != t.manifest.OldBinaryHash {
+		return fmt.Errorf("schema3: completed restore binary has changed; refusing replay")
+	}
+	return nil
+}
+
 // finish is called only after cutover's authenticated readiness start reports
 // the exact target version, format 3 and successful ownership verification.
+// handoff releases the owner lock for the target daemon's start while keeping
+// this in-process transaction's authority to finalize readiness.
+func (t *schema3Transaction) handoff() error {
+	if err := t.close(); err != nil {
+		return err
+	}
+	t.handedOff = true
+	return nil
+}
+
 func (t *schema3Transaction) finish(ctx context.Context, h Health, ownershipOK bool) error {
-	if t.lock == nil || t.manifest == nil {
+	if (t.lock == nil && !t.handedOff) || t.manifest == nil {
 		return fmt.Errorf("schema3: updater authority required")
 	}
 	if h.Status != "ok" || stripV(h.Version) != stripV(t.manifest.TargetVersion) || h.SchemaVersion != 3 || !ownershipOK {
 		return fmt.Errorf("schema3: exact version/format/ownership readiness required")
+	}
+	if t.started("restore_staged") {
+		return fmt.Errorf("schema3: cannot finalize a transaction selected for restore")
+	}
+	l, err := schema.Load(t.dir)
+	if err != nil {
+		return err
+	}
+	if l.SchemaVersion != 3 || l.BinaryVersion != t.manifest.TargetVersion {
+		return fmt.Errorf("schema3: readiness ledger mismatch")
+	}
+	if l.InProgress == nil {
+		if !t.started("readiness_verified") {
+			return fmt.Errorf("schema3: readiness intent missing for finalized ledger")
+		}
+		if err := t.verifyCommittedTarget(ctx); err != nil {
+			return err
+		}
+		if t.done("readiness_verified") {
+			return nil
+		}
+		return t.record("readiness_verified", true, "", schema3.Digest(t.manifest.Report.Target))
+	}
+	if *l.InProgress != *t.progress("ledger_committed") {
+		return fmt.Errorf("schema3: readiness transaction mismatch")
 	}
 	if err := t.verifyTarget(ctx, filepath.Join(t.dir, "warden-db")); err != nil {
 		return err
@@ -932,15 +1084,14 @@ func (t *schema3Transaction) finish(ctx context.Context, h Health, ownershipOK b
 	if err := t.record("readiness_verified", false, "", schema3.Digest(t.manifest.Report.Target)); err != nil {
 		return err
 	}
-	l, err := schema.Load(t.dir)
-	if err != nil {
+	l.InProgress = nil
+	if err = t.hit("before/readiness-ledger-save"); err != nil {
 		return err
 	}
-	if l.SchemaVersion != 3 || l.InProgress == nil || l.InProgress.Snapshot != t.bundle {
-		return fmt.Errorf("schema3: readiness ledger mismatch")
-	}
-	l.InProgress = nil
 	if err = schema.Save(t.dir, l); err != nil {
+		return err
+	}
+	if err = t.hit("after/readiness-ledger-save"); err != nil {
 		return err
 	}
 	return t.record("readiness_verified", true, "", schema3.Digest(t.manifest.Report.Target))

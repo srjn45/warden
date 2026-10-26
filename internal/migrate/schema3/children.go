@@ -1,6 +1,7 @@
 package schema3
 
 import (
+	"encoding/json"
 	"strings"
 )
 
@@ -171,6 +172,28 @@ func materializeJobs(g Generation, r *Report) {
 	accounted := map[string]bool{}
 	for _, pid := range keys(g["pipelines"]) {
 		p := g["pipelines"][pid]
+		// Schema-2 toRecord uses Pipeline.MarshalJSON, which also writes these
+		// computed response counters. Validate their provenance against the
+		// embedded job authority; they are never schema-3 header fields.
+		count, done := 0, 0
+		for _, x := range list(p["jobs"]) {
+			j := object(x)
+			if text(j["type"]) != "span-out" && text(j["type"]) != "span-in" {
+				count++
+				if text(j["status"]) == "done" {
+					done++
+				}
+			}
+		}
+		for field, want := range map[string]int{"job_count": count, "jobs_done": done} {
+			if got, present := p[field]; present {
+				n, ok := got.(json.Number)
+				value, err := n.Int64()
+				if !ok || err != nil || value != int64(want) {
+					r.block("pipelines", pid, field, "computed counter disagrees with embedded jobs")
+				}
+			}
+		}
 		local := map[string]Object{}
 		for seq, x := range list(p["jobs"]) {
 			j := object(x)
@@ -231,7 +254,7 @@ func materializeJobs(g Generation, r *Report) {
 			g["pipeline_jobs"][key] = row
 		}
 		dag(local, "depends_on", "pipeline_jobs", r)
-		delete(p, "jobs")
+		remove(p, "jobs job_count jobs_done")
 	}
 	for _, k := range keys(old) {
 		if !accounted[k] {
