@@ -8,7 +8,6 @@ import (
 
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/branchtrack"
-	"github.com/srjn45/warden/internal/collab"
 	"github.com/srjn45/warden/internal/ctxstore"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/notify"
@@ -28,8 +27,6 @@ func NewServer(st agentstore.AgentStore, life Lifecycle, p *poller.Poller, inter
 	s := &Server{
 		store: st, life: life, poller: p, pollInterval: interval,
 		hub: h, done: make(chan struct{}), approvals: approvals, cstore: cstore, mbox: mbox, exec: exec,
-		collab: collab.NewMonitor(st, mbox), collabInterval: 10 * time.Second,
-		collabGitReconcile: 2 * time.Minute,
 		// branchTracker is opt-in (outward GitHub integration): constructed with a
 		// log-only notifier and a zero interval (disabled) until the daemon wires
 		// the real notifier + interval from config.
@@ -69,14 +66,6 @@ func (s *Server) SetTerminalWatcher(tw *poller.TerminalWatcher) {
 	}
 	tw.OnChange = s.hub.publish
 }
-
-// SetCollabInterval sets the file-conflict watch-reconcile interval. A
-// non-positive value disables the collaboration monitor.
-func (s *Server) SetCollabInterval(d time.Duration) { s.collabInterval = d }
-
-// SetCollabGitReconcileInterval sets how often git diff refreshes dirty file
-// state when fsnotify is active.
-func (s *Server) SetCollabGitReconcileInterval(d time.Duration) { s.collabGitReconcile = d }
 
 // SetBranchTrackInterval sets the branch-tracker poll interval. A non-positive
 // value disables the tracker (Run returns immediately).
@@ -226,9 +215,6 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	// bucket→agent impact, and (coordinated-bulk-recovery) advances every
 	// affected agent through the existing backend recovery coordinator.
 	go s.runUsageReconciliation(runCtx)
-	if s.collab != nil && s.collabInterval > 0 {
-		go s.collab.Run(runCtx, s.collabInterval, s.collabGitReconcile)
-	}
 	if s.branchTracker != nil && s.branchTrackInterval > 0 {
 		go s.branchTracker.Run(runCtx, s.branchTrackInterval)
 	}
