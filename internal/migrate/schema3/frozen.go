@@ -48,7 +48,7 @@ var frozenFields = map[string]string{
 	"projects":       "id name permission_posture path status agents pipelines terminals plans autopilots created_at updated_at",
 	"project_groups": "id name project_ids created_at updated_at",
 	"plans":          "id project_id name file_path goal constraints done_when tasks status execution_mode autopilot_run_id pipeline_id historical_pipeline orchestrator_id task_progress plan_branches created_at updated_at started_at completed_at archived_at archived_from revision content_hash repo_export synced_at remote_id active_execution execution_history task_outcomes branch_summaries execution_summary cleanup_evidence outcome",
-	"pipelines":      "id name repo status jobs tags schedule_id schedule_name plan_id project_id parent_agent_id",
+	"pipelines":      "id name repo status jobs tags schedule_id schedule_name plan_id project_id parent_agent_id job_count jobs_done",
 	"autopilots":     "id project_id plan_id name manager_agent_id brain_agent_id parent_agent_id diagnostics created_at updated_at",
 	"autopilot_runs": "run_id name repo plan_file plan_id project_id state integration_branch gate strategy delete_branch brain_id slot_scope last_progress_at progress_fp created_at updated_at",
 }
@@ -62,7 +62,7 @@ var frozenKinds = map[string]string{
 	"projects":       "id:string name:string permission_posture:string path:string status:string agents:array pipelines:array terminals:array plans:array autopilots:array created_at:string updated_at:string",
 	"project_groups": "id:string name:string project_ids:array created_at:string updated_at:string",
 	"plans":          "id:string project_id:string name:string file_path:string goal:string constraints:array done_when:array tasks:array status:string execution_mode:string autopilot_run_id:string pipeline_id:string historical_pipeline:object orchestrator_id:string task_progress:object plan_branches:array created_at:string updated_at:string started_at:string completed_at:string archived_at:string archived_from:string revision:number content_hash:string repo_export:object synced_at:string remote_id:string active_execution:object execution_history:array task_outcomes:object branch_summaries:array execution_summary:object cleanup_evidence:object outcome:object",
-	"pipelines":      "id:string name:string repo:string status:string jobs:array tags:array schedule_id:string schedule_name:string plan_id:string project_id:string parent_agent_id:string",
+	"pipelines":      "id:string name:string repo:string status:string jobs:array tags:array schedule_id:string schedule_name:string plan_id:string project_id:string parent_agent_id:string job_count:number jobs_done:number",
 	"autopilots":     "id:string project_id:string plan_id:string name:string manager_agent_id:string brain_agent_id:string parent_agent_id:string diagnostics:object created_at:string updated_at:string",
 	"autopilot_runs": "run_id:string name:string repo:string plan_file:string plan_id:string project_id:string state:string integration_branch:string gate:string strategy:string delete_branch:bool brain_id:string slot_scope:string last_progress_at:string progress_fp:string created_at:string updated_at:string",
 	"job":            "id:string prompt:string depends_on:array handoff:string worktree:string supervised:bool type:string run_if:string role:string tier:string backend:string model:string auto_retry_count:number agent_id:string session_id:string status:string output:string branch:string restart_branch:string workdir:string system:bool digest:object",

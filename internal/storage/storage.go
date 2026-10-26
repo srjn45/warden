@@ -188,7 +188,9 @@ func requireSharedMode(dataDir string) error {
 			// Never open stores in the middle of a migration, whichever side of
 			// the promotion it stopped on.
 			return &schema.GuardError{Verdict: schema.VerdictInterrupted, DataDir: dataDir, Ledger: *l, Binary: schema.SchemaVersion, Min: schema.MinSchema}
-		case l.SchemaVersion >= wardendb.SchemaVersion:
+		case l.SchemaVersion > wardendb.SchemaVersion:
+			return &schema.GuardError{Verdict: schema.VerdictDataNewer, DataDir: dataDir, Ledger: *l, Binary: schema.SchemaVersion, Min: schema.MinSchema}
+		case l.SchemaVersion == wardendb.SchemaVersion:
 			return nil
 		case schema.WardenDBPresent(dataDir):
 			// Two candidate authorities: never fall back to the legacy stores
@@ -200,18 +202,20 @@ func requireSharedMode(dataDir string) error {
 	if !errors.Is(err, schema.ErrNoLedger) {
 		return fmt.Errorf("storage: schema state: %w", err)
 	}
-	// No ledger. An existing warden-db is the canonical store; a data dir with
-	// no data at all is a fresh install and starts directly on schema 2; legacy
-	// stores without a ledger need the cutover (the boot guard stamps them at
-	// the schema-1 baseline first).
+	// An existing DB without its format ledger is ambiguous. The composition
+	// root must enforce the same refusal as daemon boot before registration can
+	// create collections or let a schema-2 codec rewrite schema-3 records.
 	if p, err := wardendb.Probe(dataDir); err != nil {
 		return err
 	} else if p.Exists {
-		return nil
+		return &schema.GuardError{Verdict: schema.VerdictSchema2Residue, DataDir: dataDir, Binary: schema.SchemaVersion, Min: schema.MinSchema}
 	}
 	if b := schema.InferBaseline(dataDir); !b.Fresh {
 		return &schema.GuardError{Verdict: schema.VerdictNeedsMigration, DataDir: dataDir,
 			Ledger: schema.Ledger{SchemaVersion: b.Version}, Binary: schema.SchemaVersion, Min: schema.MinSchema}
 	}
-	return nil
+	// Stamp only a proven fresh install so a later direct Open cannot mistake
+	// its database for a ledger-less generation. No existing generation is adopted.
+	_, _, err = schema.Ensure(dataDir, "")
+	return err
 }

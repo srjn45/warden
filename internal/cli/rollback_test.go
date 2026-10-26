@@ -22,4 +22,7 @@ func TestRollbackCmdHelp(t *testing.T) {
 	require.Contains(t, out, "--yes")
 	require.Contains(t, out, "--ready-timeout")
 	require.Contains(t, out, "--json")
+	require.Contains(t, out, "--transaction")
+	require.Contains(t, out, "--accept-data-loss")
+	require.Contains(t, out, "--yes alone does not authorize data loss")
 }

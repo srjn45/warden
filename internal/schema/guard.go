@@ -98,6 +98,11 @@ func (e *GuardError) Error() string {
 		if e.Ledger.BinaryVersion != "" {
 			by = " (" + e.Ledger.BinaryVersion + ")"
 		}
+		if e.Ledger.SchemaVersion >= 3 {
+			return head + fmt.Sprintf("\nthe data was written by a newer warden%s; upgrade this binary with `wd update`. "+
+				"Ownership formats require an exact compatible binary. To discard post-update writes and restore the paired old binary and full data generation, "+
+				"use `warden rollback --transaction <update-id> --accept-data-loss`; a generic snapshot or .bak is not a paired recovery source", by)
+		}
 		if e.Ledger.SchemaVersion >= Schema2 {
 			return head + fmt.Sprintf("\nthe data was migrated to schema 2 (warden-db) by a newer warden%s; "+
 				"this binary only knows the schema-1 stores and will not open them — it would fork the data. "+
@@ -119,6 +124,11 @@ func (e *GuardError) Error() string {
 			"upgrade through the intermediate releases (`wd update --plan` shows the path)", e.Min)
 	case VerdictInterrupted:
 		ip := e.Ledger.InProgress
+		if ip != nil && (ip.TargetFormat >= 3 || ip.TransactionID != "") {
+			return fmt.Sprintf("refusing to start: updater transaction %s on data dir %s is incomplete (step %s)\n"+
+				"resume through `warden update`, or explicitly restore its paired generation with `warden rollback --transaction %s --accept-data-loss`; standalone migrate mutations are not authorized",
+				ip.TransactionID, e.DataDir, ip.Step, ip.TransactionID)
+		}
 		what := "a migration"
 		if ip != nil && ip.Migration != "" {
 			what = "migration " + ip.Migration

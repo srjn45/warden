@@ -9,6 +9,7 @@ import (
 
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/pipeline"
+	"github.com/srjn45/warden/internal/planstore"
 	"github.com/srjn45/warden/internal/store"
 	"github.com/srjn45/warden/internal/terminalstore"
 	"github.com/stretchr/testify/require"
@@ -55,6 +56,49 @@ func populate(v reflect.Value, depth int) {
 			populate(value, depth+1)
 			v.SetMapIndex(key, value)
 		}
+	}
+}
+
+func TestActualSchema2WholePipelineAndPlanPayloads(t *testing.T) {
+	g := fixture()
+	p := pipeline.Pipeline{
+		ID: "pipe", Name: "business-pipeline", Repo: "/fixture/repo", ProjectID: "p", PlanID: "plan",
+		Jobs: []pipeline.Job{
+			{ID: "z", Prompt: "first declaration", Status: pipeline.JobDone, Output: "retain result", Type: "code", AgentID: "worker"},
+			{ID: "a", Prompt: "second declaration", DependsOn: []string{"z"}, Status: pipeline.JobPending},
+			{ID: "join", Type: "span-in", Status: pipeline.JobDone},
+		},
+	}
+	plan := planstore.Plan{
+		ID: "plan", ProjectID: "p", Name: "business-plan", Goal: "retain complete definition", Revision: 17,
+		Tasks:        []planstore.PlanTask{{ID: "z", Prompt: "first declaration"}, {ID: "a", Prompt: "second declaration", After: []string{"z"}}},
+		TaskProgress: map[string]string{"z": "done", "a": "pending"},
+		TaskOutcomes: map[string]planstore.TaskOutcome{"z": {TaskID: "z", Status: "done"}},
+	}
+	planstore.RefreshContentHash(&plan)
+	g["pipelines"]["pipe"] = wire(t, p)
+	g["plans"]["plan"] = wire(t, plan)
+	g["agents"]["worker"]["pipeline_id"] = "pipe"
+	g["agents"]["worker"]["job_id"] = "z"
+	out, report, err := Map(g)
+	require.NoError(t, err, string(encode(report.Findings)))
+	require.Equal(t, plan.ContentHash, out["plans"]["plan"]["content_hash"])
+	require.Equal(t, json.Number("17"), out["plans"]["plan"]["revision"])
+	require.NotContains(t, out["plans"]["plan"], "tasks")
+	require.NotContains(t, out["pipelines"]["pipe"], "jobs")
+	require.NotContains(t, out["pipelines"]["pipe"], "job_count")
+	require.NotContains(t, out["pipelines"]["pipe"], "jobs_done")
+	require.Equal(t, "retain result", out["pipeline_jobs"][Tuple("pipe", "z")]["output"])
+	require.Equal(t, 0, out["plan_tasks"][Tuple("plan", "z")]["seq"])
+	require.Equal(t, 1, out["plan_tasks"][Tuple("plan", "a")]["seq"])
+	for _, field := range []string{"job_count", "jobs_done"} {
+		t.Run(field, func(t *testing.T) {
+			bad := clone(g)
+			bad["pipelines"]["pipe"][field] = json.Number("900")
+			_, report, err := Map(bad)
+			require.Error(t, err)
+			require.Contains(t, string(encode(report.Findings)), "computed counter disagrees")
+		})
 	}
 }
 func wire(t *testing.T, v any) Object {

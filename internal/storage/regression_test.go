@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -41,12 +42,12 @@ import (
 	"github.com/srjn45/warden/internal/wardendb"
 )
 
-// sharedDir returns a data dir that selects schema-2 shared mode (the
-// non-user-facing warden-db marker).
+// sharedDir returns an explicitly committed shared-format fixture.
 func sharedDir(t *testing.T) string {
 	t.Helper()
 	d := t.TempDir()
 	require.NoError(t, os.MkdirAll(wardendb.Dir(d), 0o700))
+	require.NoError(t, schema.Save(d, &schema.Ledger{SchemaVersion: wardendb.SchemaVersion}))
 	return d
 }
 
@@ -72,6 +73,29 @@ func TestModeSelection(t *testing.T) {
 	require.Nil(t, compat.DB)
 	shared, _ := openMode(t, true)
 	require.NotNil(t, shared.DB)
+}
+
+func TestOpenRequiresExactCommittedFormat(t *testing.T) {
+	for _, version := range []int{0, 3, 4} {
+		t.Run(fmt.Sprint(version), func(t *testing.T) {
+			d := t.TempDir()
+			require.NoError(t, os.MkdirAll(wardendb.Dir(d), 0700))
+			if version != 0 {
+				require.NoError(t, schema.Save(d, &schema.Ledger{SchemaVersion: version}))
+			}
+			before := dirNames(t, d)
+			_, err := Open(d)
+			var guard *schema.GuardError
+			require.ErrorAs(t, err, &guard)
+			if version == 0 {
+				require.Equal(t, schema.VerdictSchema2Residue, guard.Verdict)
+			} else {
+				require.Equal(t, schema.VerdictDataNewer, guard.Verdict)
+			}
+			require.Equal(t, before, dirNames(t, d))
+			require.Empty(t, dirNames(t, wardendb.Dir(d)), "no collection or lock may be created on refusal")
+		})
+	}
 }
 
 // Open is warden-db only: a fresh data dir starts directly on schema 2, and
@@ -306,7 +330,7 @@ func TestUnifiedModeCreatesOnlySharedDB(t *testing.T) {
 		names = append(names, e.Name())
 	}
 	// snapshots/ is the external transcript-artifact directory, not a store.
-	require.Equal(t, []string{"snapshots", wardendb.DirName}, names, "legacy store paths created in unified mode")
+	require.Equal(t, []string{schema.FileName, "snapshots", wardendb.DirName}, names, "legacy store paths created in unified mode")
 	snaps, err := os.ReadDir(filepath.Join(d, "snapshots"))
 	require.NoError(t, err)
 	require.Empty(t, snaps)

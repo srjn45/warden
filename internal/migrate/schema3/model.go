@@ -388,5 +388,5 @@ func validateKinds(o Object, spec string, r *Report, c, k string) {
 }
 
 func retiredFields() map[string]string {
-	return map[string]string{"projects": "agents pipelines terminals plans autopilots", "project_groups": "project_ids", "agents": "parent_id child_agents child_pipelines child_autopilots", "plans": "tasks task_progress task_outcomes pipeline_id autopilot_run_id orchestrator_id active_execution.task_progress", "pipelines": "jobs", "pipeline_jobs": "agent_id session_id", "autopilot_runs": "brain_id"}
+	return map[string]string{"projects": "agents pipelines terminals plans autopilots", "project_groups": "project_ids", "agents": "parent_id child_agents child_pipelines child_autopilots", "plans": "tasks task_progress task_outcomes pipeline_id autopilot_run_id orchestrator_id active_execution.task_progress", "pipelines": "jobs job_count jobs_done", "pipeline_jobs": "agent_id session_id", "autopilot_runs": "brain_id"}
 }

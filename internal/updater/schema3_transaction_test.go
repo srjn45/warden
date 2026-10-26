@@ -45,6 +45,108 @@ func beginSchema3Fixture(t *testing.T, tr *schema3Transaction, old, target strin
 	t.Helper()
 	require.NoError(t, tr.begin(context.Background(), old, target, "old-test", "target-test", []string{"config.yaml"}, 1<<50))
 }
+
+func TestSchema3ReadinessFinalizationResumes(t *testing.T) {
+	points := []string{
+		"before/readiness_verified/intent", "after/readiness_verified/intent",
+		"before/readiness-ledger-save", "after/readiness-ledger-save",
+		"before/readiness_verified/complete", "after/readiness_verified/complete",
+	}
+	for _, point := range points {
+		t.Run(point, func(t *testing.T) {
+			ctx := context.Background()
+			tr, old, target := schema3Fixture(t)
+			beginSchema3Fixture(t, tr, old, target)
+			require.NoError(t, tr.promote(ctx))
+			tr.fault = func(p string) error {
+				if p == point {
+					return errors.New("finalization interrupted")
+				}
+				return nil
+			}
+			health := Health{Status: "ok", Version: "target-test", SchemaVersion: 3}
+			require.Error(t, tr.finish(ctx, health, true))
+			tr.fault = nil
+			require.NoError(t, tr.load(target))
+			require.NoError(t, tr.promote(ctx))
+			require.NoError(t, tr.finish(ctx, health, true))
+			require.True(t, tr.done("readiness_verified"))
+			l, err := schema.Load(tr.dir)
+			require.NoError(t, err)
+			require.Nil(t, l.InProgress)
+			require.Len(t, l.History, 1, "resuming must not repeat the migration")
+			count := len(tr.records)
+			require.NoError(t, tr.finish(ctx, health, true))
+			require.Len(t, tr.records, count, "finalization is an idempotent no-op")
+		})
+	}
+}
+
+func TestSchema3FinalizationBindsWholeLedgerTransaction(t *testing.T) {
+	for _, field := range []string{"transaction", "manifest", "journal", "binary", "source", "target", "step"} {
+		t.Run(field, func(t *testing.T) {
+			ctx := context.Background()
+			tr, old, target := schema3Fixture(t)
+			beginSchema3Fixture(t, tr, old, target)
+			require.NoError(t, tr.promote(ctx))
+			l, err := schema.Load(tr.dir)
+			require.NoError(t, err)
+			switch field {
+			case "transaction":
+				l.InProgress.TransactionID = "unrelated"
+			case "manifest":
+				l.InProgress.ManifestSHA256 = "unrelated"
+			case "journal":
+				l.InProgress.Journal = "unrelated"
+			case "binary":
+				l.InProgress.TargetBinarySHA256 = "unrelated"
+			case "source":
+				l.InProgress.SourceFormat = 1
+			case "target":
+				l.InProgress.TargetFormat = 4
+			case "step":
+				l.InProgress.Step = "unrelated"
+			}
+			require.NoError(t, schema.Save(tr.dir, l))
+			require.ErrorContains(t, tr.finish(ctx, Health{Status: "ok", Version: "target-test", SchemaVersion: 3}, true), "transaction mismatch")
+		})
+	}
+}
+
+func TestSchema3PromotionRejectsForeignLedgerBeforeGenerationMutation(t *testing.T) {
+	ctx := context.Background()
+	tr, old, target := schema3Fixture(t)
+	beginSchema3Fixture(t, tr, old, target)
+	before, err := schema3Tree(filepath.Join(tr.dir, "warden-db"))
+	require.NoError(t, err)
+	l, err := schema.Load(tr.dir)
+	require.NoError(t, err)
+	l.InProgress.TransactionID = "another-update"
+	require.NoError(t, schema.Save(tr.dir, l))
+	require.ErrorContains(t, tr.promote(ctx), "conflicting ledger transaction")
+	after, err := schema3Tree(filepath.Join(tr.dir, "warden-db"))
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	require.NoDirExists(t, tr.stage)
+	require.NoDirExists(t, tr.park)
+}
+
+func TestSchema3RestoredTransactionCannotPromoteOrDiscardLaterWrites(t *testing.T) {
+	ctx := context.Background()
+	tr, old, target := schema3Fixture(t)
+	beginSchema3Fixture(t, tr, old, target)
+	require.NoError(t, tr.promote(ctx))
+	require.NoError(t, tr.restore(ctx, old))
+	require.NoError(t, tr.load(target))
+	require.NoError(t, tr.restore(ctx, old))
+	require.ErrorContains(t, tr.promote(ctx), "selected for restore")
+	path := filepath.Join(tr.dir, "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("setting: later old-daemon write\n"), 0600))
+	require.ErrorContains(t, tr.restore(ctx, old), "changed; refusing replay")
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "setting: later old-daemon write\n", string(got))
+}
 func TestSchema3BackupPromotionAndPairedRestore(t *testing.T) {
 	ctx := context.Background()
 	tr, old, target := schema3Fixture(t)
@@ -165,7 +267,7 @@ func TestSchema3RestoreFaultsResume(t *testing.T) {
 	}
 }
 func TestSchema3TamperAndIdentityGuards(t *testing.T) {
-	for _, what := range []string{"binary", "backup", "staging", "journal", "manifest", "source", "disk"} {
+	for _, what := range []string{"binary", "backup", "staging", "journal", "empty journal", "unterminated journal", "manifest", "source", "disk"} {
 		t.Run(what, func(t *testing.T) {
 			tr, old, target := schema3Fixture(t)
 			if what == "disk" {
@@ -191,6 +293,14 @@ func TestSchema3TamperAndIdentityGuards(t *testing.T) {
 				require.NoError(t, err)
 				require.NoError(t, f.Close())
 				require.Error(t, tr.load(target))
+			case "empty journal":
+				require.NoError(t, os.WriteFile(tr.journal, nil, 0600))
+				require.ErrorContains(t, tr.load(target), "empty/unsafe journal")
+			case "unterminated journal":
+				b, err := os.ReadFile(tr.journal)
+				require.NoError(t, err)
+				require.NoError(t, os.WriteFile(tr.journal, b[:len(b)-1], 0600))
+				require.ErrorContains(t, tr.load(target), "unterminated journal")
 			case "staging":
 				require.NoError(t, os.Mkdir(tr.stage, 0700))
 				require.Error(t, tr.promote(context.Background()))
@@ -241,21 +351,25 @@ func TestSchema3ReadinessAndRepeatedUpdateAreIntegrityNoop(t *testing.T) {
 	require.Nil(t, l.InProgress)
 }
 func TestSchema3ManagedStopMustBeConfirmed(t *testing.T) {
-	for _, what := range []string{"unmanaged", "no manager", "stop failure", "still running", "health still alive", "stopped"} {
+	for _, what := range []string{"unmanaged", "no manager", "unknown manager", "stop failure", "still running", "supervisor active", "health still alive", "stopped"} {
 		t.Run(what, func(t *testing.T) {
 			tr, err := schema3Path(t.TempDir(), "stoptest")
 			require.NoError(t, err)
-			svc := &fakeSvc{exited: func(int) bool { return true }}
+			svc := &fakeSvc{state: ServiceState{Kind: ServiceSystemd}, exited: func(int) bool { return true }}
 			probe := &fakeProbe{}
 			switch what {
 			case "unmanaged":
 				svc.state.Kind = ServiceManual
 			case "no manager":
 				svc.state.Kind = ServiceNone
+			case "unknown manager":
+				svc.state.Kind = ServiceKind("unrecognized")
 			case "stop failure":
 				svc.stopErr = func() error { return errors.New("failed stop") }
 			case "still running":
 				svc.exited = func(int) bool { return false }
+			case "supervisor active":
+				svc.state.Active = true
 			case "health still alive":
 				probe.fn = func() (Health, error) { return Health{Status: "ok"}, nil }
 			}
