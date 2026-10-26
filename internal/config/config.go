@@ -117,6 +117,20 @@ type RuntimeConfig struct {
 	TraceMaxAgeDays int `yaml:"trace_max_age_days"`
 }
 
+// RetentionConfig bounds how long finished data is kept
+// (docs/specs/2026-10-26-data-retention.md).
+type RetentionConfig struct {
+	// ArchivedAgents is how long an archived agent stays restorable before the
+	// retention sweep purges it (Go duration, default 24h; "off" or 0 keeps
+	// archived agents forever).
+	ArchivedAgents string `yaml:"archived_agents"`
+	// ReadMessages is how long a delivered directed message is kept (Go
+	// duration, default 0s = deleted on delivery).
+	ReadMessages string `yaml:"read_messages"`
+	// MetricsDays is the metrics history window in days (default 7).
+	MetricsDays int `yaml:"metrics_days"`
+}
+
 // PipelineConfig groups pipeline-execution settings.
 type PipelineConfig struct {
 	KeepDone     bool `yaml:"keep_done"`
@@ -471,6 +485,7 @@ type Config struct {
 	BrainConsult BrainConsultConfig `yaml:"brain_consult"`
 	Router       RouterConfig       `yaml:"router"`
 	Runtime      RuntimeConfig      `yaml:"runtime"`
+	Retention    RetentionConfig    `yaml:"retention"`
 }
 
 // setting describes one config key for file generation/migration: its YAML key
@@ -531,6 +546,7 @@ var schema = []setting{
 	{"autopilot", "Autopilot defaults for named, durably registered runs. Create plans with `warden plan create` and start them with `warden plan run <plan-id> --mode autopilot`. Sub-keys: enabled (legacy per-repo switch), plans (DEPRECATED compatibility list; migrated into plans/ and the run store on boot), brain (role, headless, max_parallel_workers; backend tiers live in the backend registry), merge (target_branch, strategy, gate, delete_branch), guardian (interval, heartbeat_timeout, backoff_min, backoff_max, rotate_at_context, notify_each_escalation, max_identical_failures, progress_watchdog_enabled, progress_watchdog_window, use_fast_brain [default true: Fast-Brain triage picks the recovery action before an escalation; false = plain ladder], max_waits [3], max_wait_total [30m]), completion (merge_default [true], manager_verify_timeout [30m], merge_poll_interval [2m, floor 30s] — how often to poll a green final PR while awaiting owner merge; all hot-reloaded)."},
 	{"router", "Spawn-time model-tier routing. Sub-keys: use_fast_brain (true | false, default false — when true, a spawn that pins no tier, task, role, model or ai_cli has Fast-Brain rate the prompt's complexity and pick tier-1 (trivial tweaks), tier-2 (standard work) or tier-3 (deep refactors/architecture), applied only at confidence >= 0.8; it is the lowest-precedence input, so any explicit pin wins, and the decision is recorded on the agent's event log. Hot-reloaded: applies from the next spawn)."},
 	{"runtime", "Warden-owned PTY runtime (docs/specs/2026-10-19-pty-runtime-contract.md). Sub-keys: pty (off | shadow | on, default off). off: every session runs in tmux exactly as before and no event journal is written. shadow: sessions still launch in tmux unchanged, and each new pane's output is mirrored into a redacted, replayable per-session event journal (tmux pipe-pane) served over GET /api/v1/sessions/{id}/pty; warden writes nothing to a pane through it, and the pollers stay authoritative. on: shadow for agents, plus plain-shell terminals are hosted directly on a warden-owned PTY (tmux attach is not available for those; attach through the daemon). A change applies to sessions created afterwards; turning it off stops the mirrors. trace_max_records (default 5000) and trace_max_age_days (default 30) bound each session's redacted, append-only auto-approve decision trace (GET /api/v1/sessions/{id}/decisions)."},
+	{"retention", "Data retention (docs/specs/2026-10-26-data-retention.md). Sub-keys: archived_agents (Go duration, default 24h — an archived agent stays restorable this long after archiving, then the hourly retention sweep purges it with its inbox; off or 0 keeps archived agents forever), read_messages (Go duration, default 0s — a delivered directed message is deleted on delivery; a positive duration keeps delivered messages that long for history views), metrics_days (integer >= 1, default 7 — metrics history window)."},
 	{"brain_consult", "Shared need-based brain consult settings (docs/specs/2026-09-27-brain-consult.md §D7). When enabled, stuck pipeline jobs that have exhausted the one deterministic auto-retry can consult a short-lived role=brain agent once per stuck episode. Sub-keys: enabled (true | false — global kill-switch; default true; set false to disable globally), timeout (Go duration, e.g. 10m — per-consult deadline; generous default because consults are infrequent), max_concurrent (integer >= 1 — max simultaneous brain consult agents across all pipelines; default 1). Per-pipeline opt-out: pipeline.brain_consult (true | false)."},
 }
 
@@ -657,7 +673,8 @@ func defaults() Config {
 		PlanSync: PlanSyncConfig{
 			Provider: "local",
 		},
-		Runtime: RuntimeConfig{PTY: "off", TraceMaxRecords: 5000, TraceMaxAgeDays: 30},
+		Runtime:   RuntimeConfig{PTY: "off", TraceMaxRecords: 5000, TraceMaxAgeDays: 30},
+		Retention: RetentionConfig{ArchivedAgents: "24h", ReadMessages: "0s", MetricsDays: 7},
 		RateLimit: RateLimitConfig{
 			RetryInterval:      "30m",
 			SpendRetryInterval: "6h",
@@ -868,6 +885,11 @@ func validate(c *Config) {
 	if c.Runtime.TraceMaxAgeDays <= 0 {
 		c.Runtime.TraceMaxAgeDays = d.Runtime.TraceMaxAgeDays
 	}
+	c.Retention.ArchivedAgents = validRetention(c.Retention.ArchivedAgents, d.Retention.ArchivedAgents)
+	c.Retention.ReadMessages = validRetention(c.Retention.ReadMessages, d.Retention.ReadMessages)
+	if c.Retention.MetricsDays <= 0 {
+		c.Retention.MetricsDays = d.Retention.MetricsDays
+	}
 	c.AutoRestart.Reset = validDuration(c.AutoRestart.Reset, d.AutoRestart.Reset)
 	c.BranchTrack.Interval = validDuration(c.BranchTrack.Interval, d.BranchTrack.Interval)
 	c.Activity.Interval = validDuration(c.Activity.Interval, d.Activity.Interval)
@@ -969,6 +991,58 @@ func validRuntimePTY(v, def string) string {
 	}
 	slog.Warn("config: invalid runtime.pty, using default", "value", v, "default", def)
 	return def
+}
+
+// validRetention accepts a non-negative Go duration or "off"; anything else
+// falls back to def. Unlike validDuration, zero is meaningful here.
+func validRetention(v, def string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return def
+	}
+	if strings.EqualFold(v, "off") || v == "0" {
+		return v
+	}
+	if d, err := time.ParseDuration(v); err == nil && d >= 0 {
+		return v
+	}
+	slog.Warn("config: invalid retention duration, using default", "value", v, "default", def)
+	return def
+}
+
+// ArchivedAgentRetention is how long an archived agent stays restorable; ok is
+// false when archived agents are kept forever.
+func (c Config) ArchivedAgentRetention() (keep time.Duration, ok bool) {
+	v := strings.TrimSpace(c.Retention.ArchivedAgents)
+	if v == "" {
+		v = defaults().Retention.ArchivedAgents
+	}
+	if strings.EqualFold(v, "off") || v == "0" {
+		return 0, false
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return 0, false
+	}
+	return d, true
+}
+
+// ReadMessageRetention is how long a delivered message is kept; 0 deletes it on
+// delivery.
+func (c Config) ReadMessageRetention() time.Duration {
+	d, err := time.ParseDuration(strings.TrimSpace(c.Retention.ReadMessages))
+	if err != nil || d < 0 {
+		return 0
+	}
+	return d
+}
+
+// MetricsRetentionDays is the metrics history window (default 7).
+func (c Config) MetricsRetentionDays() int {
+	if c.Retention.MetricsDays > 0 {
+		return c.Retention.MetricsDays
+	}
+	return defaults().Retention.MetricsDays
 }
 
 func validDuration(v, def string) string {

@@ -1169,3 +1169,32 @@ func TestRuntimePTYMode(t *testing.T) {
 	require.Equal(t, "on", Load(tmpConfig(t, "runtime:\n  pty: on\n")).GetRuntimePTY())
 	require.Equal(t, "off", Load(tmpConfig(t, "runtime:\n  pty: off\n")).GetRuntimePTY())
 }
+
+func TestLoadRetention(t *testing.T) {
+	c := Load(tmpConfig(t, "token: x\n"))
+	keep, on := c.ArchivedAgentRetention()
+	require.True(t, on)
+	require.Equal(t, 24*time.Hour, keep)
+	require.Zero(t, c.ReadMessageRetention(), "delivered messages are deleted by default")
+	require.Equal(t, 7, c.MetricsRetentionDays())
+
+	c = Load(tmpConfig(t, "retention:\n  archived_agents: 72h\n  read_messages: 24h\n  metrics_days: 3\n"))
+	keep, on = c.ArchivedAgentRetention()
+	require.True(t, on)
+	require.Equal(t, 72*time.Hour, keep)
+	require.Equal(t, 24*time.Hour, c.ReadMessageRetention())
+	require.Equal(t, 3, c.MetricsRetentionDays())
+
+	for _, off := range []string{"off", "0", "0s"} {
+		c = Load(tmpConfig(t, "retention:\n  archived_agents: "+off+"\n"))
+		_, on = c.ArchivedAgentRetention()
+		require.False(t, on, off)
+	}
+
+	c = Load(tmpConfig(t, "retention:\n  archived_agents: soon\n  read_messages: -1h\n  metrics_days: -2\n"))
+	keep, on = c.ArchivedAgentRetention()
+	require.True(t, on, "an invalid value falls back to the default")
+	require.Equal(t, 24*time.Hour, keep)
+	require.Zero(t, c.ReadMessageRetention())
+	require.Equal(t, 7, c.MetricsRetentionDays())
+}

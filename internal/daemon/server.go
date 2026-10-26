@@ -236,6 +236,9 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 		}
 	}
 	go s.runMetricsRecorder(runCtx)
+	// Data retention: purge archived agents past their restore window (and their
+	// inboxes) at startup and hourly (docs/specs/2026-10-26-data-retention.md).
+	go s.runRetentionSweep(runCtx)
 	// Proactive quota tracking (auto-handover Feature #4): sample live agents'
 	// token usage into the backend registry's rolling quota windows so the soft
 	// hot-swap trigger can retire an agent before it hits a hard provider limit.

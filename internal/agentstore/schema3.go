@@ -434,3 +434,58 @@ func (d *schema3Agents) DeleteByKey(key string) error {
 	} // Archive's old active-view removal
 	return wardendb.ErrReferenced
 }
+
+// purgeRefs are the schema-3 collections whose rows can name an agent as
+// their parent. An archived agent still named there is kept.
+var purgeRefs = []string{"agents", "pipelines", "autopilot_runs"}
+
+// purge physically removes an archived agent row. It is the only schema-3 path
+// that erases an agent identity, so it refuses a live row and any row another
+// record still names as parent_agent_id, all inside one transaction.
+func (d *schema3Agents) purge(key string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	_, err := d.boundary.Run(context.Background(), "agentstore/schema3-purge", func(ctx context.Context, tx *dbtx.Tx) error {
+		r, err := d.native.GetByKey(key)
+		if errors.Is(err, engine.ErrKeyNotFound) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		row, err := decodeAgentRecord(r.Data)
+		if err != nil {
+			return err
+		}
+		if row.Lifecycle != "archived" {
+			return ErrNotArchived
+		}
+		handle, err := d.db.Handle()
+		if err != nil {
+			return err
+		}
+		value, _ := json.Marshal(key)
+		open := map[string]bool{}
+		for _, name := range handle.Engine().ListCollections() {
+			open[name] = true
+		}
+		for _, name := range purgeRefs {
+			if !open[name] {
+				continue // an unregistered collection holds no references
+			}
+			col, err := handle.Engine().Collection(name)
+			if err != nil {
+				return err
+			}
+			n, err := col.Count(&query.FieldFilter{Field: "parent_agent_id", Op: query.OpEq, Value: string(value)})
+			if err != nil {
+				return err
+			}
+			if n > 0 {
+				return fmt.Errorf("%w: parent of %d %s row(s)", ErrStillReferenced, n, name)
+			}
+		}
+		return d.collection.Delete(tx, r.ID, r.Rev)
+	})
+	return err
+}

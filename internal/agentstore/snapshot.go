@@ -354,3 +354,32 @@ func (s *Store) publishArchive(cur *Snapshot, id string, archived *Agent) {
 
 	s.snap.Store(newSnap)
 }
+
+// publishPurge drops a purged agent from the closed (archived) view.
+func (s *Store) publishPurge(cur *Snapshot, id string) {
+	if cur == nil {
+		return
+	}
+	newSnap := &Snapshot{
+		Version:       cur.Version + 1,
+		BuiltAt:       time.Now().UTC(),
+		Agents:        cur.Agents,
+		ByID:          cur.ByID,
+		ByName:        cur.ByName,
+		ClosedByID:    make(map[string]*Agent, len(cur.ClosedByID)),
+		ClosedSkipped: cur.ClosedSkipped,
+		Verified:      true,
+	}
+	for k, v := range cur.ClosedByID {
+		if k != id {
+			newSnap.ClosedByID[k] = v
+		}
+	}
+	newSnap.Closed = make([]*Agent, 0, len(cur.Closed))
+	for _, ag := range cur.Closed {
+		if ag.ID != id {
+			newSnap.Closed = append(newSnap.Closed, ag)
+		}
+	}
+	s.snap.Store(newSnap)
+}

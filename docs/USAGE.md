@@ -2321,7 +2321,7 @@ restart list; everything else takes effect on save.
 | `plugins.registry` | _(empty)_ | List of registered plugins (name, path, subscribed events, declared task types). Only consulted when `plugins.enabled` is on |
 
 `warden config` lists every setting, including `worktree.spawn_gate` / `worktree.spawn_gate_max_agents`,
-`metrics`, `allow_nonloopback`, `auto_approve`, `pipeline.keep_done` / `pipeline.hint`,
+`metrics`, `allow_nonloopback`, `auto_approve`, `retention.archived_agents` / `retention.read_messages` / `retention.metrics_days`, `pipeline.keep_done` / `pipeline.hint`,
 the `auto_restart.*` knobs, the `rate_limit.*` knobs (§12.1), and the
 `log.level` / `log.format` logging knobs.
 

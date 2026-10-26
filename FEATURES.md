@@ -194,6 +194,7 @@ default; each in its own tmux session, most in a git worktree).
 | Budget gate (soft $ cap on spawn) | config (`tokens.budget_gate`) / spawn gate | automatic | ✓ | — | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Full-text search | `search` | `search` | ✓ | ✓ | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
 | Browse archived agents | `history` | `history` | ✓ | ✓ (archive) | — | [cli](https://srjn45.github.io/warden/reference/cli/) |
+| Data retention (archived agents purged after a 24h restore window, delivered messages deleted, 7-day metrics) | config (`retention.*`) | automatic | ✓ | — | — | [agents-lifecycle](https://srjn45.github.io/warden/concepts/agents-lifecycle/) |
 | Action audit trail | `audit log` | `audit_log` | ✓ | — | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | Event stream (SSE) | — | — | — | ✓ | — | [observability](https://srjn45.github.io/warden/reference/observability/) |
 | PTY event journal & stream (`runtime.pty: shadow\|on`; redacted, replayable, cursor-resumable WS at `/api/v1/sessions/{id}/pty`) | config (`runtime.pty`) | — | — | API | — | [pty-runtime](https://srjn45.github.io/warden/guides/pty-runtime/) |

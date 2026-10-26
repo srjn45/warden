@@ -13,7 +13,8 @@ const (
 	// metricsRecordInterval is how often the recorder samples to disk. Cheap
 	// (one ps + a few sysctls) and frequent enough to catch a fast memory ramp.
 	metricsRecordInterval = 15 * time.Second
-	// metricsRetentionDays bounds the on-disk JSONL history.
+	// metricsRetentionDays is the default metrics history window; config
+	// retention.metrics_days overrides it via SetRetention.
 	metricsRetentionDays = 7
 	// metricsHistoryDefaultWindow is the default look-back when no `since` is given.
 	metricsHistoryDefaultWindow = 2 * time.Hour
@@ -54,7 +55,7 @@ func (s *Server) runMetricsRecorder(ctx context.Context) {
 	if !s.metricsOn || s.mrecorder == nil || s.mcollector == nil {
 		return
 	}
-	_ = s.mrecorder.Prune(time.Now(), metricsRetentionDays)
+	_ = s.mrecorder.Prune(time.Now(), s.metricsRetention())
 	lastPruneDay := time.Now().Day()
 	t := time.NewTicker(metricsRecordInterval)
 	defer t.Stop()
@@ -65,7 +66,7 @@ func (s *Server) runMetricsRecorder(ctx context.Context) {
 		case <-t.C:
 			s.recordOnce(ctx)
 			if d := time.Now().Day(); d != lastPruneDay {
-				_ = s.mrecorder.Prune(time.Now(), metricsRetentionDays)
+				_ = s.mrecorder.Prune(time.Now(), s.metricsRetention())
 				lastPruneDay = d
 			}
 		}
