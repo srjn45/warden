@@ -24,7 +24,7 @@ or tag is assigned here.
 | REST / OpenAPI | `GET /api/v1/collab/conflicts` (now `404`) |
 | CLI | `wd workspace conflicts`, `wd workspace who-is-editing`, and the hidden `wd collab` compatibility group |
 | MCP | `get_collaboration_status`, `who_is_editing_file` |
-| REPL | the `get_collaboration_status` tool |
+| REPL | the `/collab` command and its `get_collaboration_status` tool |
 | Web | the conflicts card |
 | Spawn prompt | the collaboration hint that told new agents to check for concurrent file edits |
 
@@ -34,8 +34,7 @@ app's HTML shell.
 ## Upgrade guidance
 
 - **Existing config keeps working.** The retired keys, in nested, flat, or
-  mixed form (even with values that used to fail validation, such as a zero or
-  unparseable `collab.interval`), are ignored on load with a one-line warning.
+  mixed form (including invalid retired duration values), are ignored on load with a one-line warning.
   Nothing else in the file is touched.
 - **Cleanup is automatic.** `wd update`, daemon start, and `wd config init` rewrite the file without the retired entries, keeping every
   other setting, unknown keys, and comments. The cleanup is idempotent. You can
@@ -54,11 +53,14 @@ app's HTML shell.
 
 - Update acceptance: `TestUpdateAcceptance_RetiredCollabConfigAndSchemaCutover`
   (`internal/cli`) drives the real `runUpdateMigrations` hook against isolated
-  temporary config and data directories seeded with a schema-1 installation
+  temporary config and data directories seeded with a legacy detector-era schema-1 installation
   (live agent, autopilot run, plan, pipeline) and a config carrying nested and
   flat retired keys plus unrelated settings. It checks pre-update tolerance,
   key removal, preservation of settings and comments, the schema-2 cutover with
-  live agent state intact, and a no-op second pass.
+  live agent state intact, and a no-op second pass. A second case,
+  `TestUpdateAcceptance_RetiredCollabConfigOnSchema2Install`, starts from an
+  already-schema-2 installation with the same old config and checks that the
+  config is cleaned with no data migration call.
   *Simulated:* the binary swap — the target schema and migrate subprocess are
   in-process test seams; no released binary is downloaded or executed.
 - Existing updater and migration acceptance (`TestUpgradeFixtures`,

@@ -15,7 +15,7 @@ import (
 	"github.com/srjn45/warden/internal/store"
 )
 
-// An installation last written by the final detector-era release carries the
+// A legacy detector-era installation carries the
 // retired collab settings in both nested and flat spellings, next to settings
 // that must survive. This drives the real update migration hook (config
 // Reconcile + schema-1 -> schema-2 data cutover) against isolated temporary
@@ -91,4 +91,35 @@ func TestUpdateAcceptance_RetiredCollabConfigAndSchemaCutover(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, string(first), string(second))
 	require.Equal(t, 1, *calls, "already-migrated data is not migrated again")
+}
+
+// An installation already at schema 2 (no data migration needed) that still
+// carries the retired keys: the update hook only cleans the config.
+func TestUpdateAcceptance_RetiredCollabConfigOnSchema2Install(t *testing.T) {
+	dataDir := t.TempDir()
+	seedReleaseAcceptanceLegacy(t, dataDir)
+	calls := stubUpdateSeams(t, schema.Schema2, realMigrate(t))
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, runUpdateMigrations(context.Background(), cfgPath, dataDir, "/fake/warden", io.Discard))
+	require.Equal(t, 1, *calls)
+	before, err := schema.Load(dataDir)
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(cfgPath, []byte(retiredCollabLegacyConfig), 0o600))
+	require.NoError(t, runUpdateMigrations(context.Background(), cfgPath, dataDir, "/fake/warden", io.Discard))
+	require.Equal(t, 1, *calls, "no data migration for an already-schema-2 install")
+
+	got, err := os.ReadFile(cfgPath)
+	require.NoError(t, err)
+	for _, key := range []string{"collab:", "collab_enabled:", "collab_interval:", "collab_hint:"} {
+		require.NotContains(t, string(got), key)
+	}
+	require.Contains(t, string(got), "# operator note")
+	require.Contains(t, string(got), "keep_me: value")
+	c, err := config.LoadStrict(cfgPath)
+	require.NoError(t, err)
+	require.True(t, c.BranchTrack.Enabled)
+	after, err := schema.Load(dataDir)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "ledger untouched")
 }
