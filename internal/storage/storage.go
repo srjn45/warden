@@ -71,7 +71,7 @@ func (s *Stores) Close() error {
 	return s.close()
 }
 
-// Open opens the single canonical warden-db (schema 2). It never falls back to
+// Open opens the single canonical warden-db. It never falls back to
 // the schema-1 stores: data that is still on them (a schema-1 ledger, an
 // interrupted migration, or legacy stores with no ledger) is refused with the
 // boot guard's error so the operator runs the journaled cutover instead of
@@ -86,7 +86,17 @@ func Open(dataDir string, opts ...wardendb.Option) (*Stores, error) {
 	}
 	fail := func(err error) (*Stores, error) { _ = db.Close(); return nil, err }
 	s := &Stores{DB: db, close: db.Close}
-	if s.Agents, err = agentstore.NewStoreFromDB(db); err != nil {
+	l, err := schema.Load(dataDir)
+	if err != nil {
+		return fail(err)
+	}
+	schema3Mode := l.SchemaVersion == 3
+	if schema3Mode {
+		s.Agents, err = agentstore.NewSchema3StoreFromDB(db)
+	} else {
+		s.Agents, err = agentstore.NewStoreFromDB(db)
+	}
+	if err != nil {
 		return fail(err)
 	}
 	if err = db.OnClose("agentstore", s.Agents.Close); err != nil {
@@ -104,7 +114,12 @@ func Open(dataDir string, opts ...wardendb.Option) (*Stores, error) {
 	if s.KnownPrompts, err = knownprompts.NewStoreFromDB(db); err != nil {
 		return fail(err)
 	}
-	if s.Pipelines, err = pipeline.NewStoreFromDB(db); err != nil {
+	if schema3Mode {
+		s.Pipelines, err = pipeline.NewSchema3StoreFromDB(db)
+	} else {
+		s.Pipelines, err = pipeline.NewStoreFromDB(db)
+	}
+	if err != nil {
 		return fail(err)
 	}
 	if s.Snapshots, err = snapshot.NewStoreFromDB(db); err != nil {
@@ -128,10 +143,20 @@ func Open(dataDir string, opts ...wardendb.Option) (*Stores, error) {
 	if s.ImpactFences, err = capacity.NewDurableFenceStoreFromDB(db); err != nil {
 		return fail(err)
 	}
-	if s.Projects, err = projectstore.NewStoreFromDB(db); err != nil {
+	if schema3Mode {
+		s.Projects, err = projectstore.NewSchema3StoreFromDB(db)
+	} else {
+		s.Projects, err = projectstore.NewStoreFromDB(db)
+	}
+	if err != nil {
 		return fail(err)
 	}
-	if s.Plans, err = planstore.NewStoreFromDB(db); err != nil {
+	if schema3Mode {
+		s.Plans, err = planstore.NewSchema3StoreFromDB(db)
+	} else {
+		s.Plans, err = planstore.NewStoreFromDB(db)
+	}
+	if err != nil {
 		return fail(err)
 	}
 	if s.PlanExports, err = planexport.NewStoreFromDB(db); err != nil {
@@ -140,11 +165,18 @@ func Open(dataDir string, opts ...wardendb.Option) (*Stores, error) {
 	if s.Metrics, err = metrics.NewStoreFromDB(db); err != nil {
 		return fail(err)
 	}
-	if s.AutopilotRuns, err = autopilot.NewRunStoreFromDB(db); err != nil {
+	if schema3Mode {
+		s.AutopilotRuns, err = autopilot.NewSchema3RunStoreFromDB(db)
+	} else {
+		s.AutopilotRuns, err = autopilot.NewRunStoreFromDB(db)
+	}
+	if err != nil {
 		return fail(err)
 	}
-	if s.Autopilots, err = autopilotstore.NewStoreFromDB(db); err != nil {
-		return fail(err)
+	if !schema3Mode {
+		if s.Autopilots, err = autopilotstore.NewStoreFromDB(db); err != nil {
+			return fail(err)
+		}
 	}
 	// Queryable events live in warden-db; audit.jsonl stays the append-only
 	// external stream (migration contract): keep appending to it so the files

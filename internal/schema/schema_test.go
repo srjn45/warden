@@ -26,8 +26,8 @@ func touch(t *testing.T, dir, rel string) {
 // SchemaVersion is the single warden-db format; MinSchema/LegacyBaseline stay
 // at 1 because every schema-1 install migrates through the cutover.
 func TestConstants(t *testing.T) {
-	if SchemaVersion != Schema2 || MinSchema != 1 || LegacyBaseline != 1 {
-		t.Fatalf("SchemaVersion=%d MinSchema=%d LegacyBaseline=%d, want %d/1/1", SchemaVersion, MinSchema, LegacyBaseline, Schema2)
+	if SchemaVersion != 3 || MinSchema != 1 || LegacyBaseline != 1 {
+		t.Fatalf("SchemaVersion=%d MinSchema=%d LegacyBaseline=%d, want 3/1/1", SchemaVersion, MinSchema, LegacyBaseline)
 	}
 	if MinSchema > SchemaVersion || LegacyBaseline > SchemaVersion {
 		t.Fatal("MinSchema and LegacyBaseline must not exceed SchemaVersion")

@@ -53,7 +53,7 @@ func validStore(t *testing.T, d, store, col string, rec map[string]any) {
 
 func TestWardenDBDirNamePinned(t *testing.T) {
 	require.Equal(t, wardendb.DirName, schema.WardenDBDir)
-	require.Equal(t, wardendb.SchemaVersion, schema.Schema2)
+	require.Equal(t, 3, wardendb.SchemaVersion)
 }
 
 func TestPlanSchema2_ReadOnlyAndClassifies(t *testing.T) {
