@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/srjn45/warden/internal/schema"
+	"github.com/srjn45/warden/internal/wardendb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -93,6 +95,18 @@ func TestBackendPreflightCorruptStoreBlocks(t *testing.T) {
 func TestWholeStorePreflightClean(t *testing.T) {
 	t.Parallel()
 	dataDir := t.TempDir()
+	res, err := wholeStorePreflight(context.Background(), dataDir)
+	require.NoError(t, err)
+	require.Empty(t, res.Blockers)
+}
+
+func TestWholeStorePreflightSchema2DefersPairedSchema3Path(t *testing.T) {
+	dataDir := t.TempDir()
+	require.NoError(t, schema.Save(dataDir, &schema.Ledger{SchemaVersion: schema.Schema2}))
+	db, err := wardendb.Open(dataDir)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
 	res, err := wholeStorePreflight(context.Background(), dataDir)
 	require.NoError(t, err)
 	require.Empty(t, res.Blockers)
