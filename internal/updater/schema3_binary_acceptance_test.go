@@ -15,10 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// This test verifies the release boundary: the old published binary refuses a
-// schema-3 generation before opening it, while the cutover target advertises
-// schema 3. The full update/rollback protocol is exercised by the transaction
-// acceptance tests with the approved waypoint.
+// This test verifies the release boundary against the approved schema-2
+// waypoint: that exact binary refuses a schema-3 generation before opening it,
+// while the cutover target advertises schema 3.
 // Run through `wd check schema3-binary-boundary` so expensive isolated builds are
 // explicit and ordinary package unit tests do not recursively build themselves.
 func TestSchema3ActualBinaryBoundary(t *testing.T) {
@@ -34,10 +33,10 @@ func TestSchema3ActualBinaryBoundary(t *testing.T) {
 	require.NoError(t, err)
 	oldSource := t.TempDir()
 	archive := filepath.Join(t.TempDir(), "release.tar")
-	cmd := exec.CommandContext(ctx, "git", "archive", "--format=tar", "--output="+archive, "v11.7.0")
+	cmd := exec.CommandContext(ctx, "git", "archive", "--format=tar", "--output="+archive, "c9d02e53")
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, "actual release tag v11.7.0 is required; %s", out)
+	require.NoError(t, err, "approved waypoint c9d02e53 is required; %s", out)
 	out, err = exec.CommandContext(ctx, "tar", "-xf", archive, "-C", oldSource).CombinedOutput()
 	require.NoError(t, err, "%s", out)
 	// The old release built UI assets before compiling; an empty isolated embed
@@ -49,7 +48,7 @@ func TestSchema3ActualBinaryBoundary(t *testing.T) {
 		schema             int
 		mustRefuse         bool
 	}{
-		{"published-tag", oldSource, "11.7.0", 2, true}, {"working-target", root, "cutover-boundary-test", 3, false},
+		{"approved-waypoint", oldSource, "12.1.0", 2, true}, {"working-target", root, "cutover-boundary-test", 3, false},
 	} {
 		t.Run(source.name, func(t *testing.T) {
 			bin := filepath.Join(t.TempDir(), "warden")

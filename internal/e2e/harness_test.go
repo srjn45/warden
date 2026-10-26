@@ -292,18 +292,18 @@ func (d *daemon) health() health {
 	return h
 }
 
-// openShared opens the schema-2 warden-db in THIS process (stamping the ledger
-// at schema 2 first, as a booted daemon would), so a test can seed it before the
+// openShared opens the schema-3 warden-db in THIS process (stamping the ledger
+// at schema 3 first, as a booted daemon would), so a test can seed it before the
 // daemon under test becomes the only owner. The returned closer releases it.
 func (e *env) openShared() (*agentstore.Store, func()) {
 	e.t.Helper()
 	if _, err := schema.Load(e.data); err != nil {
-		require.NoError(e.t, schema.Save(e.data, &schema.Ledger{SchemaVersion: schema.Schema2, BinaryVersion: "e2e",
-			History: []schema.HistoryEntry{{From: 0, To: schema.Schema2, Migration: schema.MigrationBaselineFresh}}}))
+		require.NoError(e.t, schema.Save(e.data, &schema.Ledger{SchemaVersion: schema.SchemaVersion, BinaryVersion: "e2e",
+			History: []schema.HistoryEntry{{From: 0, To: schema.SchemaVersion, Migration: schema.MigrationBaselineFresh}}}))
 	}
 	db, err := wardendb.Open(e.data)
 	require.NoError(e.t, err)
-	s, err := agentstore.NewStoreFromDB(db)
+	s, err := agentstore.NewSchema3StoreFromDB(db)
 	require.NoError(e.t, err)
 	return s, func() { require.NoError(e.t, db.Close()) }
 }
@@ -315,7 +315,7 @@ func (e *env) openSharedProjects() (*projectstore.Store, func()) {
 	closeAgents()
 	db, err := wardendb.Open(e.data)
 	require.NoError(e.t, err)
-	ps, err := projectstore.NewStoreFromDB(db)
+	ps, err := projectstore.NewSchema3StoreFromDB(db)
 	require.NoError(e.t, err)
 	return ps, func() { require.NoError(e.t, db.Close()) }
 }
@@ -326,7 +326,7 @@ func (e *env) seed(ids ...string) {
 	e.t.Helper()
 	s, closeDB := e.openShared()
 	for _, id := range ids {
-		require.NoError(e.t, s.Insert(context.Background(), &agentstore.Agent{ID: id, Name: "n-" + id, Status: store.StatusWorking,
+		require.NoError(e.t, s.Insert(context.Background(), &agentstore.Agent{ID: id, Name: "n-" + id, Scope: "system", Status: store.StatusWorking,
 			TmuxSession: "tm-" + id, CreatedAt: time.Now(), UpdatedAt: time.Now()}))
 	}
 	closeDB()

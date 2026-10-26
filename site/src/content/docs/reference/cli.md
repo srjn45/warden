@@ -5928,7 +5928,7 @@ Flags:
       --retirement            report legacy-store retirement entry criteria (read-only; deletes nothing)
       --staging-dir string    target directory for --staging-export (default: <data-dir>/warden-db-staging)
       --staging-export        export normalized schema-2 staging collections without touching legacy sources
-      --target int            target schema version to migrate to (default 2)
+      --target int            target schema version to migrate to (default 3)
       --target-sha string     target binary SHA-256 for --verify-ownership
       --transaction string    schema-3 transaction ID for --verify-ownership
       --verify-ownership      prove this started binary owns the exact pending schema-3 update transaction

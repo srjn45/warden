@@ -39,10 +39,9 @@ func TestGuard_Schema2Residue(t *testing.T) {
 	require.Contains(t, ge.Error(), "schema 2 (warden-db)")
 	require.Contains(t, ge.Error(), "no automatic downgrade")
 
-	// ...while this (schema-2) binary starts on it.
-	res, err := Boot(d, "v1")
-	require.NoError(t, err)
-	require.Equal(t, 2, res.Ledger.SchemaVersion)
+	// ...while a schema-2 binary would start on it. The production binary is
+	// schema 3 now and must continue to refuse this pre-cutover ledger.
+	require.NoError(t, check(d, &Ledger{SchemaVersion: 2, BinaryVersion: "v99"}, Schema2, 1))
 }
 
 func TestGuard_SchemaOneDataNeedsCutover(t *testing.T) {
@@ -62,13 +61,13 @@ func TestGuard_CleanDirs(t *testing.T) {
 	require.NoError(t, Guard(d), "empty dir passes and is not stamped")
 	_, err := os.Stat(Path(d))
 	require.True(t, os.IsNotExist(err))
-	require.NoError(t, Save(d, &Ledger{SchemaVersion: Schema2}))
+	require.NoError(t, Save(d, &Ledger{SchemaVersion: SchemaVersion}))
 	require.NoError(t, Guard(d))
 }
 
-func TestBoot_RecordsRuntimeBootOnSchema2Only(t *testing.T) {
+func TestBoot_RecordsRuntimeBootOnCurrentSchemaOnly(t *testing.T) {
 	dir := t.TempDir()
-	require.NoError(t, Save(dir, &Ledger{SchemaVersion: Schema2, BinaryVersion: "11", History: []HistoryEntry{}}))
+	require.NoError(t, Save(dir, &Ledger{SchemaVersion: SchemaVersion, BinaryVersion: "11", History: []HistoryEntry{}}))
 	_, err := Boot(dir, "11.0.0")
 	require.NoError(t, err)
 	log, err := adoption.Read(dir)
