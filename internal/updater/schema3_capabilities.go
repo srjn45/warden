@@ -70,10 +70,10 @@ func ValidateSchema3Release(m Manifest) error {
 // replace this refusal only after real old/new binary compatibility tests pass.
 func validateCapabilities(m Manifest) error {
 	if m.SchemaVersion == 3 {
-		if err := ValidateSchema3Release(m); err != nil {
-			return err
-		}
-		return fmt.Errorf("schema3: runtime cutover/readiness integration is not enabled in this build")
+		// The updater implements the format-3 protocols (Schema3Requirements);
+		// the per-update gate in txn.schema3TargetGate additionally binds the
+		// staged binary, the running version and the installed data format.
+		return ValidateSchema3Release(m)
 	}
 	if len(m.Requires.Capabilities) > 0 {
 		return fmt.Errorf("update: unsupported required capabilities")

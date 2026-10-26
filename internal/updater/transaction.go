@@ -278,6 +278,7 @@ type txn struct {
 	target      string
 	snapshotDir string
 	stopped     bool
+	manifest    *Manifest
 }
 
 func (t *txn) logf(format string, a ...any) { fmt.Fprintf(t.opts.Stdout, format+"\n", a...) }
@@ -322,7 +323,9 @@ func (t *txn) targetPreflight(ctx context.Context, targetBin string) error {
 			return err
 		}
 		if v >= 3 {
-			return fmt.Errorf("schema3: updater cutover/readiness integration is not enabled in this build")
+			if err := t.schema3TargetGate(ctx, targetBin); err != nil {
+				return err
+			}
 		}
 	}
 	if t.opts.TargetPreflight == nil {
@@ -445,6 +448,13 @@ func (t *txn) rollback(ctx context.Context, backup, snapDir string, restarted bo
 
 // apply runs stop → snapshot → swap → codesign → migrate → restart → readiness on a staged binary.
 func (t *txn) apply(ctx context.Context, staged string) (rolledBack bool, err error) {
+	if t.opts.TargetSchema != nil {
+		// An unreadable target schema falls through: the ordinary path below
+		// re-reads it after the swap and rolls back with its established wording.
+		if v, err := t.opts.TargetSchema(ctx, staged); err == nil && v >= 3 {
+			return t.applySchema3(ctx, staged)
+		}
+	}
 	if t.opts.DataDir != "" && t.pre.DaemonRunning {
 		t.logf("stopping daemon…")
 		if err := t.svc.Stop(ctx); err != nil && !errors.Is(err, ErrNoServiceManager) {

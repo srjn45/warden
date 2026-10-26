@@ -83,6 +83,9 @@ type Options struct {
 	// writes; a rollback must bring the daemon back on it. Used only when
 	// TargetSchema is set.
 	CurrentSchema int
+	// Schema3 carries the production seams of the capability-gated format-3
+	// update path. nil refuses any format-3 target; schema-2 updates ignore it.
+	Schema3 *Schema3Hooks
 }
 
 // Check reports whether an update is available without applying it.
@@ -140,6 +143,11 @@ func run(opts Options) (Result, error) {
 	t.capture(ctx)
 	if err := t.preflight(ctx); err != nil {
 		return res, err
+	}
+	// The manifest is optional for ordinary releases (older ones publish none)
+	// and mandatory only when the staged binary turns out to write format 3.
+	if m, merr := FetchManifest(opts, rel); merr == nil {
+		t.manifest = &m
 	}
 
 	staged, err := downloadAndVerify(opts, rel)

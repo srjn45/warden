@@ -111,6 +111,7 @@ Examples:
 				},
 				TargetSchema:  binarySchemaVersion,
 				CurrentSchema: schema.SchemaVersion,
+				Schema3:       schema3Hooks(cfgPath, cfg.DataDir),
 			}
 			if home, err := os.UserHomeDir(); err == nil && home != "" {
 				opts.StagingDir = filepath.Join(home, ".warden", "tmp")
