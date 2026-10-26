@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/srjn45/warden/internal/schema"
@@ -22,6 +23,7 @@ func main() {
 		notesFlag     string
 		apiCompatFlag string
 		manualFlag    string
+		capabilities  string
 		outFlag       string
 	)
 
@@ -34,6 +36,7 @@ func main() {
 	flag.StringVar(&notesFlag, "notes", "", "Comma-separated release notes")
 	flag.StringVar(&apiCompatFlag, "api-compat", "Compatible with Hub API v1; Android app >= 1.4", "Connected client compatibility note")
 	flag.StringVar(&manualFlag, "requires-manual", "", "Comma-separated required manual steps")
+	flag.StringVar(&capabilities, "requires-capabilities", "", "Comma-separated capability=version requirements")
 	flag.StringVar(&outFlag, "out", "dist/manifest.json", "Output file path")
 	flag.Parse()
 
@@ -72,6 +75,12 @@ func main() {
 		}
 	}
 
+	requires, err := parseCapabilities(capabilities)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "genmanifest: parse required capabilities: %v\n", err)
+		os.Exit(1)
+	}
+
 	m := updater.Manifest{
 		Version:        ver,
 		SchemaVersion:  schemaFlag,
@@ -81,13 +90,11 @@ func main() {
 		Breaking:       breakingFlag,
 		Notes:          notes,
 		APICompat:      apiCompatFlag,
-		Requires:       updater.ManifestRequirements{Manual: manual},
+		Requires:       updater.ManifestRequirements{Manual: manual, Capabilities: requires},
 	}
 
-	// Schema 3 is not publishable from the migration-only stack layer. Do not
-	// let the support-window default invent its updater waypoint.
-	if m.SchemaVersion == 3 {
-		fmt.Fprintln(os.Stderr, "genmanifest: schema 3 release blocked pending cutover and compatibility-tested updater waypoint")
+	if err := updater.ValidateSchema3Release(m); err != nil {
+		fmt.Fprintf(os.Stderr, "genmanifest: validate release: %v\n", err)
 		os.Exit(1)
 	}
 	data, err := json.MarshalIndent(m, "", "  ")
@@ -105,3 +112,25 @@ func main() {
 
 // isMajorRelease reports a release that opens a new major (X.0.0, X >= 1).
 func isMajorRelease(s updater.Semver) bool { return s.Major >= 1 && s.Minor == 0 && s.Patch == 0 }
+
+func parseCapabilities(raw string) (map[string]int, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	requires := make(map[string]int)
+	for _, item := range strings.Split(raw, ",") {
+		name, version, ok := strings.Cut(strings.TrimSpace(item), "=")
+		if !ok || strings.TrimSpace(name) == "" {
+			return nil, fmt.Errorf("%q must be name=version", item)
+		}
+		value, err := strconv.Atoi(strings.TrimSpace(version))
+		if err != nil || value < 1 {
+			return nil, fmt.Errorf("%q has invalid version", item)
+		}
+		if _, duplicate := requires[name]; duplicate {
+			return nil, fmt.Errorf("duplicate capability %q", name)
+		}
+		requires[name] = value
+	}
+	return requires, nil
+}

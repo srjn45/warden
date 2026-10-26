@@ -10,7 +10,14 @@ before:
     # binary (the Go build embeds web/dist).
     - sh -c "cd web && npm ci && npm run build"
     # Generate release manifest.json published and checksummed with the archives.
-    - go run ./cmd/genmanifest -version '{{ .Version }}' -out ./manifest.json
+    # Schema 3 was compatibility-tested against the released v12.1.0 updater.
+    # Keep this envelope explicit: the generator validates it before publishing.
+    - >-
+      go run ./cmd/genmanifest -version '{{ .Version }}'
+      -schema-version 3 -min-schema 2 -min-upgrade-from 12.1.0 -breaking
+      -requires-capabilities stopped-daemon=1,schema3-transaction-handoff=1,verified-paired-backup=1,generation-restore=1
+      -notes 'schema 3 ownership normalization,paired-data rollback'
+      -out ./manifest.json
 
 builds:
   - id: warden

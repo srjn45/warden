@@ -17,3 +17,19 @@ func TestIsMajorRelease(t *testing.T) {
 		}
 	}
 }
+
+func TestParseCapabilities(t *testing.T) {
+	requires, err := parseCapabilities("stopped-daemon=1,schema3-transaction-handoff=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := requires["stopped-daemon"], 1; got != want {
+		t.Errorf("stopped-daemon=%d, want %d", got, want)
+	}
+
+	for _, raw := range []string{"missing-version", "negative=-1", "zero=0", "duplicate=1,duplicate=1"} {
+		if _, err := parseCapabilities(raw); err == nil {
+			t.Errorf("parseCapabilities(%q) succeeded, want error", raw)
+		}
+	}
+}
