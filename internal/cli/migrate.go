@@ -15,6 +15,7 @@ import (
 	"github.com/srjn45/warden/internal/migrate/schema3"
 	"github.com/srjn45/warden/internal/ownerlock"
 	"github.com/srjn45/warden/internal/schema"
+	"github.com/srjn45/warden/internal/updater"
 )
 
 type migrateCheckReport struct {
@@ -27,20 +28,24 @@ type migrateCheckReport struct {
 
 func newMigrateCmd() *cobra.Command {
 	var (
-		checkFlag      bool
-		planFlag       bool
-		retirementFlag bool
-		cleanupFlag    bool
-		dryRunFlag     bool
-		yesFlag        bool
-		stagingFlag    bool
-		applyFlag      bool
-		resumeFlag     bool
-		restoreFlag    bool
-		jsonFlag       bool
-		targetVer      int
-		dataDirFlag    string
-		stagingDir     string
+		checkFlag       bool
+		planFlag        bool
+		retirementFlag  bool
+		cleanupFlag     bool
+		dryRunFlag      bool
+		yesFlag         bool
+		stagingFlag     bool
+		applyFlag       bool
+		resumeFlag      bool
+		restoreFlag     bool
+		jsonFlag        bool
+		verifyOwnership bool
+		transactionID   string
+		targetSHA       string
+		manifestSHA     string
+		targetVer       int
+		dataDirFlag     string
+		stagingDir      string
 	)
 
 	cmd := &cobra.Command{
@@ -98,6 +103,26 @@ Older binaries refuse a schema-2 data dir before opening any store; there is no
 automatic downgrade. "wd update" runs the cutover for you (via the new binary)
 and rolls the binary and data back if it fails.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if verifyOwnership {
+				if countMigrationActions(checkFlag, planFlag, stagingFlag, applyFlag, resumeFlag, retirementFlag, restoreFlag, cleanupFlag) != 0 {
+					return errors.New("--verify-ownership cannot be combined with another migrate action")
+				}
+				if transactionID == "" || targetSHA == "" || manifestSHA == "" {
+					return errors.New("--verify-ownership requires --transaction, --target-sha, and --manifest-sha")
+				}
+				dataDir := dataDirFlag
+				if dataDir == "" {
+					dataDir = config.Load(configPathFor(cmd)).DataDir
+				}
+				if err := verifySchema3Ownership(cmd.Context(), dataDir, transactionID, targetSHA, manifestSHA); err != nil {
+					return err
+				}
+				if jsonFlag {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"verified": true, "transaction": transactionID})
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), "schema-3 ownership verified")
+				return nil
+			}
 			// Validate mutually exclusive flags
 			count := 0
 			if checkFlag {
@@ -322,11 +347,27 @@ and rolls the binary and data back if it fails.`,
 	cmd.Flags().BoolVar(&resumeFlag, "resume", false, "resume an interrupted migration")
 	cmd.Flags().BoolVar(&restoreFlag, "restore", false, "restore from pre-migration snapshot after an interrupted migration")
 	cmd.Flags().BoolVar(&jsonFlag, "json", false, "output results in JSON format")
+	cmd.Flags().BoolVar(&verifyOwnership, "verify-ownership", false, "prove this started binary owns the exact pending schema-3 update transaction")
+	cmd.Flags().StringVar(&transactionID, "transaction", "", "schema-3 transaction ID for --verify-ownership")
+	cmd.Flags().StringVar(&targetSHA, "target-sha", "", "target binary SHA-256 for --verify-ownership")
+	cmd.Flags().StringVar(&manifestSHA, "manifest-sha", "", "transaction manifest SHA-256 for --verify-ownership")
 	cmd.Flags().IntVar(&targetVer, "target", schema.SchemaVersion, "target schema version to migrate to")
 	cmd.Flags().StringVar(&dataDirFlag, "data-dir", "", "path to the Warden data directory")
 	cmd.Flags().StringVar(&stagingDir, "staging-dir", "", "target directory for --staging-export (default: <data-dir>/warden-db-staging)")
 
 	return cmd
+}
+
+var verifySchema3Ownership = updater.VerifySchema3Ownership
+
+func countMigrationActions(actions ...bool) int {
+	n := 0
+	for _, action := range actions {
+		if action {
+			n++
+		}
+	}
+	return n
 }
 
 // runLegacyCleanup previews the cleanup (a dry run through the same gate),

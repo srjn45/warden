@@ -15,6 +15,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestVerifySchema3OwnershipAuthenticatesStartedTarget(t *testing.T) {
+	ctx := context.Background()
+	tr, old, target := schema3Fixture(t)
+	self, err := os.Executable()
+	require.NoError(t, err)
+	bytes, err := os.ReadFile(self)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(target, bytes, 0o755))
+	beginSchema3Fixture(t, tr, old, target)
+	require.NoError(t, tr.promote(ctx))
+	require.NoError(t, tr.handoff())
+	require.NoError(t, VerifySchema3Ownership(ctx, tr.dir, tr.id, tr.manifest.TargetBinaryHash, tr.manifestHash))
+	for _, mutate := range []func(){
+		func() { tr.manifestHash = "sha256:wrong" },
+		func() { tr.manifestHash = "" },
+	} {
+		mutate()
+		require.Error(t, VerifySchema3Ownership(ctx, tr.dir, tr.id, tr.manifest.TargetBinaryHash, tr.manifestHash))
+	}
+}
+
 func schema3Fixture(t *testing.T) (*schema3Transaction, string, string) {
 	t.Helper()
 	dir := t.TempDir()
