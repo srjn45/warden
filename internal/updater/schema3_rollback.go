@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"time"
 
 	"github.com/srjn45/warden/internal/schema"
 )
@@ -49,8 +48,26 @@ func rollbackSchema3(ctx context.Context, opts RollbackOptions) (RollbackResult,
 	if err = t.restore(ctx, bin); err != nil {
 		return RollbackResult{}, err
 	}
-	if err = restartPairedOld(ctx, t, opts.Service, opts.Prober, opts.Clock, opts.ReadyTimeout); err != nil {
+	// The old process must acquire the owner lock itself. Never start while the
+	// updater still owns it, and never treat absence of a supervisor as success.
+	if err = t.close(); err != nil {
 		return RollbackResult{}, err
+	}
+	if err = opts.Service.Restart(ctx); err != nil {
+		return RollbackResult{}, fmt.Errorf("schema3: restart paired old service: %w", err)
+	}
+	waiter := &txn{opts: Options{ReadyTimeout: opts.ReadyTimeout}, svc: opts.Service, probe: opts.Prober, clock: opts.Clock}
+	if err = waiter.waitReady(ctx, stripV(t.manifest.OldVersion), 2); err != nil {
+		// Even a failed old readiness start is explicitly stopped. Leave the
+		// verified restored generation and transaction evidence for recovery.
+		if stopErr := opts.Service.Stop(ctx); stopErr != nil {
+			return RollbackResult{}, fmt.Errorf("schema3: old readiness failed: %v; stopping old service failed: %w", err, stopErr)
+		}
+		return RollbackResult{}, fmt.Errorf("schema3: paired old readiness failed: %w", err)
+	}
+	l, err := schema.Load(t.dir)
+	if err != nil || l.SchemaVersion != 2 || l.InProgress != nil {
+		return RollbackResult{}, fmt.Errorf("schema3: paired old readiness ledger mismatch")
 	}
 	result := RollbackResult{
 		PriorVersion: t.manifest.TargetVersion, TargetVersion: t.manifest.OldVersion,
@@ -59,30 +76,4 @@ func rollbackSchema3(ctx context.Context, opts RollbackOptions) (RollbackResult,
 	}
 	fmt.Fprintln(opts.Stdout, result.Message)
 	return result, nil
-}
-
-// restartPairedOld starts the restored old binary and proves it is the exact
-// old version on schema 2. The updater must hand over the owner lock first, so
-// the old process acquires it itself, and absence of a supervisor is a failure.
-// A failed old readiness leaves the service stopped with the verified restored
-// generation and transaction evidence intact.
-func restartPairedOld(ctx context.Context, t *schema3Transaction, svc ServiceController, probe Prober, clock Clock, ready time.Duration) error {
-	if err := t.close(); err != nil {
-		return err
-	}
-	if err := svc.Restart(ctx); err != nil {
-		return fmt.Errorf("schema3: restart paired old service: %w", err)
-	}
-	waiter := &txn{opts: Options{ReadyTimeout: ready}, svc: svc, probe: probe, clock: clock}
-	if err := waiter.waitReady(ctx, stripV(t.manifest.OldVersion), 2); err != nil {
-		if stopErr := svc.Stop(ctx); stopErr != nil {
-			return fmt.Errorf("schema3: old readiness failed: %v; stopping old service failed: %w", err, stopErr)
-		}
-		return fmt.Errorf("schema3: paired old readiness failed: %w", err)
-	}
-	l, err := schema.Load(t.dir)
-	if err != nil || l.SchemaVersion != 2 || l.InProgress != nil {
-		return fmt.Errorf("schema3: paired old readiness ledger mismatch")
-	}
-	return nil
 }

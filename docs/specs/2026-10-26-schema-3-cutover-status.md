@@ -94,19 +94,3 @@ All changes and tests use isolated fixtures. No real user data was inspected or
 migrated; the fleet daemon was not stopped; no standalone migration apply ran.
 Keep the stacked PR open and unmerged. Plan/task progress remains in progress;
 no `job done`, task completion, auto-merge or landing is authorized.
-
-## Updater wiring (waypoint layer)
-
-The updater now drives the format-3 transaction from `warden update` while the
-runtime stays on schema 2. A format-3 target is accepted only when all of these
-agree: a validated release manifest (`min_schema=2`, `breaking`, exact
-`Schema3Requirements`, `min_upgrade_from` ≤ the running updater), the staged
-binary's own `version --json` (`version`, `schema_version=3`,
-`updater_capabilities`), the running binary's schema (2) and measured free space.
-Flow: stop → exclusive ownership → verified paired backup (data, ledger, config
-inside the data dir, exact old binary) → swap → config reconcile → promote →
-owner-lock handoff → restart → exact version/format readiness → target-side
-`migrate --verify-ownership` → finalize. Any failure after the backup restores
-the paired binary and data and proves the old daemon healthy. The transaction id
-is printed for `warden rollback --transaction`. A schema-2 update never reaches
-this path.
