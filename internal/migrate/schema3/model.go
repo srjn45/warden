@@ -228,6 +228,7 @@ func Map(source Generation) (Generation, *Report, error) {
 			}
 		}
 	}
+	pruneStaleAgents(g, r)
 	for _, c := range []string{"agents", "terminals", "plans", "pipelines", "autopilot_runs"} {
 		for _, k := range keys(g[c]) {
 			o := g[c][k]
@@ -327,7 +328,7 @@ func inverse(g Generation, oc, f, cc, ref string, r *Report) {
 			id := text(x)
 			child := g[cc][id]
 			if child == nil {
-				r.block(oc, k, f, x)
+				r.finding(oc, k, f, "dropped missing child", x)
 				continue
 			}
 			if seen[id] {
@@ -336,13 +337,68 @@ func inverse(g Generation, oc, f, cc, ref string, r *Report) {
 			seen[id] = true
 			agree(child, ref, k, r, cc, id)
 		}
+		// Every forward list mapped here is a retired field, and the child's own
+		// back-reference is what schema 3 keeps. A list that missed a child is
+		// therefore stale bookkeeping, not conflicting ownership.
 		for _, id := range keys(g[cc]) {
 			if text(g[cc][id][ref]) == k && !seen[id] {
-				r.block(oc, k, f, "omitted child "+id)
+				r.finding(oc, k, f, "derived from child", id)
 			}
 		}
 	}
 }
+
+// pruneStaleAgents drops history schema 2 accumulated but schema 3 cannot own.
+// An agent whose autopilot run no longer exists loses that run binding. An
+// archived agent that still has no project after structural resolution is
+// deleted, and references to it are cleared. Live agents are never deleted:
+// a project-less live agent stays blocked. The paired backup keeps every
+// original row.
+func pruneStaleAgents(g Generation, r *Report) {
+	for _, k := range keys(g["agents"]) {
+		o := g["agents"][k]
+		if rid := text(o["autopilot_run_id"]); rid != "" && g["autopilot_runs"][rid] == nil {
+			r.finding("agents", k, "autopilot_run_id", "cleared missing run", rid)
+			remove(o, "autopilot_run_id autopilot_slot autopilot_task_id")
+		}
+		// A task binding is scoped to a run; without one it names nothing.
+		if tid := text(o["autopilot_task_id"]); tid != "" && text(o["autopilot_run_id"]) == "" {
+			r.finding("agents", k, "autopilot_task_id", "cleared task without run", tid)
+			delete(o, "autopilot_task_id")
+		}
+	}
+	deleted := map[string]bool{}
+	for _, k := range keys(g["agents"]) {
+		o := g["agents"][k]
+		scope := text(o["scope"])
+		if text(o["project_id"]) == "" && scope != "global" && scope != "system" && text(o["lifecycle"]) == "archived" {
+			r.finding("agents", k, "project_id", "deleted archived without project", text(o["name"]))
+			delete(g["agents"], k)
+			deleted[k] = true
+		}
+	}
+	for _, c := range []string{"agents", "pipelines", "autopilot_runs"} {
+		for _, k := range keys(g[c]) {
+			if id := text(g[c][k]["parent_agent_id"]); deleted[id] {
+				r.finding(c, k, "parent_agent_id", "cleared deleted parent", id)
+				delete(g[c][k], "parent_agent_id")
+			}
+		}
+	}
+	// A plan's executor mirrors are retired fields. One naming an executor
+	// that no longer exists carries no ownership and is dropped early, so it
+	// is not validated as a live reference.
+	for _, k := range keys(g["plans"]) {
+		p := g["plans"][k]
+		for _, m := range []struct{ f, c string }{{"autopilot_run_id", "autopilot_runs"}, {"pipeline_id", "pipelines"}, {"orchestrator_id", "agents"}} {
+			if id := text(p[m.f]); id != "" && g[m.c][id] == nil {
+				r.finding("plans", k, m.f, "dropped missing executor mirror", id)
+				delete(p, m.f)
+			}
+		}
+	}
+}
+
 func validateCycles(rows map[string]Object, ref, c string, r *Report) {
 	for _, k := range keys(rows) {
 		seen := map[string]bool{}

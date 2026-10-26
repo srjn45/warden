@@ -45,9 +45,7 @@ func TestMappingPayloadOrderAndHash(t *testing.T) {
 }
 func TestMappingConflictsAbortWholeGeneration(t *testing.T) {
 	for name, mutate := range map[string]func(Generation){
-		"empty authority":        func(g Generation) { g["projects"]["p"]["agents"] = []any{} },
 		"two owners":             func(g Generation) { g["projects"]["q"] = Object{"id": "q", "agents": []any{"worker"}} },
-		"dangling":               func(g Generation) { g["projects"]["p"]["agents"] = []any{"absent"} },
 		"parent cycle":           func(g Generation) { g["agents"]["worker"]["parent_id"] = "worker" },
 		"cross project":          func(g Generation) { g["projects"]["q"] = Object{"id": "q"}; g["agents"]["worker"]["project_id"] = "q" },
 		"archive duplicate":      func(g Generation) { g["archived_agents"]["worker"] = clone(g["agents"]["worker"]) },
