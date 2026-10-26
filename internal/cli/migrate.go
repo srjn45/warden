@@ -27,6 +27,11 @@ type migrateCheckReport struct {
 	Findings       []migrate.Finding `json:"findings"`
 }
 
+// Kept as a seam because the schema-3 live-owner behaviour is part of the
+// update protocol and must be exercised without starting a daemon in unit
+// tests.
+var probeSchema3PlanOwner = ownerlock.Probe
+
 func newMigrateCmd() *cobra.Command {
 	var (
 		checkFlag       bool
@@ -562,6 +567,25 @@ func runSchema2Plan(cmd *cobra.Command, dataDir string, asJSON bool) error {
 }
 
 func runSchema3Plan(cmd *cobra.Command, dataDir string, asJSON bool) error {
+	// `wd update` asks the target binary to prove it understands the existing
+	// generation before it stops the daemon.  A schema-3 mapping, however,
+	// deliberately takes a checksummed private copy and rejects a source which
+	// changes underneath it.  Do not spend the update preflight deadline trying
+	// to obtain an impossible stable view from a live daemon: the paired update
+	// takes exclusive ownership and performs this exact, strict plan again
+	// before it can promote anything.
+	if owned, probeErr := probeSchema3PlanOwner(dataDir); probeErr != nil {
+		return fmt.Errorf("schema3: probe live owner: %w", probeErr)
+	} else if owned != nil {
+		report := schema3LivePlanDeferred(owned)
+		if asJSON {
+			enc := json.NewEncoder(cmd.OutOrStdout())
+			enc.SetIndent("", "  ")
+			return enc.Encode(report)
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), "schema 2 → 3 ownership plan deferred while the daemon owns the data; wd update re-runs the strict plan after it stops the daemon")
+		return nil
+	}
 	report, err := schema3.Plan(cmd.Context(), dataDir)
 	if report != nil {
 		if asJSON {
@@ -579,4 +603,16 @@ func runSchema3Plan(cmd *cobra.Command, dataDir string, asJSON bool) error {
 		}
 	}
 	return err
+}
+
+func schema3LivePlanDeferred(owner *ownerlock.OwnedError) *schema3.Report {
+	return &schema3.Report{
+		Policy: schema3.Policy,
+		Findings: []schema3.Finding{{
+			Collection:  "warden-db",
+			Field:       "live_owner",
+			Evidence:    owner.Error(),
+			Disposition: "deferred",
+		}},
+	}
 }
