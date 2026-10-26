@@ -19,6 +19,12 @@ func (s *Server) registerStatic(r chi.Router) {
 	ui := webui.Dist()
 	fileServer := http.FileServerFS(ui)
 	r.Get("/*", func(w http.ResponseWriter, req *http.Request) {
+		// API paths are contracts, never client-side routes. Letting the SPA
+		// fallback answer them with 200 conceals retired or misspelled endpoints.
+		if strings.HasPrefix(req.URL.Path, "/api/") {
+			http.NotFound(w, req)
+			return
+		}
 		p := strings.TrimPrefix(path.Clean(req.URL.Path), "/")
 		if p == "" || p == "." {
 			serveIndex(w, ui)

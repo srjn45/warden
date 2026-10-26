@@ -12,6 +12,7 @@ import (
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/notify"
 	"github.com/srjn45/warden/internal/store"
+	"github.com/stretchr/testify/require"
 )
 
 func newBranchServer(t *testing.T) (*Server, *fakeStore) {
@@ -68,4 +69,20 @@ func TestBranchStatusesNilTracker(t *testing.T) {
 	if br.Branches == nil || len(br.Branches) != 0 {
 		t.Fatalf("disabled tracker should return [], got %+v", br.Branches)
 	}
+}
+
+func TestConflictDetectorRouteIsGoneWhileBranchStatusRemains(t *testing.T) {
+	srv, _ := newBranchServer(t)
+	ts := httptest.NewServer(srv.router())
+	defer ts.Close()
+
+	retired, err := http.Get(ts.URL + "/api/v1/collab/conflicts")
+	require.NoError(t, err)
+	defer retired.Body.Close()
+	require.Equal(t, http.StatusNotFound, retired.StatusCode)
+
+	branches, err := http.Get(ts.URL + "/api/v1/collab/branches")
+	require.NoError(t, err)
+	defer branches.Body.Close()
+	require.Equal(t, http.StatusOK, branches.StatusCode, "branch tracking is independent of the retired detector")
 }

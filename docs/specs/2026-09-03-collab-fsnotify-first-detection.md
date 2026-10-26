@@ -1,7 +1,10 @@
 # Collab monitor: fsnotify-first file-conflict detection
 
 **Date:** 2026-09-03  
-**Status:** Implementing  
+**Status:** Retired 2026-10-26 — file-conflict detection, its fsnotify watcher,
+and its background Git reconciliation were removed. This document is retained
+as historical design context only; branch tracking, explicit Git lifecycle,
+and config fsnotify reload remain supported.
 **Problem:** The file-conflict monitor (`internal/collab`) runs `git diff --name-only HEAD` on every fsnotify debounce and every `collab.interval` poll, for every active agent worktree. In large monorepos this hammers shared `.git` state, contends with user `git pull` / `git add` (via `index.lock`), and leaves commands failing. The dashboard also polls `GET /collab/conflicts` every 5s, multiplying git subprocesses.
 
 ## Goals

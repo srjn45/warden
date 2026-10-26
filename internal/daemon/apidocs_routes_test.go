@@ -144,6 +144,7 @@ func TestAPIDocsServed(t *testing.T) {
 		require.Equal(t, http.StatusOK, resp.StatusCode)
 		body, _ := io.ReadAll(resp.Body)
 		require.Contains(t, string(body), "openapi: 3", "raw route must serve the OpenAPI document")
+		require.NotContains(t, string(body), "/api/v1/collab/conflicts", "retired detector route must not remain documented")
 	})
 
 	t.Run("vendored asset", func(t *testing.T) {
