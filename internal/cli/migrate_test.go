@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/srjn45/warden/internal/migrate"
+	"github.com/srjn45/warden/internal/migrate/schema3"
 	"github.com/srjn45/warden/internal/ownerlock"
 	"github.com/srjn45/warden/internal/schema"
 )
@@ -58,6 +59,30 @@ func TestMigrateCommand_CheckJSON(t *testing.T) {
 	require.Equal(t, schema.Schema2, rep.CurrentVersion)
 	require.Equal(t, schema.Schema2, rep.TargetVersion)
 	require.Empty(t, rep.Findings)
+}
+
+func TestSchema3CheckDefersMappingWhileDaemonOwnsData(t *testing.T) {
+	dataDir := t.TempDir()
+	require.NoError(t, schema.Save(dataDir, &schema.Ledger{SchemaVersion: schema.Schema2}))
+
+	oldProbe := probeSchema3PlanOwner
+	probeSchema3PlanOwner = func(string) (*ownerlock.OwnedError, error) {
+		return &ownerlock.OwnedError{Dir: dataDir}, nil
+	}
+	t.Cleanup(func() { probeSchema3PlanOwner = oldProbe })
+
+	cmd := newMigrateCmd()
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	cmd.SetArgs([]string{"--check", "--target", "3", "--json", "--data-dir", dataDir})
+	require.NoError(t, cmd.ExecuteContext(context.Background()))
+
+	var report schema3.Report
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &report), buf.String())
+	require.Equal(t, schema3.Policy, report.Policy)
+	require.Len(t, report.Findings, 1)
+	require.Equal(t, "deferred", report.Findings[0].Disposition)
+	require.Equal(t, "live_owner", report.Findings[0].Field)
 }
 
 func TestMigrateCommand_CheckReportsFindingsAndFails(t *testing.T) {
