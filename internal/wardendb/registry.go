@@ -36,6 +36,7 @@ var catalogue = []string{
 	"projects",
 	"project_groups",
 	"plans",
+	"plan_tasks",
 	"plan_exports",
 	"pipelines",
 	"pipeline_jobs",

@@ -270,15 +270,7 @@ func initSeqCounter(col docs) (int64, error) {
 }
 
 func encodeRecord(p *Plan) (map[string]any, error) {
-	b, err := json.Marshal(p)
-	if err != nil {
-		return nil, err
-	}
-	var rec map[string]any
-	if err := json.Unmarshal(b, &rec); err != nil {
-		return nil, err
-	}
-	return rec, nil
+	return wardendb.LosslessDocument(p)
 }
 
 func decodeRecord(rec map[string]any) (*Plan, error) {

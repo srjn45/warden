@@ -32,6 +32,9 @@ func isLegacyBrainID(id string) bool {
 // reconcileRunsAtBootLocked only normalizes in-memory state. Runtime/store work
 // is deliberately scheduled by SetRuntime after releasing c.mu.
 func (c *Controller) reconcileRunsAtBootLocked(ctx context.Context) {
+	if c.store != nil && c.store.IsSchema3() {
+		return
+	}
 	if c.runtime == nil {
 		return
 	}

@@ -91,6 +91,10 @@ type Agent struct {
 	Model           string                 `json:"model,omitempty"`
 	QuotaBinding    *capacity.QuotaBinding `json:"quota_binding,omitempty"`
 	ProjectID       string                 `json:"project_id,omitempty"`
+	Scope           string                 `json:"scope,omitempty"`
+	Lifecycle       string                 `json:"lifecycle,omitempty"`
+	ArchivedAt      *time.Time             `json:"archived_at,omitempty"`
+	ClosedAt        *time.Time             `json:"closed_at,omitempty"`
 	Hibernated      bool                   `json:"hibernated,omitempty"`
 
 	ContextTokens    int        `json:"context_tokens,omitempty"`
@@ -243,6 +247,10 @@ func (a *Agent) ToSession() *store.Session {
 		ScheduleID:                a.ScheduleID,
 		ScheduleName:              a.ScheduleName,
 		ParentID:                  a.ParentID,
+		Scope:                     a.Scope,
+		Lifecycle:                 a.Lifecycle,
+		ArchivedAt:                a.ArchivedAt,
+		ClosedAt:                  a.ClosedAt,
 		ChildAgents:               a.ChildAgents,
 		ChildPipelines:            a.ChildPipelines,
 		ChildAutopilots:           a.ChildAutopilots,
@@ -316,6 +324,10 @@ func FromSession(s *store.Session) *Agent {
 		ScheduleID:                s.ScheduleID,
 		ScheduleName:              s.ScheduleName,
 		ParentID:                  s.ParentID,
+		Scope:                     s.Scope,
+		Lifecycle:                 s.Lifecycle,
+		ArchivedAt:                s.ArchivedAt,
+		ClosedAt:                  s.ClosedAt,
 		ChildAgents:               s.ChildAgents,
 		ChildPipelines:            s.ChildPipelines,
 		ChildAutopilots:           s.ChildAutopilots,

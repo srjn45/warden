@@ -158,6 +158,7 @@ type run struct {
 	name              string
 	planID            string
 	projectID         string
+	parentAgentID     string
 	planFile          string // configured path (as written in config)
 	absPlanFile       string // resolved absolute path (plan-file watch anchor)
 	repo              string

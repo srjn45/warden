@@ -83,6 +83,14 @@ func cloneAgent(a *Agent) *Agent {
 		return nil
 	}
 	out := *a
+	if a.ArchivedAt != nil {
+		value := *a.ArchivedAt
+		out.ArchivedAt = &value
+	}
+	if a.ClosedAt != nil {
+		value := *a.ClosedAt
+		out.ClosedAt = &value
+	}
 	if a.Tags != nil {
 		out.Tags = make([]string, len(a.Tags))
 		copy(out.Tags, a.Tags)
