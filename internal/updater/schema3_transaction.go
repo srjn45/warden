@@ -76,10 +76,13 @@ type schema3Journal struct {
 type schema3Transaction struct {
 	dir, id, bundle, stage, park, journal string
 	lock                                  *ownerlock.Lock
-	manifest                              *schema3Manifest
-	manifestHash                          string
-	records                               []schema3Journal
-	fault                                 func(string) error
+	// handedOff records that this updater deliberately released the owner lock
+	// so the target daemon can start; it keeps finish authority without the lock.
+	handedOff    bool
+	manifest     *schema3Manifest
+	manifestHash string
+	records      []schema3Journal
+	fault        func(string) error
 }
 
 func schema3Path(data, id string) (*schema3Transaction, error) {
@@ -152,7 +155,7 @@ func (t *schema3Transaction) hit(point string) error {
 	return nil
 }
 func (t *schema3Transaction) record(step string, complete bool, input, output string) error {
-	if t.lock == nil {
+	if t.lock == nil && !t.handedOff {
 		return fmt.Errorf("schema3: updater owner lock required")
 	}
 	phase := "intent"
@@ -1033,8 +1036,18 @@ func (t *schema3Transaction) verifyRestored() error {
 
 // finish is called only after cutover's authenticated readiness start reports
 // the exact target version, format 3 and successful ownership verification.
+// handoff releases the owner lock for the target daemon's start while keeping
+// this in-process transaction's authority to finalize readiness.
+func (t *schema3Transaction) handoff() error {
+	if err := t.close(); err != nil {
+		return err
+	}
+	t.handedOff = true
+	return nil
+}
+
 func (t *schema3Transaction) finish(ctx context.Context, h Health, ownershipOK bool) error {
-	if t.lock == nil || t.manifest == nil {
+	if (t.lock == nil && !t.handedOff) || t.manifest == nil {
 		return fmt.Errorf("schema3: updater authority required")
 	}
 	if h.Status != "ok" || stripV(h.Version) != stripV(t.manifest.TargetVersion) || h.SchemaVersion != 3 || !ownershipOK {
