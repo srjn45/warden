@@ -61,6 +61,9 @@ Common settings (run `warden config` for the complete, live list):
 | `local_llm.*` | — | **Retired.** The local-LLM/Ollama provider was replaced by Fast-Brain (no config). Legacy keys (`enabled`, `url`, `model`, `timeout`, `tier`, `escalate`, `classifier`, `repl`) still parse but are ignored. |
 | `backends.limit_retry` | `15m` | Go duration — how long a free CLI backend is skipped after a rate-limit / spend signal, before retrying it. Backend **tiers**, the **default**, and **enabled** flags live in the [backend registry](/warden/guides/backend-registry/) store (`~/.warden/backends`), not this file — edit them with `warden backend …`, the web 🧩 panel, or the TUI |
 | `metrics` | `true` | Record per-agent performance history for `warden inspect resources --history` |
+| `retention.metrics_days` | `7` | Metrics history window in days |
+| `retention.archived_agents` | `24h` | How long an archived agent stays restorable before the hourly retention sweep purges it and its inbox. `off` keeps archived agents forever. See [agent lifecycle](/warden/concepts/agents-lifecycle/#retention) |
+| `retention.read_messages` | `0s` | How long a delivered directed message is kept. `0s` deletes it on delivery; a positive duration keeps delivered messages for history views |
 | `spawn_gate` / `spawn_gate_max_agents` | `true` / `0` | Memory-pressure spawn gate + concurrent-agent cap (0 = no cap). Blocks a spawn only at **critical** pressure or the agent cap; **warn** pressure is advisory (spawns proceed). |
 | `pipeline.keep_done` / `pipeline.hint` | — | Pipeline retention + the decomposition nudge |
 | `memory.inject` | `true` | Project the repo's curated `.warden/memory.md` into every spawned agent's system prompt (Claude → `--append-system-prompt`; other backends → their `AGENTS.md`/`CRUSH.md`/`.goosehints` warden block). Off, or an empty/absent file, is byte-identical to no injection. See [Project memory](/warden/concepts/project-memory/) |

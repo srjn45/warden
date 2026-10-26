@@ -24,10 +24,15 @@ import (
 )
 
 var (
-	ErrNotFound    = errors.New("agent not found")
-	ErrExists      = errors.New("agent already exists")
-	ErrNameExists  = store.ErrNameExists
-	ErrInvalidName = store.ErrInvalidName
+	ErrNotFound = errors.New("agent not found")
+	// ErrNotArchived is returned when purging an agent that is not archived.
+	ErrNotArchived = errors.New("agent is not archived")
+	// ErrStillReferenced is returned when purging an archived agent that another
+	// record still names as its parent.
+	ErrStillReferenced = errors.New("archived agent is still referenced")
+	ErrExists          = errors.New("agent already exists")
+	ErrNameExists      = store.ErrNameExists
+	ErrInvalidName     = store.ErrInvalidName
 	// ErrIdentityChanged prevents an update callback from writing an agent body
 	// under a different record key.
 	ErrIdentityChanged = errors.New("agent identity cannot change")
@@ -989,6 +994,47 @@ func (s *Store) Delete(ctx context.Context, id string) (retErr error) {
 	s.gen.Add(1)
 	currentSnap := s.snap.Load()
 	s.publishDelete(currentSnap, id)
+	return nil
+}
+
+// Purge permanently removes an archived agent. Unlike Delete, which archives on
+// schema 3, it erases the record, so restore is no longer possible. It refuses
+// an agent that is not archived (ErrNotArchived) and, on schema 3, one another
+// record still names as its parent (ErrStillReferenced).
+func (s *Store) Purge(ctx context.Context, id string) (retErr error) {
+	if err := s.isDegraded(); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := store.SafeID(id); err != nil {
+		return err
+	}
+	tk, err := s.beginWrite(ctx, "Purge")
+	if err != nil {
+		return err
+	}
+	defer tk.release(&retErr)
+	fireWriteSeam("Purge")
+	if v, ok := s.closed.(*schema3Agents); ok {
+		if err := v.purge(id); err != nil {
+			return err
+		}
+	} else {
+		if _, err := s.col.GetByKey(id); err == nil {
+			return ErrNotArchived
+		}
+		err := s.closed.DeleteByKey(id)
+		if errors.Is(err, engine.ErrKeyNotFound) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+	}
+	s.gen.Add(1)
+	s.publishPurge(s.snap.Load(), id)
 	return nil
 }
 

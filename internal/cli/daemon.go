@@ -592,6 +592,8 @@ func newDaemonRunCmd() *cobra.Command {
 			srv.SetSpawnGate(cfg.Worktree.SpawnGate, cfg.Worktree.SpawnGateMax)
 			srv.SetBudget(cfg.Tokens.BudgetGate, cfg.Tokens.BudgetDailyUSD, cfg.Tokens.BudgetWeeklyUSD)
 			srv.SetWorktreeRetention(cfg.Worktree.KeepDone, cfg.Worktree.AutoPrune)
+			archiveKeep, _ := cfg.ArchivedAgentRetention()
+			srv.SetRetention(archiveKeep, cfg.ReadMessageRetention(), cfg.MetricsRetentionDays())
 			srv.SetRelayPolicy(relay.Policy{AllowWebTerminated: cfg.Relay.AllowWebTerminated})
 			auditWriter := stores.Audit
 			srv.SetAudit(auditWriter)

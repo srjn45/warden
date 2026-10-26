@@ -57,6 +57,7 @@ const (
 	ActionModelCatalogRefresh        = "model_catalog_refresh"      // catalog evidence previewed
 	ActionModelCatalogApply          = "model_catalog_apply"        // catalog policy revision applied
 	ActionModelCatalogRollback       = "model_catalog_rollback"     // catalog policy revision rolled back
+	ActionRetentionSweep             = "retention_sweep"            // retention sweep purged expired archived agents / orphan inboxes
 )
 
 // Event is one audit record: who (Actor) did what (Action) when (Time) to which

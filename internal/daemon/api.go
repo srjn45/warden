@@ -199,7 +199,12 @@ type Server struct {
 	// worktree_keep_done=false) removes a clean worktree when its owner is
 	// archived; autoPruneWorktree=true runs an unattended orphan sweep.
 	removeDoneWorktree bool
-	autoPruneWorktree  bool
+	// Data retention (docs/specs/2026-10-26-data-retention.md), wired by
+	// SetRetention. archiveKeep is how long an archived agent stays restorable
+	// (0 = forever); metricsKeepDays bounds metrics history.
+	archiveKeep       time.Duration
+	metricsKeepDays   int
+	autoPruneWorktree bool
 	// authToken is the bearer token required on every request. Empty ⇒ auth is
 	// disabled (the default loopback-only mode). See authorize.
 	authToken string

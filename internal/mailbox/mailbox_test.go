@@ -289,3 +289,27 @@ func TestDeleteInboxBadRecipient(t *testing.T) {
 		t.Fatalf("want ErrBadRecipient, got %v", err)
 	}
 }
+
+func TestDeleteOnDelivery(t *testing.T) {
+	s, _ := openTestStore(t, t.TempDir())
+	s.SetReadRetention(0)
+	m1, _ := s.Append(Message{To: "a", From: "x", Body: "1"})
+	s.Append(Message{To: "a", From: "x", Body: "2"})
+	s.Append(Message{To: "a", From: "x", Body: "3"})
+
+	if err := s.MarkRead("a", []string{m1.ID}); err != nil {
+		t.Fatalf("MarkRead: %v", err)
+	}
+	m, ok, err := s.TakeFirstUnread("a", "")
+	if err != nil || !ok || m.Body != "2" || !m.Read {
+		t.Fatalf("take: ok=%v m=%+v err=%v", ok, m, err)
+	}
+	got, _ := s.Messages("a")
+	if len(got) != 1 || got[0].Body != "3" || got[0].Read {
+		t.Fatalf("delivered messages must be deleted, undelivered kept: %+v", got)
+	}
+	// A new ID never collides with a message still held.
+	if m4, _ := s.Append(Message{To: "a", From: "x", Body: "4"}); m4.ID == got[0].ID {
+		t.Fatalf("id reused: %+v", m4)
+	}
+}

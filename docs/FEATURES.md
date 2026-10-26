@@ -594,6 +594,7 @@ guardian tick `interval`.
 | `memory.curate` | `false` | Auto-propose durable memory entries from completion digests into `.warden/memory.md` (see §22). Debounced pass writes **`unverified`, timestamped, provenance-tagged** proposals to the **working tree only** — never commits/pushes, so the committed diff is the human gate. Verify-before-trust promotion, supersession-on-contradiction, TTL age-out, deterministic path-staleness. Prefers the `$0` local model. Opt-in |
 | `memory.ground` | `true` | Answer project questions (\"where does X live?\", \"how do I run Y?\") in `wd repl` from `.warden/memory.md` (see §22), via the `/memory` command and the `project_memory` tool. Served by Fast-Brain — it answers from the memory file rather than a full agent turn, so it is default on. Read-only (never creates/writes memory); with no backend available it degrades to the matching entries verbatim, never escalating to a paid model; answers cite each entry's trust + provenance |
 | `worktree.keep_done` / `worktree.auto_prune` | `true` / `false` | Keep a worktree after its agent is done / auto-reclaim orphaned worktrees |
+| `retention.archived_agents` / `retention.read_messages` / `retention.metrics_days` | `24h` / `0s` / `7` | How long an archived agent stays restorable before the hourly sweep purges it with its inbox (`off` = forever) / how long a delivered directed message is kept (`0s` = deleted on delivery) / metrics history window in days. See §15 and `docs/specs/2026-10-26-data-retention.md` |
 | `auto_restart.max` / `auto_restart.reset` | `3` / `5m` | Auto-restart attempts for an errored opted-in agent / health window that resets the counter |
 | `rate_limit.auto_resume` / `rate_limit.resume_prompt` | `true` / `continue` | Auto-pick the "Stop and wait" limit-menu choice (Enter-first, verified) and auto-resume agents after any limit (session clock, weekly weekday/date, or monthly-spend) clears — typing `resume_prompt` to nudge the agent back to work (`""` = bare keypress). `rate_limit.retry_interval` / `spend_retry_interval` / `buffer` tune timing; every hit is snapshotted to `<data_dir>/ratelimit-captures/` for parser fixtures |
 | `rate_limit.recovery.enabled` | `true` | Toggle the reactive hard-limit recovery engine. When enabled, a confirmed `StatusRateLimited` transition starts the coordinator rather than only the legacy same-backend auto-resume. Disable to fall back to the legacy auto-resume-only behaviour |
@@ -657,6 +658,14 @@ backward-compatible with records that predate tags.
 
 Browse and search agents that have already ended — warden persists every closed
 session to the `closed/` store (newest-first), and this surfaces it.
+
+Archived agents are **restorable for `retention.archived_agents`** (default
+`24h`). A daemon sweep runs at startup and hourly and then purges each expired
+archive together with its inbox, so an agent archived with the default window is
+gone 24–25h later. A parent that a newer record still names is kept until its
+children age out; live agents are never purged. Set `retention.archived_agents:
+off` to keep the archive forever. Each sweep that removed anything writes one
+`retention_sweep` audit event.
 
 | Feature | Description |
 |---|---|

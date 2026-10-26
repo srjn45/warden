@@ -180,6 +180,10 @@ Notable settings (see the generated file for the full set with defaults):
 - **Spawn / worktree / restart:** `worktree.spawn_gate`/`worktree.spawn_gate_max_agents`,
   `tokens.budget_gate`/`tokens.budget_daily_usd`/`tokens.budget_weekly_usd` (soft $ cap on spawn),
   `worktree.keep_done`/`worktree.auto_prune`, `pipeline.keep_done`/`pipeline.hint`,
+  `retention.archived_agents` (default `24h`: archived agents are restorable for
+  that window, then purged — restore promptly) / `retention.read_messages` (default
+  `0s`: a delivered message is deleted, so re-reading an inbox shows only new mail) /
+  `retention.metrics_days` (default `7`),
   `auto_restart.max`/`auto_restart.reset`, `rate_limit.auto_resume`
   (auto-picks "Stop and wait" on Claude's limit menu + auto-resumes after any
   session/weekly/monthly-spend limit clears; `rate_limit.retry_interval`,

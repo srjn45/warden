@@ -28,6 +28,23 @@ description: How agents are spawned and auto-classified, and the commands that s
 | `adopt` | Register an existing Claude session — resume newest-for-dir under tmux, or live-register a running tmux session. |
 | **Cascade cleanup** | Deleting a pipeline/agent cascades cleanup of its shared-context keys and (on hard-delete) its mailbox inbox. |
 
+## Retention
+
+Archiving is not forever. An archived agent stays **restorable for
+`retention.archived_agents`** (default `24h`). The daemon sweeps at startup and
+then hourly, purging every archive whose window has passed together with its
+inbox, so with the default an agent is gone 24–25 hours after it was archived.
+
+- Live agents are never purged.
+- An archived parent that another record still names is kept until its children
+  age out, then goes on a later sweep.
+- `retention.archived_agents: off` keeps archived agents forever.
+- Each sweep that removed something records one `retention_sweep` audit event.
+
+Directed messages are deleted when they are delivered (`retention.read_messages:
+0s`, the default), and inboxes whose recipient no longer exists are dropped by the
+same sweep. Metrics history is kept for `retention.metrics_days` (default `7`).
+
 ## Status values you'll see
 
 | Presented state | Stored/API status | Meaning |

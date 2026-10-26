@@ -55,7 +55,7 @@ const (
 
 // Message is one directed message in a recipient's inbox.
 type Message struct {
-	ID   string    `json:"id"`   // per-inbox id, assigned from a high-water mark (max+1) so compaction never recycles one
+	ID   string    `json:"id"`   // per-inbox id, max+1 over the messages still held; unique among them (an emptied inbox restarts at 1)
 	From string    `json:"from"` // sender id, or "human"/"daemon"
 	To   string    `json:"to"`
 	Body string    `json:"body"`
@@ -72,6 +72,44 @@ type Store struct {
 	// release runs on Close; nil for a shared-handle store, whose DB is owned
 	// and closed by whoever opened the wardendb handle (tests set it to reopen).
 	release func() error
+	// readTTL replaces readRetention once SetReadRetention has run; 0 then means
+	// a message is deleted when it is delivered instead of flagged read.
+	readTTL    time.Duration
+	readTTLSet bool
+}
+
+// SetReadRetention sets how long a delivered message is kept. 0 deletes a
+// message on delivery (GET inbox, TakeFirstUnread) rather than marking it read.
+func (s *Store) SetReadRetention(d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if d < 0 {
+		d = 0
+	}
+	s.readTTL, s.readTTLSet = d, true
+}
+
+// readKeep is the effective read retention; callers hold s.mu.
+func (s *Store) readKeep() time.Duration {
+	if s.readTTLSet {
+		return s.readTTL
+	}
+	return readRetention
+}
+
+// deliver records that m was delivered: deleted under delete-on-delivery,
+// otherwise flagged read. Callers hold s.mu.
+func (s *Store) deliver(m Message) error {
+	key := msgKey(m.To, m.ID)
+	if s.readTTLSet && s.readTTL == 0 {
+		if err := s.col.DeleteByKey(key); err != nil && !errors.Is(err, engine.ErrKeyNotFound) {
+			return err
+		}
+		return nil
+	}
+	m.Read = true
+	_, err := s.col.UpdateByKey(key, toRecord(m))
+	return err
 }
 
 // New creates dir (if needed) and returns a store backed by a ScrivaDB "messages"
@@ -227,7 +265,7 @@ func (s *Store) Append(m Message) (Message, error) {
 	// Compact over the pre-existing messages plus the new one, then delete the
 	// records the compaction shed. The new (unread) message is always kept.
 	full := append(cur, m)
-	kept := compact(full, maxInboxMessages, readRetention)
+	kept := compact(full, maxInboxMessages, s.readKeep())
 	keptIDs := make(map[string]bool, len(kept))
 	for _, k := range kept {
 		keptIDs[k.ID] = true
@@ -296,8 +334,9 @@ func (s *Store) DeleteInbox(to string) error {
 	return nil
 }
 
-// MarkRead flags the given message IDs read in to's inbox. Unknown IDs are
-// ignored; an already-read message is left untouched.
+// MarkRead records delivery of the given message IDs in to's inbox: flagged
+// read, or deleted under delete-on-delivery (SetReadRetention(0)). Unknown IDs
+// are ignored; an already-read message is left untouched.
 func (s *Store) MarkRead(to string, ids []string) error {
 	if err := store.SafeID(to); err != nil {
 		return ErrBadRecipient
@@ -317,8 +356,8 @@ func (s *Store) MarkRead(to string, ids []string) error {
 		if m.Read {
 			continue
 		}
-		m.Read = true
-		if _, err := s.col.UpdateByKey(key, toRecord(m)); err != nil {
+		m.To = to
+		if err := s.deliver(m); err != nil {
 			return err
 		}
 	}
@@ -326,8 +365,8 @@ func (s *Store) MarkRead(to string, ids []string) error {
 }
 
 // TakeFirstUnread atomically finds the oldest unread message in to's inbox
-// matching from ("" = any sender), marks it read, and returns it. ok is false
-// when nothing matches.
+// matching from ("" = any sender), records its delivery (see MarkRead), and
+// returns it. ok is false when nothing matches.
 func (s *Store) TakeFirstUnread(to, from string) (Message, bool, error) {
 	if err := store.SafeID(to); err != nil {
 		return Message{}, false, ErrBadRecipient
@@ -345,10 +384,11 @@ func (s *Store) TakeFirstUnread(to, from string) (Message, bool, error) {
 		if from != "" && m.From != from {
 			continue
 		}
-		m.Read = true
-		if _, err := s.col.UpdateByKey(msgKey(to, m.ID), toRecord(m)); err != nil {
+		m.To = to
+		if err := s.deliver(m); err != nil {
 			return Message{}, false, err
 		}
+		m.Read = true
 		return m, true, nil
 	}
 	return Message{}, false, nil
