@@ -44,6 +44,10 @@ func (c *Controller) restoreStoredRuns() {
 			if rec.BrainID != "" {
 				r.brain = &BrainHandle{AgentID: rec.BrainID}
 			}
+			r.surface = surfaceRecord{LastDiagnosis: rec.LastDiagnosis, Resolver: rec.Resolver, FinalPR: rec.FinalPR,
+				AwaitingMerge: rec.AwaitingMerge, Verified: rec.Verified, FinalNotified: rec.FinalNotified}
+			r.surfaceLoaded = true
+			c.hydrateCompletionLocked(r)
 			c.runs[rec.RunID] = r
 			continue
 		}
@@ -125,6 +129,10 @@ func (c *Controller) recordLocked(r *run) RunRecord {
 		State: r.state, IntegrationBranch: r.integrationBranch, Gate: c.runGate(r),
 		Strategy: c.strategy, DeleteBranch: c.deleteBranch, SlotScope: r.slotScope, UpdatedAt: now,
 		LastProgressAt: r.lastProgressAt, ProgressFP: r.progressFP}
+	if c.store != nil && c.store.IsSchema3() {
+		rec.LastDiagnosis, rec.Resolver, rec.FinalPR = r.surface.LastDiagnosis, r.surface.Resolver, r.surface.FinalPR
+		rec.AwaitingMerge, rec.Verified, rec.FinalNotified = r.surface.AwaitingMerge, r.surface.Verified, r.surface.FinalNotified
+	}
 	if r.brain != nil && r.slotScope != "" {
 		if c.store != nil && c.store.IsSchema3() {
 			rec.BrainID = r.brain.AgentID

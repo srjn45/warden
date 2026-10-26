@@ -27,7 +27,7 @@ func ValidateTarget(input Generation) error {
 		for _, f := range strings.Fields(retiredFields()[c]) {
 			delete(allowedFields, f)
 		}
-		extras := map[string]string{"projects": "group_id group_order", "agents": "parent_agent_id lifecycle archived_at scope", "autopilot_runs": "parent_agent_id last_error"}
+		extras := map[string]string{"projects": "group_id group_order", "agents": "parent_agent_id lifecycle archived_at scope", "autopilot_runs": "parent_agent_id last_error last_diagnosis resolver final_pr awaiting_merge verified final_notified"}
 		for _, f := range strings.Fields(extras[c]) {
 			allowedFields[f] = true
 		}

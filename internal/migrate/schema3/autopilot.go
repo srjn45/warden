@@ -266,6 +266,9 @@ func contextDispatch(g Generation, r *Report) {
 				agree(run, "integration_branch", branch, r, "autopilot_runs", rid)
 			}
 			retire[key] = true
+		case kind == "surface":
+			surfaceToRun(o, run, key, rid, r)
+			retire[key] = true
 		case strings.HasPrefix(kind, "tasks."):
 			// Checked against the authoritative array in the second pass.
 			retire[key] = true
@@ -364,4 +367,43 @@ func dispatchExecution(plan Object, rid string, r *Report) (Object, bool) {
 		}
 	}
 	return selected, false
+}
+
+// surfaceToRun folds the schema-2 operator status surface ledger record
+// (autopilot.<run>.surface) into first-class autopilot_runs fields. Every
+// known field is carried verbatim; any unknown field, or a value that
+// disagrees with one already on the run, blocks the migration.
+func surfaceToRun(o Object, run Object, key, rid string, r *Report) {
+	var surface Object
+	if err := json.Unmarshal([]byte(text(o["value"])), &surface); err != nil {
+		r.block("context_entries", key, "value", err.Error())
+		return
+	}
+	allowed(surface, "last_diagnosis resolver final_pr awaiting_merge verified final_notified", r, "context_entries", key)
+	nested := map[string]string{
+		"last_diagnosis": "action confidence rationale fail_open_reason source outcome at",
+		"resolver":       "attempts last_class last_task last_branch last_outcome last_at",
+		"final_pr":       "number url head_sha gate fix_attempts state merged_at",
+		"awaiting_merge": "since green_sha notified pr",
+	}
+	for _, f := range keys(surface) {
+		v := surface[f]
+		if fields, ok := nested[f]; ok {
+			sub, isObj := v.(map[string]any)
+			if !isObj {
+				r.block("context_entries", key, f, "surface field is not an object")
+				continue
+			}
+			allowed(Object(sub), fields, r, "context_entries", key+"#"+f)
+		} else if _, isBool := v.(bool); !isBool && (f == "verified" || f == "final_notified") {
+			r.block("context_entries", key, f, "surface field is not a boolean")
+			continue
+		}
+		if old, present := run[f]; present && !equal(old, v) {
+			r.block("autopilot_runs", rid, f, []any{old, v})
+			continue
+		}
+		run[f] = v
+		r.finding("autopilot_runs", rid, f, "surface folded into run record", v)
+	}
 }

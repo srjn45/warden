@@ -546,3 +546,24 @@ the migrate branch. All PRs stay open and unmerged until the complete Plan is
 ready; the user merges the entire stack. No worker enables auto-merge, marks
 design done or calls `job done`. Each deliverable remains subject to human
 approval. Branch/head/PR/CI evidence accompanies the Plan-bound handoff.
+
+## Addendum (2026-10-26): autopilot status surface becomes run-record fields
+
+Decision (human): the schema-2 operator status surface, stored as the reserved
+ledger key `autopilot.<run>.surface`, is **not** dropped or relabelled. It is
+extended into the unified `autopilot_runs` record as first-class fields:
+`last_diagnosis`, `resolver`, `final_pr`, `awaiting_merge`, `verified` and
+`final_notified`. Their shapes are the existing `Diagnosis`, `ResolverStatus`,
+`FinalPR` and `AwaitingMerge` types, unchanged.
+
+* Mapping is lossless: each surface field is copied verbatim onto the run and
+  the reserved context entry is retired. Round-trip tests decode the migrated
+  record into `RunRecord` and re-encode it to the identical payload.
+* Fail-closed: an unknown top-level or nested surface field, a field of the
+  wrong type, unparseable JSON, or a value disagreeing with one already on the
+  run blocks the migration. Nothing is guessed.
+* Runtime: under schema 3 the controller hydrates the surface (and completion
+  bookkeeping such as `awaiting_merge`) from the run record and persists it
+  through the run store instead of the ledger.
+* Target validation accepts exactly these six additional `autopilot_runs`
+  fields; any other field still blocks.
