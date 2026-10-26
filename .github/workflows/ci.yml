@@ -4,7 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main, 'autopilot/**', 'worker-*']
+    # Stacked workers must receive the same gates while keeping their PRs
+    # pointed at the approved parent branch throughout review.
+    branches: [main, 'autopilot/**', 'worker-*', 'docs-*']
 
 permissions:
   contents: read

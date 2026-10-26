@@ -7,3 +7,4 @@ check:
   fmt:   test -z "$(gofmt -l $(git ls-files '*.go'))" || { gofmt -l $(git ls-files '*.go'); false; }
   build: go build ./...
   schema3: go test ./internal/migrate/schema3 ./internal/updater
+  schema3-binary-boundary: WARDEN_SCHEMA3_BINARY_ACCEPTANCE=1 go test ./internal/updater -run '^TestSchema3ActualBinaryBoundary$' -count=1
