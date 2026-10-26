@@ -311,9 +311,27 @@ func TestTxnReadyRequiresVersionAndSchema(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, rb)
 	require.Equal(t, "new", e.binary())
+	require.Equal(t, "1.0.0", e.txn.pre.Version, "live daemon version is the paired source generation")
 	require.Equal(t, 1, e.txn.pre.DaemonSchema, "pre-update schema captured")
 	require.Equal(t, 1, e.txn.opts.CurrentSchema, "live daemon schema drives rollback and bootstrap checks")
 	require.Contains(t, e.out.String(), "v2.0.0 on data schema 2")
+}
+
+func TestTxnCaptureBindsBootstrapToRunningDaemonGeneration(t *testing.T) {
+	e := newTxEnv(t, func(*txEnv) func() (Health, error) {
+		return func() (Health, error) {
+			return Health{Status: "ok", Version: "12.1.0", SchemaVersion: 2}, nil
+		}
+	})
+	// Simulate executing a newer bootstrap binary while systemd still runs the
+	// installed released waypoint. The transaction must pair rollback with the
+	// live generation, not the bootstrap executable's build metadata.
+	e.txn.opts.CurrentVersion = "13.0.6"
+	e.txn.opts.CurrentSchema = 3
+	e.txn.capture(context.Background())
+	require.Equal(t, "12.1.0", e.txn.pre.Version)
+	require.Equal(t, "12.1.0", e.txn.pre.DaemonVersion)
+	require.Equal(t, 2, e.txn.opts.CurrentSchema)
 }
 
 // The right version on the wrong data schema is not a finished update.
