@@ -299,11 +299,15 @@ func updateRecoveryGuidance(err error) error {
 // wholeStorePreflight runs read-only verification across all ScrivaDB stores.
 func wholeStorePreflight(ctx context.Context, dataDir string) (updater.PreflightResult, error) {
 	runner := migrate.NewRunner(nil)
-	// Schema-3 is entered only by the paired updater.  A legacy layout still
-	// needs its schema-2 preflight path so whole-store findings (including the
-	// only valid legacy repair guidance) are retained instead of being hidden by
-	// the intentionally unavailable standalone 0/1 -> 3 plan.
+	// Schema-3 is entered only by the paired updater, so never ask the generic
+	// runner for its deliberately unavailable 2 -> 3 path. We still run its
+	// whole-store verification at schema 2; the paired transaction performs the
+	// strict schema-3 mapping after it has exclusive ownership. Legacy layouts
+	// likewise use their schema-2 path so their valid repair guidance remains.
 	target := schema.SchemaVersion
+	if l, err := schema.Load(dataDir); err == nil && l.SchemaVersion == schema.Schema2 {
+		target = schema.Schema2
+	}
 	if !schema.WardenDBPresent(dataDir) && !schema.InferBaseline(dataDir).Fresh {
 		if l, err := schema.Load(dataDir); errors.Is(err, schema.ErrNoLedger) || (err == nil && l.SchemaVersion < schema.Schema2) {
 			target = schema.Schema2
