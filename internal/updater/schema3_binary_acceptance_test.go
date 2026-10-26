@@ -15,8 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// This is a real-binary refusal test, not positive format-3 compatibility
-// evidence. Keep the old release identity pinned: no invented updater waypoint.
+// This test verifies the release boundary: the old published binary refuses a
+// schema-3 generation before opening it, while the cutover target advertises
+// schema 3. The full update/rollback protocol is exercised by the transaction
+// acceptance tests with the approved waypoint.
 // Run through `wd check schema3-binary-boundary` so expensive isolated builds are
 // explicit and ordinary package unit tests do not recursively build themselves.
 func TestSchema3ActualBinaryBoundary(t *testing.T) {
@@ -42,8 +44,12 @@ func TestSchema3ActualBinaryBoundary(t *testing.T) {
 	// placeholder is enough for this pre-store startup-refusal test.
 	require.NoError(t, os.MkdirAll(filepath.Join(oldSource, "web", "dist"), 0700))
 	require.NoError(t, os.WriteFile(filepath.Join(oldSource, "web", "dist", ".gitkeep"), nil, 0600))
-	for _, source := range []struct{ name, dir, version string }{
-		{"published-tag", oldSource, "11.7.0"}, {"working-target", root, "cutover-boundary-test"},
+	for _, source := range []struct {
+		name, dir, version string
+		schema             int
+		mustRefuse         bool
+	}{
+		{"published-tag", oldSource, "11.7.0", 2, true}, {"working-target", root, "cutover-boundary-test", 3, false},
 	} {
 		t.Run(source.name, func(t *testing.T) {
 			bin := filepath.Join(t.TempDir(), "warden")
@@ -59,7 +65,10 @@ func TestSchema3ActualBinaryBoundary(t *testing.T) {
 			}
 			require.NoError(t, json.Unmarshal(out, &info))
 			require.Equal(t, source.version, strings.TrimPrefix(info.Version, "v"))
-			require.Equal(t, 2, info.Schema, "this test records refusal evidence; it must be replaced with positive acceptance when runtime cutover is ready")
+			require.Equal(t, source.schema, info.Schema)
+			if !source.mustRefuse {
+				return
+			}
 			data := t.TempDir()
 			require.NoError(t, schema.Save(data, &schema.Ledger{SchemaVersion: 3, BinaryVersion: "schema3-fixture"}))
 			require.NoError(t, os.MkdirAll(filepath.Join(data, "warden-db"), 0700))
