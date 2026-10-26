@@ -88,6 +88,10 @@ func (c *Controller) runLedger(runID string) *Ledger {
 // surfaceLocked returns the run's surface record, hydrating it once from the
 // ledger after a restart. The caller must hold c.mu.
 func (c *Controller) surfaceLocked(r *run) *surfaceRecord {
+	if !r.surfaceLoaded && !c.statusReadOnly && c.store != nil && c.store.IsSchema3() {
+		// Schema 3 keeps the surface on the run record, hydrated at load.
+		r.surfaceLoaded = true
+	}
 	if !r.surfaceLoaded && !c.statusReadOnly {
 		if l := c.runLedger(r.runID); l != nil {
 			r.surfaceLoaded = true
@@ -118,6 +122,10 @@ func (c *Controller) hydrateCompletionLocked(r *run) {
 
 // persistSurfaceLocked writes the surface record. The caller must hold c.mu.
 func (c *Controller) persistSurfaceLocked(r *run) {
+	if c.store != nil && c.store.IsSchema3() {
+		c.persistRunLocked(r)
+		return
+	}
 	if l := c.runLedger(r.runID); l != nil {
 		l.saveSurface(*c.surfaceLocked(r))
 	}
