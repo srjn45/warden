@@ -31,6 +31,8 @@ type RunRecord struct {
 	// run is created from a plan; they are empty for other autopilot runs.
 	PlanID            string    `json:"plan_id,omitempty"`
 	ProjectID         string    `json:"project_id,omitempty"`
+	ParentAgentID     string    `json:"parent_agent_id,omitempty"`
+	LastError         string    `json:"last_error,omitempty"`
 	State             RunState  `json:"state"`
 	IntegrationBranch string    `json:"integration_branch,omitempty"`
 	Gate              string    `json:"gate,omitempty"`

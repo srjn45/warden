@@ -29,6 +29,7 @@ func (o Outcome) Valid() bool {
 // PlanID + repository identity + target ref + output path so Phase 7 can
 // return a prior sync result without opening a duplicate PR.
 type Record struct {
+	ProjectID    string    `json:"project_id,omitempty"`
 	ID           string    `json:"id"` // RecordID(...)
 	PlanID       string    `json:"plan_id"`
 	Repository   string    `json:"repository"` // remote URL or project identity

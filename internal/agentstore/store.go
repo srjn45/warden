@@ -17,6 +17,7 @@ import (
 	"github.com/srjn45/scriva"
 	"github.com/srjn45/scriva/engine"
 	"github.com/srjn45/scriva/query"
+	"github.com/srjn45/warden/internal/wardendb"
 
 	"github.com/srjn45/warden/internal/legacyimport"
 	"github.com/srjn45/warden/internal/store"
@@ -339,15 +340,7 @@ func (s *Store) importSessions(legacyDB, collection string, destination docs) er
 }
 
 func toRecord(a *Agent) (map[string]any, error) {
-	b, err := json.Marshal(a)
-	if err != nil {
-		return nil, err
-	}
-	var rec map[string]any
-	if err := json.Unmarshal(b, &rec); err != nil {
-		return nil, err
-	}
-	return rec, nil
+	return wardendb.LosslessDocument(a)
 }
 
 func fromRecord(rec map[string]any) (*Agent, error) {
@@ -959,6 +952,9 @@ func (s *Store) Ping(ctx context.Context) error {
 
 // Delete permanently removes an agent. A missing id returns ErrNotFound.
 func (s *Store) Delete(ctx context.Context, id string) (retErr error) {
+	if _, normalized := s.col.(*schema3Agents); normalized {
+		return s.Archive(ctx, id)
+	}
 	if err := s.isDegraded(); err != nil {
 		return err
 	}

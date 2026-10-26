@@ -58,6 +58,9 @@ func (rt autopilotRuntime) SpawnBrain(ctx context.Context, spec autopilot.BrainS
 	if spec.SlotScope == "" {
 		return autopilot.BrainHandle{}, errors.New("spawn brain: slot scope required")
 	}
+	if schema3AgentStore(rt.s.store) {
+		return rt.spawnOwnedManager(ctx, spec)
+	}
 	slotID := autopilot.ManagerSlotID(spec.SlotScope)
 	if existing, err := rt.s.store.Get(ctx, slotID); err == nil {
 		verifyErr := rt.verifyRegisteredManager(ctx, existing, spec)
@@ -716,13 +719,18 @@ func flattenDetail(d map[string]string) string {
 // for consultation. Distinct from SpawnBrain which creates the role=autopilot manager.
 func (rt autopilotRuntime) SpawnConsultBrain(ctx context.Context, spec autopilot.ConsultBrainRuntimeSpec) (autopilot.BrainHandle, error) {
 	req := SpawnRequest{
-		Cwd:     spec.Repo,
-		Repo:    spec.Repo,
-		Prompt:  spec.Prompt,
-		Role:    "brain",
-		Backend: spec.Backend,
-		Tags:    spec.Tags,
-		PlanID:  spec.PlanID,
+		Cwd:       spec.Repo,
+		Repo:      spec.Repo,
+		Prompt:    spec.Prompt,
+		Role:      "brain",
+		Backend:   spec.Backend,
+		Tags:      spec.Tags,
+		PlanID:    spec.PlanID,
+		ProjectID: spec.ProjectID,
+	}
+	if schema3AgentStore(rt.s.store) {
+		req.AutopilotRunID = spec.RunID
+		req.AutopilotSlot = "brain"
 	}
 	if code, msg := rt.s.validateSpawnRequest(ctx, req); code != 0 {
 		return autopilot.BrainHandle{}, errors.New(msg)
