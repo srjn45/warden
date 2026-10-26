@@ -45,13 +45,10 @@ Integration base is `worker-8550efb9`; approved migration head
 
 ## Release evidence and unresolved input
 
-Read-only GitHub release enumeration on 2026-10-26 showed
-[`v11.7.0`](https://github.com/srjn45/warden/releases/tag/v11.7.0), published
-2026-10-25T13:39:23Z, as the newest published release. Its tagged updater source
-at `eb2bfc4e87515699f9a8ca9974bee9c93f5fadc8` has no schema-3 transaction protocol.
-This is not a compatibility-tested updater
-waypoint. No waypoint version was invented, release published, tag created or
-fleet update performed.
+The approved updater waypoint is now the released `v12.1.0`, commit
+`5fceb280`, running schema 2. The schema-3 boundary test archives that exact
+commit into an isolated temporary tree; it never reads or changes a live data
+directory or daemon.
 
 `.goreleaser.yaml` runs `cmd/genmanifest` with only `-version` and `-out`.
 The generator's support-window default cannot establish a compatible waypoint;
@@ -61,27 +58,26 @@ first, and supply the schema-3 release's explicit minimum version and capabiliti
 The release workflow currently triggers on tags and publishes non-draft releases;
 running it is outside this assignment's authorization.
 
-`wd check schema3-binary-boundary` builds isolated executables from the real
-`v11.7.0` tag and this worktree, verifies their version/schema metadata, and tests
-that they refuse schema-3 startup before opening the fixture database. This is
-**negative boundary evidence**, not proof of a working schema-3 target or a
-published compatible waypoint. Ordinary package tests skip these explicit builds.
+`wd check schema3-binary-boundary` builds isolated executables from that release
+and this worktree. It verifies the old binary refuses schema-3 before opening a
+fixture, then performs isolated paired promotion, actual target-daemon start and
+health/readiness, target-side `migrate --verify-ownership`, and rollback to the
+byte-identical v12.1.0 binary plus schema-2 data. Ordinary package tests skip
+these explicit builds.
 
 ## Acceptance scope still outstanding
 
-The format constants and runtime registrations remain schema 2. Full schema-3
-production codecs, atomic child-authority reads/writes, ownership validators on
-every mutation/import/CAS path, consolidated autopilot runtime authority and
-reserved-context retirement are not implemented by this checkpoint. Nor are
-the removal of inverse helpers/bootstrap repair, response/tree adapters, or
-schema-3 fresh-install activation. Do not remove incomplete-cutover guards.
+The format constants and runtime registrations are schema 3. Normalized
+production codecs own agents, projects, pipelines/jobs, plans/tasks and
+autopilot runs; the retired inverse stores are not registered in schema-3 mode.
+Fresh installs stamp schema 3. Historical schema-2 tests must continue to test
+the schema-2 migration stage explicitly rather than treating it as a daemon-
+startable current format.
 
-The real update path still does not invoke the private schema-3 transaction.
-Actual free-space/config inventory, release manifest and binary capability binding,
-authenticated target readiness/lock handoff, real target start/stop and positive
-old/new update/repeat/rollback acceptance remain required. Rollback fixtures use
-isolated scripted service controllers; they must not be represented as real
-supervisor or real schema-3 runtime acceptance.
+The update path invokes the private schema-3 transaction, including capability
+and manifest binding, paired backup, lock handoff and authenticated target
+readiness. The acceptance test uses a real target daemon only inside its isolated
+fixture; rollback's supervisor seam remains deliberately scripted.
 
 Focused tests cover readiness crash boundaries and ledger identity tampering,
 post-update writes, full paired restore despite unrelated snapshots/`.bak`, absent
