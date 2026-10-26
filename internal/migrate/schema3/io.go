@@ -132,9 +132,9 @@ func readCopy(ctx context.Context, dir string) (Generation, Indexes, error) {
 			if body == nil {
 				return nil, nil, fmt.Errorf("schema3: raw record missing %s/%d", name, rec.ID)
 			}
-			key := text(body["_key"])
-			if key == "" {
-				return nil, nil, fmt.Errorf("schema3: keyless record %s/%d", name, rec.ID)
+			key, err := sourceRecordKey(name, rec.ID, body)
+			if err != nil {
+				return nil, nil, err
 			}
 			body = clone(body)
 			delete(body, "_key")
@@ -166,6 +166,23 @@ func readCopy(ctx context.Context, dir string) (Generation, Indexes, error) {
 	}
 	return g, idx, nil
 }
+
+// sourceRecordKey returns the stable logical key used in the schema-3
+// generation. Schema 2 normally persisted it in the document body. The
+// savings ledger was the one deliberate exception: it is append-only and used
+// engine-assigned numeric IDs. Those IDs are durable and unique, so preserve
+// every historical event under a namespaced deterministic key. Do not relax
+// this for other collections: a missing key there is ambiguous ownership data.
+func sourceRecordKey(collection string, id uint64, body Object) (string, error) {
+	if key := text(body["_key"]); key != "" {
+		return key, nil
+	}
+	if collection == "savings_events" {
+		return fmt.Sprintf("savings_events/%d", id), nil
+	}
+	return "", fmt.Errorf("schema3: keyless record %s/%d", collection, id)
+}
+
 func rawRecords(dir string) (map[string][]Object, error) {
 	out := map[string][]Object{}
 	files, err := filepath.Glob(filepath.Join(dir, "seg_*.ndjson"))
