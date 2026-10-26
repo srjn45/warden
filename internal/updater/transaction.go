@@ -288,6 +288,13 @@ func (t *txn) capture(ctx context.Context) {
 	if t.probe != nil {
 		if h, err := t.probe.Probe(ctx); err == nil && h.Status == "ok" {
 			t.pre.DaemonRunning, t.pre.DaemonVersion, t.pre.DaemonSchema = true, stripV(h.Version), h.SchemaVersion
+			// A newer executable can bootstrap an update while an older daemon is
+			// still serving. The health response, not this executable's compiled
+			// schema constant, is then the source schema for the transaction and
+			// its rollback readiness check.
+			if h.SchemaVersion > 0 {
+				t.opts.CurrentSchema = h.SchemaVersion
+			}
 		}
 	}
 	running := "not running"

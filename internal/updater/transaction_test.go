@@ -312,6 +312,7 @@ func TestTxnReadyRequiresVersionAndSchema(t *testing.T) {
 	require.False(t, rb)
 	require.Equal(t, "new", e.binary())
 	require.Equal(t, 1, e.txn.pre.DaemonSchema, "pre-update schema captured")
+	require.Equal(t, 1, e.txn.opts.CurrentSchema, "live daemon schema drives rollback and bootstrap checks")
 	require.Contains(t, e.out.String(), "v2.0.0 on data schema 2")
 }
 
