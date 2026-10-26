@@ -1,5 +1,9 @@
 # Warden Orchestrator — Local-LLM Conductor (Thin-Translator) Design
 
+> Historical note (2026-10-26): `get_collaboration_status` referenced below
+> was removed with file-conflict detection. The current coordination surface is
+> shared context, directed messages, and branch status.
+
 **Date:** 2026-06-25
 **Feature:** A warden-aware, local-LLM REPL that turns natural-language intent into
 **confirmed** warden tool calls — spawning/monitoring/tearing down agents, driving

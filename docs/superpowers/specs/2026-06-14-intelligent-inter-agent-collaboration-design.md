@@ -2,7 +2,10 @@
 
 **Date:** 2026-06-14 (rewritten 2026-06-23)
 **Feature:** Inter-agent awareness & file-conflict detection
-**Status:** ✅ **Hardened MVP shipped** (PRs #20–23, merged 2026-06-23) — advanced phases deferred behind real usage
+**Status:** Retired 2026-10-26 — the file-conflict detector described here was
+removed, including its APIs, commands, tools, prompts, watcher, and background
+Git reconciliation. This document remains historical context only; shared
+context, directed messages, branch tracking, and explicit Git lifecycle remain.
 **Estimated Effort:** ~1 week (MVP); larger phases deferred behind real usage
 
 ---

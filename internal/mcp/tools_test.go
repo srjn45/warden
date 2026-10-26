@@ -242,6 +242,20 @@ func TestBranchStatusTool(t *testing.T) {
 	require.Contains(t, textOf(res), "success")
 }
 
+func TestRetiredConflictToolsAreNotAdvertised(t *testing.T) {
+	ts := fakeDaemon(t, nil, nil)
+	s := connect(t, ts.URL)
+	listed, err := s.ListTools(context.Background(), nil)
+	require.NoError(t, err)
+	names := make([]string, 0, len(listed.Tools))
+	for _, tool := range listed.Tools {
+		names = append(names, tool.Name)
+	}
+	require.NotContains(t, names, "who_is_editing_file")
+	require.NotContains(t, names, "get_collaboration_status")
+	require.Contains(t, names, "get_branch_status", "independent branch tracking remains public")
+}
+
 func TestListSchedulesTool(t *testing.T) {
 	ts := fakeDaemon(t, map[string]string{
 		"GET /api/v1/schedules": `{"schedules":[{"id":"nightly","name":"nightly","kind":"cron"}]}`,

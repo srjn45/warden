@@ -322,19 +322,65 @@ func TestLoad_Pipeline_Namespaced(t *testing.T) {
 	require.False(t, c.Pipeline.Hint)
 }
 
-func TestRetiredCollabConfigIsIgnoredAndReconciled(t *testing.T) {
-	path := tmpConfig(t, "collab:\n  interval: not-a-duration\n  enabled: false\ncollab_enabled: false\ncollab_interval: -1s\nkeep: value\n")
-	_, err := LoadStrict(path)
-	require.NoError(t, err, "retired values are discarded before validation")
-	require.NoError(t, Reconcile(path))
-	got, err := os.ReadFile(path)
+func TestRetiredCollabNestedConfigIsIgnored(t *testing.T) {
+	path := tmpConfig(t, "collab:\n  enabled: false\n  interval: 45s\n  git_reconcile_interval: 7m\n  hint: false\nbranch_track:\n  enabled: true\n")
+	c, err := LoadStrict(path)
 	require.NoError(t, err)
-	require.NotContains(t, string(got), "collab")
-	require.Contains(t, string(got), "keep: value")
+	require.True(t, c.BranchTrack.Enabled, "unrelated settings still load")
+	requireRetiredCollabKeysRemoved(t, path)
+	require.True(t, Load(path).BranchTrack.Enabled, "reconcile preserves unrelated settings")
+}
+
+func TestRetiredCollabFlatAliasesAreIgnored(t *testing.T) {
+	path := tmpConfig(t, "collab_enabled: false\ncollab_interval: 45s\ncollab_hint: false\nlog:\n  level: debug\n")
+	c, err := LoadStrict(path)
+	require.NoError(t, err)
+	require.Equal(t, "debug", c.Log.Level, "unrelated settings still load")
+	requireRetiredCollabKeysRemoved(t, path)
+	require.Equal(t, "debug", Load(path).Log.Level, "reconcile preserves unrelated settings")
+}
+
+func TestRetiredCollabMixedFormsAreIgnored(t *testing.T) {
+	path := tmpConfig(t, "collab:\n  enabled: false\n  interval: 45s\ncollab_enabled: true\ncollab_interval: 10s\ncollab_hint: true\n# operator note\nkeep: value\n")
+	_, err := LoadStrict(path)
+	require.NoError(t, err)
+	got := requireRetiredCollabKeysRemoved(t, path)
+	require.Contains(t, got, "# operator note")
+	require.Contains(t, got, "keep: value", "reconcile preserves unknown settings")
+}
+
+func TestRetiredCollabInvalidValuesAreIgnored(t *testing.T) {
+	for name, value := range map[string]string{
+		"zero":           "0",
+		"negative":       "-1s",
+		"not_a_duration": "not-a-duration",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := tmpConfig(t, "collab:\n  interval: "+value+"\nbranch_track:\n  interval: 5m\n")
+			c, err := LoadStrict(path)
+			require.NoError(t, err, "retired values are discarded before validation")
+			require.Equal(t, "5m", c.BranchTrack.Interval)
+		})
+	}
+
+	path := tmpConfig(t, "collab:\n  interval: 45s\nthis: is: malformed\n")
+	_, err := LoadStrict(path)
+	require.Error(t, err, "unrelated malformed YAML remains an error")
+}
+
+func requireRetiredCollabKeysRemoved(t *testing.T, path string) string {
+	t.Helper()
+	require.NoError(t, Reconcile(path))
+	first, err := os.ReadFile(path)
+	require.NoError(t, err)
+	for _, key := range []string{"collab:", "collab_enabled:", "collab_interval:", "collab_hint:"} {
+		require.NotContains(t, string(first), key)
+	}
 	require.NoError(t, Reconcile(path))
 	second, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.Equal(t, string(got), string(second), "retired-key cleanup is idempotent")
+	require.Equal(t, string(first), string(second), "retired-key cleanup is idempotent")
+	return string(second)
 }
 
 func TestLoad_Pipeline_FlatDeprecated(t *testing.T) {
@@ -607,6 +653,7 @@ func TestReconcileCreatesFullFile(t *testing.T) {
 	} {
 		require.Contains(t, text, block)
 	}
+	require.NotContains(t, text, "collab:", "fresh config must not recreate a retired block")
 
 	// The generated file round-trips into a valid Config.
 	c := Load(path)

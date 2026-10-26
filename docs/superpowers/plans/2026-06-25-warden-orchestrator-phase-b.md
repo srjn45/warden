@@ -1,5 +1,9 @@
 # Warden Orchestrator — Phase B: Loop + Tool Registry + Confirm Gate Implementation Plan
 
+> Historical note (2026-10-26): `get_collaboration_status` referenced below
+> was removed with file-conflict detection. Use current shared-context,
+> messaging, and branch-status tools instead.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the first usable orchestrator: a `wd orch` REPL that turns a natural-language line into **confirmed** warden tool calls. This is the milestone where the design's three load-bearing pieces land — the **tool registry** (warden's daemon surface as model-callable functions, split read-only vs. mutating), the **confirm gate** (every mutation rendered before it runs), and the **loop** (the `Chatter` turn cycle with bounded recovery and tier routing). Fully usable standalone in any terminal; the cockpit/`!`-shell wiring is Phase C, monitoring verbs are Phase D.

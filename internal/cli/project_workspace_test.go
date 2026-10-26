@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/srjn45/warden/internal/lifecycle"
+	"github.com/stretchr/testify/require"
 )
 
 func TestProjectWorkspaceNamespaceCanonicalAndCompatibilityPaths(t *testing.T) {
@@ -138,5 +139,15 @@ func TestWorkspaceBareListsLikeLegacyWorktree(t *testing.T) {
 	}
 	if canonical != legacy {
 		t.Fatalf("bare workspace and worktree diverged:\nworkspace: %q\nworktree:  %q", canonical, legacy)
+	}
+}
+
+func TestRetiredConflictCommandsAreRejected(t *testing.T) {
+	for _, args := range [][]string{{"workspace", "conflicts"}, {"workspace", "who-is-editing"}, {"collab", "conflicts"}} {
+		t.Run(strings.Join(args, "_"), func(t *testing.T) {
+			_, err := runCLI(t, "", args...)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "unknown command")
+		})
 	}
 }

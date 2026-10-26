@@ -124,7 +124,7 @@ default; each in its own tmux session, most in a git worktree).
 | Plan-owned pipeline control (pipeline pause/resume/cancel/delete refuse) | `plan pause\|resume\|stop` | `control_plan` | ✓ | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
 | Stuck-job brain consult (automatic after auto-retry; closed action enum; shared `Consultor` with autopilot resolver) | — | automatic (daemon-internal) | — | — | — | [pipelines](https://srjn45.github.io/warden/multi-agent/pipelines/) |
 
-## 5. Coordination (shared context, messages, conflicts)
+## 5. Coordination (shared context and messages)
 
 | Feature | CLI | MCP | Skill | Web | TUI | Docs |
 |---|---|---|---|---|---|---|
@@ -238,7 +238,7 @@ tab with a live DAG, a **Terminals** tab (a PTY viewport per terminal + a
 **New terminal** action), a **Metrics**
 tab (per-agent **and** fleet-total CPU/memory, per-agent context, fleet size,
 tokens saved — two-column on desktop, single-column on mobile), an **Archive**
-tab, the **Others** catch-all (attention queue, conflicts, activity; sits last),
+tab, the **Others** catch-all (attention queue and activity; sits last),
 in-browser **attach** terminals, a header-button **Context & Messages** overlay,
 spawn modal, bulk actions, keyboard shortcuts, and theming.
 

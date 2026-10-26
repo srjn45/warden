@@ -4,6 +4,10 @@
 
 **Status:** Approved design; implementation plan
 
+> Historical note (2026-10-26): the detector-specific `collab conflicts` /
+> `who-is-editing` commands discussed below were removed with the retired
+> file-conflict detector. They are not compatibility aliases.
+
 **Scope:** CLI organization, naming, discovery, generated reference, and completion. No production behavior changes are approved by this document.
 
 ## Summary

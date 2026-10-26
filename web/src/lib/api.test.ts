@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { listSessions, spawn, listRoles, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, deletePipeline, retryJob, createPipeline, startPipeline, pausePipeline, resumePipeline, listConflicts, controlPlan, subscribeSessions, runSupervisor, normalizeOwner, type AutopilotRun } from './api';
+import { listSessions, spawn, listRoles, listDirs, terminate, removeWorktree, deleteSession, ApiError, listApprovals, approve, listPipelines, cancelPipeline, deletePipeline, retryJob, createPipeline, startPipeline, pausePipeline, resumePipeline, controlPlan, subscribeSessions, runSupervisor, normalizeOwner, type AutopilotRun } from './api';
 import { setToken, clearToken, onAuthRequired } from './token';
 
 function authHeader(call: unknown[]): string | null {

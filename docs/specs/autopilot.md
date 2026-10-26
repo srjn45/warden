@@ -480,8 +480,8 @@ Persona playbook (condensed contract — full text authored in P2):
 2. Decompose the goal into tasks; spawn one `worker`-role agent per task (or a
    pipeline for a large task) up to `max_parallel_workers`, each in its own
    worktree, PRs based on the integration branch — never main. Before
-   parallelizing over the same area, check `who_is_editing_file` and sequence
-   instead of colliding.
+   parallelizing related work, coordinate through directed messages or shared
+   context and sequence it deliberately.
 3. Monitor workers; steer stuck ones by reading transcripts and messaging;
    answer forwarded approval prompts (§8) promptly; spawn a `brain`-role
    resolver for an ad-hoc design/architecture call rather than stalling; respawn
