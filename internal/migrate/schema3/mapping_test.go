@@ -10,6 +10,7 @@ import (
 	"github.com/srjn45/warden/internal/agentstore"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planstore"
+	"github.com/srjn45/warden/internal/savings"
 	"github.com/srjn45/warden/internal/wardendb"
 	"github.com/stretchr/testify/require"
 )
@@ -164,6 +165,38 @@ func TestUnsafeInputAndCorruptionRefused(t *testing.T) {
 	require.NoError(t, os.Symlink("/tmp", filepath.Join(dir, "link")))
 	_, _, err := Read(context.Background(), dir)
 	require.ErrorContains(t, err, "unsafe")
+}
+
+func TestReadDerivesStableKeysForLegacySavingsEventsOnly(t *testing.T) {
+	t.Run("append-only savings event", func(t *testing.T) {
+		dir := t.TempDir()
+		db, err := wardendb.Open(dir)
+		require.NoError(t, err)
+		ledger, err := savings.NewStoreFromDB(db)
+		require.NoError(t, err)
+		require.NoError(t, ledger.Record(savings.Event{Feature: "check", Agent: "legacy", RawTokens: 9, KeptTokens: 3, Saved: 6}))
+		require.NoError(t, db.Close())
+
+		g, _, err := Read(context.Background(), filepath.Join(dir, "warden-db"))
+		require.NoError(t, err)
+		require.Equal(t, Object{"feature": "check", "agent": "legacy", "raw_tokens": json.Number("9"), "kept_tokens": json.Number("3"), "saved": json.Number("6"), "ts": g["savings_events"]["savings_events/1"]["ts"]}, g["savings_events"]["savings_events/1"])
+	})
+
+	t.Run("other collection remains strict", func(t *testing.T) {
+		dir := t.TempDir()
+		db, err := wardendb.Open(dir)
+		require.NoError(t, err)
+		messages, err := wardendb.Register[map[string]any](db, wardendb.Spec{Name: "messages", Version: 1})
+		require.NoError(t, err)
+		col, err := messages.Engine()
+		require.NoError(t, err)
+		_, _, err = col.Insert(map[string]any{"value": "missing logical key"})
+		require.NoError(t, err)
+		require.NoError(t, db.Close())
+
+		_, _, err = Read(context.Background(), filepath.Join(dir, "warden-db"))
+		require.ErrorContains(t, err, "keyless record messages/1")
+	})
 }
 
 func TestPhysicalStagingRejectsLossyEngineNumbersBeforeWrite(t *testing.T) {
