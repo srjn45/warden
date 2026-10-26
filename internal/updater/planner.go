@@ -49,6 +49,9 @@ func DefaultSupportWindowMinUpgradeFrom(target Semver) Semver {
 // 2. Crossing a major boundary (current.Major < target.Major) MUST route via the last release of previous major(s).
 // 3. Otherwise walk backwards from target, picking waypoints or intermediate releases.
 func ComputePath(currentVer string, currentSchema int, targetManifest Manifest, availableManifests []Manifest) (Plan, error) {
+	if err := validateCapabilities(targetManifest); err != nil {
+		return Plan{}, err
+	}
 	currClean := stripV(currentVer)
 	targetClean := stripV(targetManifest.Version)
 

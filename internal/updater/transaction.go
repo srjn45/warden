@@ -316,6 +316,15 @@ func (t *txn) preflight(ctx context.Context) error {
 }
 
 func (t *txn) targetPreflight(ctx context.Context, targetBin string) error {
+	if t.opts.TargetSchema != nil {
+		v, err := t.opts.TargetSchema(ctx, targetBin)
+		if err != nil {
+			return err
+		}
+		if v >= 3 {
+			return fmt.Errorf("schema3: updater cutover/readiness integration is not enabled in this build")
+		}
+	}
 	if t.opts.TargetPreflight == nil {
 		return nil
 	}

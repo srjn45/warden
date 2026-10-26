@@ -215,6 +215,9 @@ func runUpdateMigrations(ctx context.Context, cfgPath, dataDir, installBin strin
 	if err != nil {
 		return fmt.Errorf("read the new binary's data schema: %w", err)
 	}
+	if target >= 3 {
+		return migrate.ErrUpdaterTransactionRequired
+	}
 	current := 0
 	switch l, err := schema.Load(dataDir); {
 	case err == nil:

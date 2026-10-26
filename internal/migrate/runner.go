@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/srjn45/warden/internal/adoption"
+	"github.com/srjn45/warden/internal/migrate/schema3"
 	"github.com/srjn45/warden/internal/schema"
 )
 
 var (
-	ErrInterruptedMigration   = errors.New("migrate: a previous migration was interrupted")
-	ErrNoInterruptedMigration = errors.New("migrate: no migration in progress to resume")
+	ErrUpdaterTransactionRequired = errors.New("migrate: schema-3 mutations require the matching warden update transaction; standalone apply/resume/restore refused")
+	ErrInterruptedMigration       = errors.New("migrate: a previous migration was interrupted")
+	ErrNoInterruptedMigration     = errors.New("migrate: no migration in progress to resume")
 )
 
 // Runner drives migrations according to a Registry.
@@ -76,6 +78,9 @@ func (rn *Runner) Check(env Env, targetVersion int) ([]Finding, error) {
 
 // Apply runs all migrations from current schema version to targetVersion.
 func (rn *Runner) Apply(env Env, targetVersion int) error {
+	if targetVersion >= 3 {
+		return ErrUpdaterTransactionRequired
+	}
 	l, err := schema.Load(env.DataDir)
 	if errors.Is(err, schema.ErrNoLedger) && targetVersion == schema.SchemaVersion && schema.InferBaseline(env.DataDir).Fresh {
 		// A fresh install starts directly on the current schema: stamp it
@@ -146,6 +151,9 @@ func (rn *Runner) Resume(env Env) error {
 	if err != nil {
 		return err
 	}
+	if l.SchemaVersion >= 3 || (l.InProgress != nil && l.InProgress.Migration == schema3.MigrationID) {
+		return ErrUpdaterTransactionRequired
+	}
 	if !l.MigrationInterrupted() {
 		return ErrNoInterruptedMigration
 	}
@@ -162,6 +170,9 @@ func (rn *Runner) Resume(env Env) error {
 // and clears the in_progress journal entry.
 func (rn *Runner) Restore(env Env) (err error) {
 	l, err := schema.Load(env.DataDir)
+	if err == nil && (l.SchemaVersion >= 3 || (l.InProgress != nil && l.InProgress.Migration == schema3.MigrationID)) {
+		return ErrUpdaterTransactionRequired
+	}
 	if err == nil && l.InProgress != nil {
 		prog := *l.InProgress
 		defer func() {

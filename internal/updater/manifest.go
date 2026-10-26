@@ -14,7 +14,8 @@ const ManifestFileName = "manifest.json"
 
 // ManifestRequirements specifies preconditions or manual actions needed for an update.
 type ManifestRequirements struct {
-	Manual []string `json:"manual,omitempty"`
+	Manual       []string       `json:"manual,omitempty"`
+	Capabilities map[string]int `json:"capabilities,omitempty"`
 }
 
 // Manifest represents the metadata published with every release archive.
