@@ -23,13 +23,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - uses: actions/setup-node@v5
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - name: Build UI prerequisite
-        run: make ui
       - name: gofmt
         run: |
           unformatted=$(gofmt -l $(git ls-files '*.go'))
@@ -60,13 +53,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - uses: actions/setup-node@v5
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - name: Build UI prerequisite
-        run: make ui
       - name: cli reference codegen up to date
         run: make gendocs-check
 
@@ -81,13 +67,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - uses: actions/setup-node@v5
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - name: Build UI prerequisite
-        run: make ui
       - name: Go tests
         run: go test ./...
 
