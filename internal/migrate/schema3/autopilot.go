@@ -178,7 +178,10 @@ func contextDispatch(g Generation, r *Report) {
 			}
 		}
 		if rid == "" {
-			r.block("context_entries", key, "key", "unknown reserved run")
+			// The run this reserved entry belonged to no longer exists in any
+			// form, so nothing can dispatch it. Drop it; the backup keeps it.
+			r.finding("context_entries", key, "key", "dropped orphan reserved run", nil)
+			delete(g["context_entries"], key)
 			continue
 		}
 		run := g["autopilot_runs"][rid]

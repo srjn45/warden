@@ -38,7 +38,29 @@ state and execution ID. Dispatch from a uniquely identified past execution is
 retained as that execution's `task_dispatch` evidence, without changing its
 executor ID, snapshot or task lifecycle. Landing/fix/restart/journal payloads
 survive in context. Reserved current task/overlay/branch keys are removed only
-after checking their claims. Unknown reserved keys block.
+after checking their claims. Ambiguous reserved keys block; reserved keys of a run
+that no longer exists in any form are dropped.
+
+### Stale schema-2 bookkeeping
+
+Long-lived schema-2 installs accumulate references that carry no ownership. The
+mapper resolves each of them deterministically and records a finding instead of
+refusing the whole generation; the paired backup keeps every original row.
+
+| Source condition | Disposition |
+| --- | --- |
+| Retired forward list (`projects.agents`, `agents.child_agents`, …) misses a child that points back | `derived from child`: the child's back-reference wins |
+| Retired forward list names a record that does not exist | `dropped missing child` |
+| Agent bound to an autopilot run that does not exist | `cleared missing run` (run, slot and task binding removed) |
+| Agent with an autopilot task binding but no run | `cleared task without run` |
+| Archived agent still without a project after structural resolution | `deleted archived without project`; references to it are `cleared deleted parent` |
+| Plan executor mirror naming a missing executor | `dropped missing executor mirror` |
+| Completed/archived plan whose last executor is gone | `executor gone (finished plan)`; `active_execution` kept as history |
+| Plan with no stored `content_hash` | `initialized` from the frozen canonical hash |
+
+Genuine conflicts still block: two owners for one record, cross-project
+references, a present hash that disagrees, a **live** agent without a project, an
+unfinished plan whose executor is missing, and every other condition below.
 
 `internal/updater/schema3_transaction.go` implements the private offline
 transaction core: stopped managed service and absent-health checks, sole owner
@@ -194,7 +216,7 @@ backup, never recursively inside the manifest itself.
 `wd check schema3` runs the focused mapper/updater suites. Fixtures exercise full
 production Agent, Terminal and Job wire payloads, ordered Plan hashes against
 `planstore.ComputeContentHash`, all source collection classifications, conflicting
-claims/empty arrays/cycles/archive duplicates, stale projections, assignment
+claims/cycles/archive duplicates, stale bookkeeping (`stale_test.go`), stale projections, assignment
 aliases, multiple attempts, current and historical autopilot populations,
 manager/worker slot distinctions, dispatch overlays, landing and fix evidence,
 unknown reserved fields, pending operations, unsafe paths and numeric refusal.

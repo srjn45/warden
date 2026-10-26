@@ -71,7 +71,13 @@ func materializeTasks(g Generation, r *Report) {
 		local := map[string]Object{}
 		before := text(p["content_hash"])
 		computed := canonicalHash(p, tasks)
-		if before == "" || before != computed {
+		// A plan saved before its hash was ever computed has nothing to
+		// disagree with; derive it. A present hash that differs still blocks.
+		if before == "" {
+			r.finding("plans", id, "content_hash", "initialized", computed)
+			p["content_hash"], before = computed, computed
+		}
+		if before != computed {
 			r.block("plans", id, "content_hash", []string{before, computed})
 		}
 		for seq, x := range tasks {
@@ -159,7 +165,14 @@ func materializeTasks(g Generation, r *Report) {
 			default:
 				r.block("plans", id, "active_execution.execution_mode", mode)
 			}
-			if mode != "manual" && (child == nil || text(child["project_id"]) != text(p["project_id"]) || text(child["plan_id"]) != id) {
+			finished := text(p["status"]) == "completed" || text(p["status"]) == "archived"
+			switch {
+			case mode == "manual":
+			case child == nil && finished:
+				// The last execution of a finished plan is history; its executor
+				// having been cleaned up since is expected, not ambiguous.
+				r.finding("plans", id, "active_execution.executor_id", "executor gone (finished plan)", executor)
+			case child == nil || text(child["project_id"]) != text(p["project_id"]) || text(child["plan_id"]) != id:
 				r.block("plans", id, "active_execution.executor_id", executor)
 			}
 		}
