@@ -290,8 +290,13 @@ func (t *txn) capture(ctx context.Context) {
 			t.pre.DaemonRunning, t.pre.DaemonVersion, t.pre.DaemonSchema = true, stripV(h.Version), h.SchemaVersion
 			// A newer executable can bootstrap an update while an older daemon is
 			// still serving. The health response, not this executable's compiled
-			// schema constant, is then the source schema for the transaction and
-			// its rollback readiness check.
+			// version/schema constants, is then the source generation for the
+			// transaction and its rollback readiness check. In particular the
+			// paired schema-3 backup must name and later prove the executable the
+			// service was actually running, rather than the bootstrap executable.
+			if h.Version != "" {
+				t.pre.Version = stripV(h.Version)
+			}
 			if h.SchemaVersion > 0 {
 				t.opts.CurrentSchema = h.SchemaVersion
 			}
