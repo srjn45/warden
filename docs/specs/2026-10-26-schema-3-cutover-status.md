@@ -110,3 +110,10 @@ owner-lock handoff → restart → exact version/format readiness → target-sid
 the paired binary and data and proves the old daemon healthy. The transaction id
 is printed for `warden rollback --transaction`. A schema-2 update never reaches
 this path.
+
+The target-side verification command is implemented and deliberately read-only.
+It binds the started executable hash, sealed paired manifest, append-only
+transaction journal, pending ledger intent, and normalized target graph to the
+exact transaction before allowing the updater to finalize readiness. It refuses
+missing or mixed migration actions and cannot grant migration authority to an
+ordinary CLI invocation.
