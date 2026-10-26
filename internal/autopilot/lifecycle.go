@@ -32,9 +32,25 @@ func (c *Controller) restoreStoredRuns() {
 	}
 	records, err := c.store.List()
 	if err != nil {
+		c.storeErr = err
 		return
 	}
 	for _, rec := range records {
+		if c.store.IsSchema3() {
+			r := &run{runID: rec.RunID, name: rec.Name, planID: rec.PlanID, projectID: rec.ProjectID, parentAgentID: rec.ParentAgentID,
+				repo: rec.Repo, planFile: rec.PlanFile, absPlanFile: rec.PlanFile, state: rec.State, resolvedGate: rec.Gate,
+				slotScope: rec.SlotScope, integrationBranch: rec.IntegrationBranch, lastProgressAt: rec.LastProgressAt, progressFP: rec.ProgressFP,
+				backoffLastErr: rec.LastError, tried: map[string]bool{}}
+			if rec.BrainID != "" {
+				r.brain = &BrainHandle{AgentID: rec.BrainID}
+			}
+			r.surface = surfaceRecord{LastDiagnosis: rec.LastDiagnosis, Resolver: rec.Resolver, FinalPR: rec.FinalPR,
+				AwaitingMerge: rec.AwaitingMerge, Verified: rec.Verified, FinalNotified: rec.FinalNotified}
+			r.surfaceLoaded = true
+			c.hydrateCompletionLocked(r)
+			c.runs[rec.RunID] = r
+			continue
+		}
 		legacyID := rec.RunID
 		if strings.TrimSpace(rec.PlanID) != "" {
 			// Plan-bound executors use PlanID-stable identity; never re-key from
@@ -109,12 +125,20 @@ func (c *Controller) recordLocked(r *run) RunRecord {
 	now := c.now().UTC()
 	r.persistRevision++
 	rec := RunRecord{PersistRevision: r.persistRevision, RunID: r.runID, Name: r.name, Repo: r.repo, PlanFile: r.absPlanFile,
-		PlanID: r.planID, ProjectID: r.projectID,
+		PlanID: r.planID, ProjectID: r.projectID, ParentAgentID: r.parentAgentID, LastError: r.backoffLastErr,
 		State: r.state, IntegrationBranch: r.integrationBranch, Gate: c.runGate(r),
 		Strategy: c.strategy, DeleteBranch: c.deleteBranch, SlotScope: r.slotScope, UpdatedAt: now,
 		LastProgressAt: r.lastProgressAt, ProgressFP: r.progressFP}
+	if c.store != nil && c.store.IsSchema3() {
+		rec.LastDiagnosis, rec.Resolver, rec.FinalPR = r.surface.LastDiagnosis, r.surface.Resolver, r.surface.FinalPR
+		rec.AwaitingMerge, rec.Verified, rec.FinalNotified = r.surface.AwaitingMerge, r.surface.Verified, r.surface.FinalNotified
+	}
 	if r.brain != nil && r.slotScope != "" {
-		rec.BrainID = ManagerSlotID(r.slotScope)
+		if c.store != nil && c.store.IsSchema3() {
+			rec.BrainID = r.brain.AgentID
+		} else {
+			rec.BrainID = ManagerSlotID(r.slotScope)
+		}
 	}
 	return rec
 }
@@ -133,6 +157,9 @@ func (c *Controller) persistRunLockedErr(r *run) error {
 }
 
 func (c *Controller) persistIntegrationBranch(r *run) {
+	if c.store != nil && c.store.IsSchema3() {
+		return
+	}
 	if c.runtime == nil || r == nil || strings.TrimSpace(r.integrationBranch) == "" {
 		return
 	}

@@ -35,6 +35,31 @@ import (
 
 var wardenBin string
 
+// waypointBinary builds the released schema-2 waypoint used to exercise
+// historical schema-1 -> schema-2 lifecycle fixtures.  The current binary is
+// deliberately format 3 and must not be used to boot those fixtures.
+func waypointBinary(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.Abs("../..")
+	require.NoError(t, err)
+	source := t.TempDir()
+	archive := filepath.Join(t.TempDir(), "v12.1.0.tar")
+	cmd := exec.Command("git", "archive", "--format=tar", "--output="+archive, "5fceb280")
+	cmd.Dir = root
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "released waypoint source is required: %s", out)
+	out, err = exec.Command("tar", "-xf", archive, "-C", source).CombinedOutput()
+	require.NoError(t, err, "%s", out)
+	require.NoError(t, os.MkdirAll(filepath.Join(source, "web", "dist"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(source, "web", "dist", ".gitkeep"), nil, 0o600))
+	bin := filepath.Join(t.TempDir(), "warden-v12.1.0")
+	build := exec.Command("go", "build", "-buildvcs=false", "-ldflags", "-X github.com/srjn45/warden/internal/cli.version=12.1.0", "-o", bin, "./cmd/warden")
+	build.Dir = source
+	out, err = build.CombinedOutput()
+	require.NoError(t, err, "build released waypoint: %s", out)
+	return bin
+}
+
 func TestMain(m *testing.M) {
 	if runtime.GOOS == "windows" {
 		os.Exit(0)
@@ -132,7 +157,11 @@ func (e *env) environ() []string {
 }
 
 func (e *env) cmd(ctx context.Context, cwd string, args ...string) *exec.Cmd {
-	c := exec.CommandContext(ctx, wardenBin, args...)
+	return e.cmdBin(ctx, wardenBin, cwd, args...)
+}
+
+func (e *env) cmdBin(ctx context.Context, bin, cwd string, args ...string) *exec.Cmd {
+	c := exec.CommandContext(ctx, bin, args...)
 	c.Dir = cwd
 	c.Env = e.environ()
 	return c
@@ -164,10 +193,14 @@ type daemon struct {
 }
 
 func (e *env) startDaemon(addr, dataDir, cwd string) *daemon {
+	return e.startDaemonBin(wardenBin, addr, dataDir, cwd)
+}
+
+func (e *env) startDaemonBin(bin, addr, dataDir, cwd string) *daemon {
 	e.t.Helper()
 	cfg := e.config(addr, dataDir)
 	d := &daemon{e: e, addr: addr, log: &bytes.Buffer{}, done: make(chan struct{})}
-	d.cmd = e.cmd(context.Background(), cwd, "--config", cfg, "daemon")
+	d.cmd = e.cmdBin(context.Background(), bin, cwd, "--config", cfg, "daemon")
 	d.cmd.Stdout, d.cmd.Stderr = d.log, d.log
 	require.NoError(e.t, d.cmd.Start())
 	go func() { d.err = d.cmd.Wait(); close(d.done) }()
@@ -292,10 +325,28 @@ func (d *daemon) health() health {
 	return h
 }
 
-// openShared opens the schema-2 warden-db in THIS process (stamping the ledger
-// at schema 2 first, as a booted daemon would), so a test can seed it before the
+// openShared opens the schema-3 warden-db in THIS process (stamping the ledger
+// at schema 3 first, as a booted daemon would), so a test can seed it before the
 // daemon under test becomes the only owner. The returned closer releases it.
 func (e *env) openShared() (*agentstore.Store, func()) {
+	e.t.Helper()
+	if _, err := schema.Load(e.data); err != nil {
+		require.NoError(e.t, schema.Save(e.data, &schema.Ledger{SchemaVersion: schema.SchemaVersion, BinaryVersion: "e2e",
+			History: []schema.HistoryEntry{{From: 0, To: schema.SchemaVersion, Migration: schema.MigrationBaselineFresh}}}))
+	}
+	db, err := wardendb.Open(e.data)
+	require.NoError(e.t, err)
+	s, err := agentstore.NewSchema3StoreFromDB(db)
+	require.NoError(e.t, err)
+	return s, func() { require.NoError(e.t, db.Close()) }
+}
+
+// openSharedSchema2 / openSharedProjectsSchema2 seed an authentic released
+// schema-2 warden-db (ledger at schema 2, schema-2 stores that permit the
+// historical archived+active duplicate identity) for tests that then drive the
+// released waypoint binary. The current schema-3 stores must not be used for
+// such fixtures: they ignore the inverse membership representation.
+func (e *env) openSharedSchema2() (*agentstore.Store, func()) {
 	e.t.Helper()
 	if _, err := schema.Load(e.data); err != nil {
 		require.NoError(e.t, schema.Save(e.data, &schema.Ledger{SchemaVersion: schema.Schema2, BinaryVersion: "e2e",
@@ -308,6 +359,17 @@ func (e *env) openShared() (*agentstore.Store, func()) {
 	return s, func() { require.NoError(e.t, db.Close()) }
 }
 
+func (e *env) openSharedProjectsSchema2() (*projectstore.Store, func()) {
+	e.t.Helper()
+	_, closeAgents := e.openSharedSchema2() // stamps the ledger
+	closeAgents()
+	db, err := wardendb.Open(e.data)
+	require.NoError(e.t, err)
+	ps, err := projectstore.NewStoreFromDB(db)
+	require.NoError(e.t, err)
+	return ps, func() { require.NoError(e.t, db.Close()) }
+}
+
 // openSharedProjects is openShared for the project store.
 func (e *env) openSharedProjects() (*projectstore.Store, func()) {
 	e.t.Helper()
@@ -315,7 +377,7 @@ func (e *env) openSharedProjects() (*projectstore.Store, func()) {
 	closeAgents()
 	db, err := wardendb.Open(e.data)
 	require.NoError(e.t, err)
-	ps, err := projectstore.NewStoreFromDB(db)
+	ps, err := projectstore.NewSchema3StoreFromDB(db)
 	require.NoError(e.t, err)
 	return ps, func() { require.NoError(e.t, db.Close()) }
 }
@@ -326,7 +388,7 @@ func (e *env) seed(ids ...string) {
 	e.t.Helper()
 	s, closeDB := e.openShared()
 	for _, id := range ids {
-		require.NoError(e.t, s.Insert(context.Background(), &agentstore.Agent{ID: id, Name: "n-" + id, Status: store.StatusWorking,
+		require.NoError(e.t, s.Insert(context.Background(), &agentstore.Agent{ID: id, Name: "n-" + id, Scope: "system", Status: store.StatusWorking,
 			TmuxSession: "tm-" + id, CreatedAt: time.Now(), UpdatedAt: time.Now()}))
 	}
 	closeDB()

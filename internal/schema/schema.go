@@ -22,11 +22,10 @@ import (
 )
 
 const (
-	// SchemaVersion is the data format this binary reads and writes. 2 is the
-	// single canonical warden-db (docs/specs/2026-10-11-warden-db-schema-2-migration-contract.md);
-	// a schema-1 data dir is moved there by the journaled cutover
-	// (`warden migrate --apply`, which `wd update` runs), never at daemon boot.
-	SchemaVersion = 2
+	// SchemaVersion is the data format this binary reads and writes. Schema 3
+	// normalizes ownership in the canonical warden-db; it is entered only by the
+	// paired updater transaction, never at daemon boot.
+	SchemaVersion = 3
 	// MinSchema is the oldest data format this binary can migrate from.
 	MinSchema = 1
 	// LegacyBaseline is the format stamped on a pre-ledger install. Every

@@ -117,7 +117,12 @@ type Server struct {
 	promptNamer  agentname.BackendRunner
 	poller       *poller.Poller
 	pollInterval time.Duration
-	hub          *hub
+	// readinessGate is closed only after a paired schema migration has been
+	// finalized.  Until then health remains available for the updater's
+	// authenticated readiness proof, but every other HTTP route is refused.
+	// It also keeps ListenAndServe from starting any background writer.
+	readinessGate <-chan struct{}
+	hub           *hub
 	// done is closed when the server begins shutting down. Long-lived handlers
 	// (the SSE stream) watch it so they return promptly and let Shutdown drain.
 	done chan struct{}
@@ -471,6 +476,11 @@ func (s *Server) SetVersion(v string) { s.version = v }
 // the data dir this daemon serves, advertised on GET /healthz.
 func (s *Server) SetSchemaVersion(v int) { s.schemaVersion = v }
 
+// SetReadinessGate holds all non-health API traffic and background work until
+// gate is closed. It is used by the schema-3 target while a released updater
+// still verifies the exact promoted generation.
+func (s *Server) SetReadinessGate(gate <-chan struct{}) { s.readinessGate = gate }
+
 // SetAuth configures the bearer tokens required for remote access. An empty
 // primary token disables authentication (the local-only default). When set,
 // every request — including loopback — must present a token; see authorize. The
@@ -663,6 +673,22 @@ func (s *Server) router() http.Handler {
 		slow = slowWriteTimeoutDur
 	}
 	r.Use(writeTimeout(fast, slow))
+	if s.readinessGate != nil {
+		r.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if req.URL.Path == "/healthz" {
+					next.ServeHTTP(w, req)
+					return
+				}
+				select {
+				case <-s.readinessGate:
+					next.ServeHTTP(w, req)
+				default:
+					writeErr(w, http.StatusServiceUnavailable, "schema migration readiness is still pending")
+				}
+			})
+		})
+	}
 
 	// Unauthenticated: a liveness probe (for tunnels/proxies) and the static UI.
 	// The compiled SPA holds no secrets — serving its shell to anyone is what

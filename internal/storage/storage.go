@@ -7,6 +7,7 @@
 package storage
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 	"github.com/srjn45/warden/internal/knownprompts"
 	"github.com/srjn45/warden/internal/mailbox"
 	"github.com/srjn45/warden/internal/metrics"
+	"github.com/srjn45/warden/internal/migrate/schema3"
 	"github.com/srjn45/warden/internal/pipeline"
 	"github.com/srjn45/warden/internal/planexport"
 	"github.com/srjn45/warden/internal/planstore"
@@ -71,7 +73,7 @@ func (s *Stores) Close() error {
 	return s.close()
 }
 
-// Open opens the single canonical warden-db (schema 2). It never falls back to
+// Open opens the single canonical warden-db. It never falls back to
 // the schema-1 stores: data that is still on them (a schema-1 ledger, an
 // interrupted migration, or legacy stores with no ledger) is refused with the
 // boot guard's error so the operator runs the journaled cutover instead of
@@ -80,19 +82,64 @@ func Open(dataDir string, opts ...wardendb.Option) (*Stores, error) {
 	if err := requireSharedMode(dataDir); err != nil {
 		return nil, err
 	}
+	l, err := schema.Load(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	return openShared(dataDir, l.SchemaVersion == schema.SchemaVersion, l.MigrationInterrupted(), opts...)
+}
+
+// OpenSchema2ForMigrationVerification opens an exact, committed schema-2
+// generation with its historical codecs. It is for offline migration
+// equivalence/retirement verification only; daemon composition must use Open,
+// which refuses schema 2 once format 3 is active.
+func OpenSchema2ForMigrationVerification(dataDir string, opts ...wardendb.Option) (*Stores, error) {
+	l, err := schema.Load(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	if l.MigrationInterrupted() {
+		return nil, &schema.GuardError{Verdict: schema.VerdictInterrupted, DataDir: dataDir, Ledger: *l, Binary: schema.Schema2, Min: 1}
+	}
+	if l.SchemaVersion != schema.Schema2 {
+		return nil, fmt.Errorf("schema-2 verification requires exact committed schema 2")
+	}
+	return openShared(dataDir, false, false, opts...)
+}
+
+func openShared(dataDir string, schema3Mode, sealedReadiness bool, opts ...wardendb.Option) (*Stores, error) {
 	db, err := wardendb.Open(dataDir, opts...)
 	if err != nil {
 		return nil, err
 	}
 	fail := func(err error) (*Stores, error) { _ = db.Close(); return nil, err }
+	if schema3Mode {
+		g, _, err := schema3.Read(context.Background(), wardendb.Dir(dataDir))
+		if err != nil {
+			return fail(fmt.Errorf("storage: read schema-3 generation: %w", err))
+		}
+		if err := schema3.ValidateTarget(g); err != nil {
+			return fail(fmt.Errorf("storage: validate schema-3 generation: %w", err))
+		}
+	}
 	s := &Stores{DB: db, close: db.Close}
-	if s.Agents, err = agentstore.NewStoreFromDB(db); err != nil {
+	if schema3Mode {
+		s.Agents, err = agentstore.NewSchema3StoreFromDB(db)
+	} else {
+		s.Agents, err = agentstore.NewStoreFromDB(db)
+	}
+	if err != nil {
 		return fail(err)
 	}
 	if err = db.OnClose("agentstore", s.Agents.Close); err != nil {
 		return fail(err)
 	}
-	if s.Terminals, err = terminalstore.NewStoreFromDB(db); err != nil {
+	if schema3Mode {
+		s.Terminals, err = terminalstore.NewSchema3StoreFromDB(db)
+	} else {
+		s.Terminals, err = terminalstore.NewStoreFromDB(db)
+	}
+	if err != nil {
 		return fail(err)
 	}
 	if s.Context, err = ctxstore.NewStoreFromDB(db); err != nil {
@@ -104,7 +151,12 @@ func Open(dataDir string, opts ...wardendb.Option) (*Stores, error) {
 	if s.KnownPrompts, err = knownprompts.NewStoreFromDB(db); err != nil {
 		return fail(err)
 	}
-	if s.Pipelines, err = pipeline.NewStoreFromDB(db); err != nil {
+	if schema3Mode {
+		s.Pipelines, err = pipeline.NewSchema3StoreFromDB(db)
+	} else {
+		s.Pipelines, err = pipeline.NewStoreFromDB(db)
+	}
+	if err != nil {
 		return fail(err)
 	}
 	if s.Snapshots, err = snapshot.NewStoreFromDB(db); err != nil {
@@ -119,7 +171,12 @@ func Open(dataDir string, opts ...wardendb.Option) (*Stores, error) {
 	if s.Schedules, err = schedule.NewStoreFromDB(db); err != nil {
 		return fail(err)
 	}
-	if s.Backends, err = backendstore.NewStoreFromDB(db); err != nil {
+	if schema3Mode && sealedReadiness {
+		s.Backends, err = backendstore.NewSchema3StoreFromDB(db)
+	} else {
+		s.Backends, err = backendstore.NewStoreFromDB(db)
+	}
+	if err != nil {
 		return fail(err)
 	}
 	if s.UsageSnapshots, err = backendusage.NewSnapshotStoreFromDB(db); err != nil {
@@ -128,23 +185,45 @@ func Open(dataDir string, opts ...wardendb.Option) (*Stores, error) {
 	if s.ImpactFences, err = capacity.NewDurableFenceStoreFromDB(db); err != nil {
 		return fail(err)
 	}
-	if s.Projects, err = projectstore.NewStoreFromDB(db); err != nil {
+	if schema3Mode {
+		s.Projects, err = projectstore.NewSchema3StoreFromDB(db)
+	} else {
+		s.Projects, err = projectstore.NewStoreFromDB(db)
+	}
+	if err != nil {
 		return fail(err)
 	}
-	if s.Plans, err = planstore.NewStoreFromDB(db); err != nil {
+	if schema3Mode {
+		s.Plans, err = planstore.NewSchema3StoreFromDB(db)
+	} else {
+		s.Plans, err = planstore.NewStoreFromDB(db)
+	}
+	if err != nil {
 		return fail(err)
 	}
-	if s.PlanExports, err = planexport.NewStoreFromDB(db); err != nil {
+	if schema3Mode {
+		s.PlanExports, err = planexport.NewSchema3StoreFromDB(db)
+	} else {
+		s.PlanExports, err = planexport.NewStoreFromDB(db)
+	}
+	if err != nil {
 		return fail(err)
 	}
 	if s.Metrics, err = metrics.NewStoreFromDB(db); err != nil {
 		return fail(err)
 	}
-	if s.AutopilotRuns, err = autopilot.NewRunStoreFromDB(db); err != nil {
+	if schema3Mode {
+		s.AutopilotRuns, err = autopilot.NewSchema3RunStoreFromDB(db)
+	} else {
+		s.AutopilotRuns, err = autopilot.NewRunStoreFromDB(db)
+	}
+	if err != nil {
 		return fail(err)
 	}
-	if s.Autopilots, err = autopilotstore.NewStoreFromDB(db); err != nil {
-		return fail(err)
+	if !schema3Mode {
+		if s.Autopilots, err = autopilotstore.NewStoreFromDB(db); err != nil {
+			return fail(err)
+		}
 	}
 	// Queryable events live in warden-db; audit.jsonl stays the append-only
 	// external stream (migration contract): keep appending to it so the files
@@ -185,6 +264,9 @@ func requireSharedMode(dataDir string) error {
 	if err == nil {
 		switch {
 		case l.MigrationInterrupted():
+			if err := schema.PendingSchema3TargetAuthorized(dataDir, l); err == nil {
+				return nil
+			}
 			// Never open stores in the middle of a migration, whichever side of
 			// the promotion it stopped on.
 			return &schema.GuardError{Verdict: schema.VerdictInterrupted, DataDir: dataDir, Ledger: *l, Binary: schema.SchemaVersion, Min: schema.MinSchema}

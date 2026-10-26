@@ -54,7 +54,9 @@ type Project struct {
 	// workspace (may be empty for a remote not yet cloned — filled in by Phase 2).
 	Path string `json:"path"`
 	// Status is Open or Closed (hibernated).
-	Status Status `json:"status"`
+	Status     Status `json:"status"`
+	GroupID    string `json:"group_id,omitempty"`
+	GroupOrder *int   `json:"group_order,omitempty"`
 	// Agents is the complete, ordered, de-duplicated id list of member agents
 	// (docs/specs/2026-09-25-project-entity-hierarchy.md D2/§3.1). This is the
 	// authoritative membership stored on the project, not re-derived by scanning

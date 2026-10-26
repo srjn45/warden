@@ -13,6 +13,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestSchema3OwnershipVerificationCLI(t *testing.T) {
+	old := verifySchema3Ownership
+	t.Cleanup(func() { verifySchema3Ownership = old })
+	var got []string
+	verifySchema3Ownership = func(_ context.Context, dir, transaction, target, manifest string) error {
+		got = []string{dir, transaction, target, manifest}
+		return nil
+	}
+	cmd := newMigrateCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--verify-ownership", "--data-dir", "/data", "--transaction", "tx", "--target-sha", "sha256:target", "--manifest-sha", "sha256:manifest", "--json"})
+	require.NoError(t, cmd.ExecuteContext(context.Background()))
+	require.Equal(t, []string{"/data", "tx", "sha256:target", "sha256:manifest"}, got)
+	require.JSONEq(t, `{"verified":true,"transaction":"tx"}`, out.String())
+
+	cmd = newMigrateCmd()
+	cmd.SetArgs([]string{"--verify-ownership", "--transaction", "tx"})
+	require.ErrorContains(t, cmd.Execute(), "requires --transaction, --target-sha, and --manifest-sha")
+}
+
 func TestSchema3CLIPreviewAndMutationRefusal(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, schema.Save(dir, &schema.Ledger{SchemaVersion: 2}))

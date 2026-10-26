@@ -133,6 +133,36 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	httpSrv := &http.Server{
+		Addr:              addr,
+		Handler:           s.router(),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+	errCh := make(chan error, 1)
+	go func() { errCh <- httpSrv.ListenAndServe() }()
+
+	// A schema target must make its real store-backed health endpoint available
+	// to the updater, but the released waypoint finalizer compares the promoted
+	// tree byte-for-byte.  Do not start any writer until that finalizer clears
+	// the pending ledger and closes this gate.
+	if s.readinessGate != nil {
+		select {
+		case <-s.readinessGate:
+		case err := <-errCh:
+			if err != nil && err != http.ErrServerClosed {
+				return err
+			}
+			return nil
+		case <-ctx.Done():
+			sctx, scancel := context.WithTimeout(context.Background(), shutdownGrace)
+			err := httpSrv.Shutdown(sctx)
+			scancel()
+			return err
+		}
+	}
+
 	// One-time backlog sweep: drop session records of already-completed pipeline
 	// jobs that older builds left behind (reaped tmux, kept the record), which the
 	// poller would otherwise keep flagging "orphaned". Runs before the poller's
@@ -230,16 +260,6 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	if s.autopilot != nil {
 		go s.autopilot.RunGuardian(runCtx)
 	}
-
-	httpSrv := &http.Server{
-		Addr:              addr,
-		Handler:           s.router(),
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		MaxHeaderBytes:    1 << 20,
-	}
-	errCh := make(chan error, 1)
-	go func() { errCh <- httpSrv.ListenAndServe() }()
 
 	var retErr error
 	select {

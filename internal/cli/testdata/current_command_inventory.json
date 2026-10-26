@@ -2452,6 +2452,7 @@
       "data-dir",
       "dry-run",
       "json",
+      "manifest-sha",
       "plan",
       "restore",
       "resume",
@@ -2459,6 +2460,9 @@
       "staging-dir",
       "staging-export",
       "target",
+      "target-sha",
+      "transaction",
+      "verify-ownership",
       "yes"
     ],
     "inherited_flags": [

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/srjn45/warden/internal/migrate/schema3"
 	"github.com/srjn45/warden/internal/ownerlock"
 	"github.com/srjn45/warden/internal/schema"
+	"github.com/srjn45/warden/internal/updater"
 )
 
 type migrateCheckReport struct {
@@ -27,20 +29,24 @@ type migrateCheckReport struct {
 
 func newMigrateCmd() *cobra.Command {
 	var (
-		checkFlag      bool
-		planFlag       bool
-		retirementFlag bool
-		cleanupFlag    bool
-		dryRunFlag     bool
-		yesFlag        bool
-		stagingFlag    bool
-		applyFlag      bool
-		resumeFlag     bool
-		restoreFlag    bool
-		jsonFlag       bool
-		targetVer      int
-		dataDirFlag    string
-		stagingDir     string
+		checkFlag       bool
+		planFlag        bool
+		retirementFlag  bool
+		cleanupFlag     bool
+		dryRunFlag      bool
+		yesFlag         bool
+		stagingFlag     bool
+		applyFlag       bool
+		resumeFlag      bool
+		restoreFlag     bool
+		jsonFlag        bool
+		verifyOwnership bool
+		transactionID   string
+		targetSHA       string
+		manifestSHA     string
+		targetVer       int
+		dataDirFlag     string
+		stagingDir      string
 	)
 
 	cmd := &cobra.Command{
@@ -98,6 +104,26 @@ Older binaries refuse a schema-2 data dir before opening any store; there is no
 automatic downgrade. "wd update" runs the cutover for you (via the new binary)
 and rolls the binary and data back if it fails.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if verifyOwnership {
+				if countMigrationActions(checkFlag, planFlag, stagingFlag, applyFlag, resumeFlag, retirementFlag, restoreFlag, cleanupFlag) != 0 {
+					return errors.New("--verify-ownership cannot be combined with another migrate action")
+				}
+				if transactionID == "" || targetSHA == "" || manifestSHA == "" {
+					return errors.New("--verify-ownership requires --transaction, --target-sha, and --manifest-sha")
+				}
+				dataDir := dataDirFlag
+				if dataDir == "" {
+					dataDir = config.Load(configPathFor(cmd)).DataDir
+				}
+				if err := verifySchema3Ownership(cmd.Context(), dataDir, transactionID, targetSHA, manifestSHA); err != nil {
+					return err
+				}
+				if jsonFlag {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"verified": true, "transaction": transactionID})
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), "schema-3 ownership verified")
+				return nil
+			}
 			// Validate mutually exclusive flags
 			count := 0
 			if checkFlag {
@@ -149,10 +175,47 @@ and rolls the binary and data back if it fails.`,
 			}
 			runner := migrate.NewRunner(nil)
 			if targetVer == 3 {
-				if checkFlag || planFlag {
-					return runSchema3Plan(cmd, dataDir, jsonFlag)
+				// Schema 3 is a paired update transaction, not a standalone
+				// migration.  Its read-only commands still need to describe the
+				// generation that is actually on disk: schema-1 fixtures retain
+				// the schema-2 preflight, schema-2 gets the ownership plan, and
+				// an already-promoted schema-3 generation gets the ordinary
+				// whole-store health check below.
+				current := 0
+				l, loadErr := schema.Load(dataDir)
+				if loadErr == nil {
+					if l.MigrationInterrupted() {
+						return schema.Check(dataDir, l)
+					}
+					current = l.SchemaVersion
+				} else if !errors.Is(loadErr, schema.ErrNoLedger) {
+					return fmt.Errorf("migrate: load schema ledger: %w", loadErr)
 				}
-				return migrate.ErrUpdaterTransactionRequired
+				if checkFlag || planFlag {
+					switch {
+					case current == schema.Schema2:
+						return runSchema3Plan(cmd, dataDir, jsonFlag)
+					case current < schema.Schema2:
+						targetVer = schema.Schema2
+					case current > schema.SchemaVersion:
+						return schema.Check(dataDir, l)
+					case current == schema.SchemaVersion && planFlag:
+						if err := validateSchema3Generation(cmd, dataDir); err != nil {
+							return err
+						}
+						if jsonFlag {
+							return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"current_version": current, "target_version": schema.SchemaVersion, "clean": true, "findings": []any{}})
+						}
+						fmt.Fprintln(cmd.OutOrStdout(), "schema 3 ownership format is already current; nothing to plan")
+						return nil
+					case current == schema.SchemaVersion:
+						if err := validateSchema3Generation(cmd, dataDir); err != nil {
+							return err
+						}
+					}
+				} else {
+					return migrate.ErrUpdaterTransactionRequired
+				}
 			}
 
 			switch {
@@ -322,11 +385,38 @@ and rolls the binary and data back if it fails.`,
 	cmd.Flags().BoolVar(&resumeFlag, "resume", false, "resume an interrupted migration")
 	cmd.Flags().BoolVar(&restoreFlag, "restore", false, "restore from pre-migration snapshot after an interrupted migration")
 	cmd.Flags().BoolVar(&jsonFlag, "json", false, "output results in JSON format")
+	cmd.Flags().BoolVar(&verifyOwnership, "verify-ownership", false, "prove this started binary owns the exact pending schema-3 update transaction")
+	cmd.Flags().StringVar(&transactionID, "transaction", "", "schema-3 transaction ID for --verify-ownership")
+	cmd.Flags().StringVar(&targetSHA, "target-sha", "", "target binary SHA-256 for --verify-ownership")
+	cmd.Flags().StringVar(&manifestSHA, "manifest-sha", "", "transaction manifest SHA-256 for --verify-ownership")
 	cmd.Flags().IntVar(&targetVer, "target", schema.SchemaVersion, "target schema version to migrate to")
 	cmd.Flags().StringVar(&dataDirFlag, "data-dir", "", "path to the Warden data directory")
 	cmd.Flags().StringVar(&stagingDir, "staging-dir", "", "target directory for --staging-export (default: <data-dir>/warden-db-staging)")
 
 	return cmd
+}
+
+func validateSchema3Generation(cmd *cobra.Command, dataDir string) error {
+	g, _, err := schema3.Read(cmd.Context(), filepath.Join(dataDir, schema.WardenDBDir))
+	if err != nil {
+		return fmt.Errorf("migrate: read schema-3 generation: %w", err)
+	}
+	if err := schema3.ValidateTarget(g); err != nil {
+		return fmt.Errorf("migrate: validate schema-3 ownership: %w", err)
+	}
+	return nil
+}
+
+var verifySchema3Ownership = updater.VerifySchema3Ownership
+
+func countMigrationActions(actions ...bool) int {
+	n := 0
+	for _, action := range actions {
+		if action {
+			n++
+		}
+	}
+	return n
 }
 
 // runLegacyCleanup previews the cleanup (a dry run through the same gate),

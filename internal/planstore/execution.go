@@ -102,6 +102,19 @@ type PlanExecution struct {
 	// second mutable task ledger) so the mapping survives pipeline teardown.
 	// Convention: job IDs equal the stable canonical task IDs (identity mapping).
 	TaskJobMap map[string]string `json:"task_job_map,omitempty"`
+	// Historical dispatch is immutable execution evidence. Current dispatch is
+	// stored exclusively on plan_tasks and scoped by ExecutionID.
+	TaskDispatch map[string]TaskDispatch `json:"task_dispatch,omitempty"`
+}
+
+type TaskDispatch struct {
+	ExecutionID string `json:"execution_id"`
+	State       string `json:"state"`
+	WorkerID    string `json:"worker_id,omitempty"`
+	Branch      string `json:"branch,omitempty"`
+	PR          int    `json:"pr,omitempty"`
+	Note        string `json:"note,omitempty"`
+	UpdatedAt   string `json:"updated_at,omitempty"`
 }
 
 // ExecutionSummary is a compact read-only report produced when a PlanExecution

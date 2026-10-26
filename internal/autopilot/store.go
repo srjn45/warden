@@ -31,6 +31,8 @@ type RunRecord struct {
 	// run is created from a plan; they are empty for other autopilot runs.
 	PlanID            string    `json:"plan_id,omitempty"`
 	ProjectID         string    `json:"project_id,omitempty"`
+	ParentAgentID     string    `json:"parent_agent_id,omitempty"`
+	LastError         string    `json:"last_error,omitempty"`
 	State             RunState  `json:"state"`
 	IntegrationBranch string    `json:"integration_branch,omitempty"`
 	Gate              string    `json:"gate,omitempty"`
@@ -42,6 +44,15 @@ type RunRecord struct {
 	ProgressFP        string    `json:"progress_fp,omitempty"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
+
+	// Operator status surface (schema 3). Schema 2 kept these in the
+	// autopilot.<run>.surface ledger record; the migration folds them here.
+	LastDiagnosis *Diagnosis      `json:"last_diagnosis,omitempty"`
+	Resolver      *ResolverStatus `json:"resolver,omitempty"`
+	FinalPR       *FinalPR        `json:"final_pr,omitempty"`
+	AwaitingMerge *AwaitingMerge  `json:"awaiting_merge,omitempty"`
+	Verified      bool            `json:"verified,omitempty"`
+	FinalNotified bool            `json:"final_notified,omitempty"`
 }
 
 // RunStore serializes compound read-modify-write operations over the single

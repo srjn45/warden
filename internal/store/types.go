@@ -393,6 +393,10 @@ type Session struct {
 	ScheduleID        string           `json:"schedule_id,omitempty"`       // set for schedule-fired runs (back-ref to the schedule that spawned this); agent-mode and pipeline-mode job sessions alike
 	ScheduleName      string           `json:"schedule_name,omitempty"`     // operator-facing name of that schedule (== ScheduleID today, carried for display)
 	ParentID          string           `json:"parent_id,omitempty"`         // id of the agent that spawned this one; empty = root (operator/CLI spawn)
+	Scope             string           `json:"scope,omitempty"`
+	Lifecycle         string           `json:"lifecycle,omitempty"`
+	ArchivedAt        *time.Time       `json:"archived_at,omitempty"`
+	ClosedAt          *time.Time       `json:"closed_at,omitempty"`
 	// ChildAgents is the forward edge of ParentID (project entity hierarchy spec
 	// D3): the ids of the user-facing sub-agents this agent spawned. It is
 	// maintained on both ends in the same operation (spec §6.1) — a spawn with a

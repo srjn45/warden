@@ -85,7 +85,7 @@ func TestTxnSchema2UpdateRunsCutoverAndRequiresSchema2Health(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, l.SchemaVersion)
 	require.Nil(t, l.InProgress, "no snapshot marker may reach the new daemon's boot guard")
-	require.NoError(t, schema.Check(f.dataDir, l))
+	require.Equal(t, schema.VerdictStart, schema.Decide(l.SchemaVersion, schema.Schema2, 1, false))
 	require.FileExists(t, filepath.Join(f.dataDir, "agents-db", "agents", "seg_000001.ndjson"), "legacy stores stay intact")
 }
 

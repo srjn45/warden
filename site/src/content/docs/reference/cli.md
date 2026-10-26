@@ -5914,21 +5914,25 @@ Usage:
   warden migrate [flags]
 
 Flags:
-      --apply                apply pending migrations up to the target schema version
-      --check                run read-only preflight check across all stores and pending migrations
-      --cleanup-legacy       move retired schema-1 stores to a quarantine dir after verifying warden-db and the cutover backup (needs confirmation)
-      --data-dir string      path to the Warden data directory
-      --dry-run              with --cleanup-legacy: report what would move; change nothing
-  -h, --help                 help for migrate
-      --json                 output results in JSON format
-      --plan                 show the read-only schema-2 (warden-db) cutover plan and what blocks it
-      --restore              restore from pre-migration snapshot after an interrupted migration
-      --resume               resume an interrupted migration
-      --retirement           report legacy-store retirement entry criteria (read-only; deletes nothing)
-      --staging-dir string   target directory for --staging-export (default: <data-dir>/warden-db-staging)
-      --staging-export       export normalized schema-2 staging collections without touching legacy sources
-      --target int           target schema version to migrate to (default 2)
-      --yes                  with --cleanup-legacy: confirm without prompting
+      --apply                 apply pending migrations up to the target schema version
+      --check                 run read-only preflight check across all stores and pending migrations
+      --cleanup-legacy        move retired schema-1 stores to a quarantine dir after verifying warden-db and the cutover backup (needs confirmation)
+      --data-dir string       path to the Warden data directory
+      --dry-run               with --cleanup-legacy: report what would move; change nothing
+  -h, --help                  help for migrate
+      --json                  output results in JSON format
+      --manifest-sha string   transaction manifest SHA-256 for --verify-ownership
+      --plan                  show the read-only schema-2 (warden-db) cutover plan and what blocks it
+      --restore               restore from pre-migration snapshot after an interrupted migration
+      --resume                resume an interrupted migration
+      --retirement            report legacy-store retirement entry criteria (read-only; deletes nothing)
+      --staging-dir string    target directory for --staging-export (default: <data-dir>/warden-db-staging)
+      --staging-export        export normalized schema-2 staging collections without touching legacy sources
+      --target int            target schema version to migrate to (default 3)
+      --target-sha string     target binary SHA-256 for --verify-ownership
+      --transaction string    schema-3 transaction ID for --verify-ownership
+      --verify-ownership      prove this started binary owns the exact pending schema-3 update transaction
+      --yes                   with --cleanup-legacy: confirm without prompting
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)

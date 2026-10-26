@@ -61,7 +61,7 @@ func TestSavingsQuarantine_MiddleAndValidRowsAroundIt(t *testing.T) {
 	require.Equal(t, schema.Schema2, l.SchemaVersion)
 
 	// 4. Verify live database via storage.Open
-	st, err := storage.Open(dir)
+	st, err := storage.OpenSchema2ForMigrationVerification(dir)
 	require.NoError(t, err)
 	evts, err := st.Savings.Events(time.Time{})
 	require.NoError(t, err)
@@ -136,7 +136,7 @@ func TestSavingsQuarantine_TrailingRowWithoutNewline(t *testing.T) {
 	env := Env{DataDir: dir, BinaryVersion: "11.0.0", Context: context.Background()}
 	require.NoError(t, rn.Apply(env, schema.Schema2))
 
-	st, err := storage.Open(dir)
+	st, err := storage.OpenSchema2ForMigrationVerification(dir)
 	require.NoError(t, err)
 	evts, err := st.Savings.Events(time.Time{})
 	require.NoError(t, err)
@@ -172,7 +172,7 @@ func TestSavingsQuarantine_MiddleAndTrailingRowsWithValidAroundThem(t *testing.T
 	env := Env{DataDir: dir, BinaryVersion: "11.0.0", Context: context.Background()}
 	require.NoError(t, rn.Apply(env, schema.Schema2))
 
-	st, err := storage.Open(dir)
+	st, err := storage.OpenSchema2ForMigrationVerification(dir)
 	require.NoError(t, err)
 	evts, err := st.Savings.Events(time.Time{})
 	require.NoError(t, err)
@@ -232,7 +232,7 @@ func TestSavingsQuarantine_InterruptionAndResume(t *testing.T) {
 	require.Nil(t, l.InProgress)
 
 	// Verify valid events in warden-db
-	st, err := storage.Open(dir)
+	st, err := storage.OpenSchema2ForMigrationVerification(dir)
 	require.NoError(t, err)
 	evts, err := st.Savings.Events(time.Time{})
 	require.NoError(t, err)
@@ -309,7 +309,7 @@ func TestSavingsQuarantine_BackupAndRestoreIsReversible(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, schema.Schema2, l2.SchemaVersion)
 
-	st, err := storage.Open(dir)
+	st, err := storage.OpenSchema2ForMigrationVerification(dir)
 	require.NoError(t, err)
 	evts, err := st.Savings.Events(time.Time{})
 	require.NoError(t, err)

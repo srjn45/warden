@@ -190,7 +190,7 @@ func TestRetirementLifecycleRegression(t *testing.T) {
 	require.Equal(t, 1, adoptLog.Count(adoption.LegacyCleanup, time.Time{}), "no duplicate adoption event on no-op re-run")
 
 	// 5. Unified storage operations continue uninterrupted on warden-db
-	s, err := storage.Open(dir)
+	s, err := storage.OpenSchema2ForMigrationVerification(dir)
 	require.NoError(t, err)
 	defer s.Close()
 	require.NotNil(t, s.DB)

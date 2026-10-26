@@ -11,9 +11,31 @@ import (
 	"github.com/srjn45/warden/internal/migrate/schema3"
 	"github.com/srjn45/warden/internal/ownerlock"
 	"github.com/srjn45/warden/internal/schema"
+	"github.com/srjn45/warden/internal/storage"
 	"github.com/srjn45/warden/internal/wardendb"
 	"github.com/stretchr/testify/require"
 )
+
+func TestVerifySchema3OwnershipAuthenticatesStartedTarget(t *testing.T) {
+	ctx := context.Background()
+	tr, old, target := schema3Fixture(t)
+	self, err := os.Executable()
+	require.NoError(t, err)
+	bytes, err := os.ReadFile(self)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(target, bytes, 0o755))
+	beginSchema3Fixture(t, tr, old, target)
+	require.NoError(t, tr.promote(ctx))
+	require.NoError(t, tr.handoff())
+	require.NoError(t, VerifySchema3Ownership(ctx, tr.dir, tr.id, tr.manifest.TargetBinaryHash, tr.manifestHash))
+	for _, mutate := range []func(){
+		func() { tr.manifestHash = "sha256:wrong" },
+		func() { tr.manifestHash = "" },
+	} {
+		mutate()
+		require.Error(t, VerifySchema3Ownership(ctx, tr.dir, tr.id, tr.manifest.TargetBinaryHash, tr.manifestHash))
+	}
+}
 
 func schema3Fixture(t *testing.T) (*schema3Transaction, string, string) {
 	t.Helper()
@@ -30,6 +52,13 @@ func schema3Fixture(t *testing.T) (*schema3Transaction, string, string) {
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 	require.NoError(t, schema.Save(dir, &schema.Ledger{SchemaVersion: 2, BinaryVersion: "old-test", History: []schema.HistoryEntry{}}))
+	// Materialize the complete schema-2 runtime registry before sealing the
+	// fixture. A real waypoint has opened every store already; a sparse staging
+	// DB would make the target's harmless empty-collection registrations look
+	// like post-promotion writes to the released finalizer.
+	stores, err := storage.OpenSchema2ForMigrationVerification(dir)
+	require.NoError(t, err)
+	require.NoError(t, stores.Close())
 	old, newBin := filepath.Join(t.TempDir(), "warden"), filepath.Join(t.TempDir(), "target")
 	require.NoError(t, os.WriteFile(old, []byte("old binary"), 0755))
 	require.NoError(t, os.WriteFile(newBin, []byte("target binary"), 0755))

@@ -132,16 +132,16 @@ func TestActualSchema2CodecsPreserveBusinessFields(t *testing.T) {
 	}
 }
 func TestFullCatalogueClassified(t *testing.T) {
-	require.ElementsMatch(t, wardendb.Catalogue(), keys(sourceCollections))
+	require.ElementsMatch(t, wardendb.Catalogue(), append(keys(sourceCollections), "plan_tasks"))
 	g := fixture()
-	for _, name := range wardendb.Catalogue() {
+	for _, name := range keys(sourceCollections) {
 		if g[name] == nil {
 			g[name] = map[string]Object{}
 		}
 	}
 	_, r, err := Map(g)
 	require.NoError(t, err)
-	require.Len(t, r.Source, len(wardendb.Catalogue()))
+	require.Len(t, r.Source, len(sourceCollections))
 }
 func TestPhysicalStagingAndRawReader(t *testing.T) {
 	g := fixture()

@@ -88,7 +88,7 @@ import (
 const DirName = "warden-db"
 
 // SchemaVersion is the schema generation this handle hosts.
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 // ErrClosed is returned by every use of a DB, or of anything obtained from
 // it, after Close has begun retiring it.

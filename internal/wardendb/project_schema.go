@@ -12,7 +12,7 @@ import (
 	"github.com/srjn45/scriva"
 )
 
-const projectSchemaVersion = 2
+const projectSchemaVersion = 3
 
 // ProjectRecord is the canonical project header. Membership is discovered by
 // indexed child project_id fields, never by arrays stored here.

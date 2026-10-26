@@ -76,7 +76,7 @@ func TestModeSelection(t *testing.T) {
 }
 
 func TestOpenRequiresExactCommittedFormat(t *testing.T) {
-	for _, version := range []int{0, 3, 4} {
+	for _, version := range []int{0, wardendb.SchemaVersion + 1} {
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
 			d := t.TempDir()
 			require.NoError(t, os.MkdirAll(wardendb.Dir(d), 0700))
@@ -165,7 +165,11 @@ func TestStoreBehaviorParityAcrossModes(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s, _ := openMode(t, shared)
 
-			require.NoError(t, s.Agents.Create(ctx, &agentstore.Agent{ID: "a1", Name: "worker", Status: store.StatusWorking}))
+			agent := &agentstore.Agent{ID: "a1", Name: "worker", Status: store.StatusWorking}
+			if shared {
+				agent.Scope = "system"
+			}
+			require.NoError(t, s.Agents.Create(ctx, agent))
 			got, err := s.Agents.GetByNameOrID(ctx, "worker")
 			require.NoError(t, err)
 			require.Equal(t, "a1", got.ID)
@@ -407,7 +411,14 @@ func TestCollectionConfigParity(t *testing.T) {
 	for _, i := range infos {
 		got[i.Name] = i.Version
 	}
-	require.Equal(t, want, got)
+	// Schema 3 replaces the legacy inverse-codec registrations. Its runtime
+	// deliberately retires autopilots and archived_agents and materializes the
+	// child collections instead of registering the schema-2 projections.
+	require.NotContains(t, got, "autopilots")
+	require.NotContains(t, got, "archived_agents")
+	for _, n := range []string{"agents", "projects", "project_groups", "pipelines", "pipeline_jobs", "plans", "plan_tasks", "autopilot_runs"} {
+		require.Equal(t, 3, got[n], n)
+	}
 
 	// autopilots and autopilot_runs stay distinct collections with their own
 	// index sets.
@@ -423,10 +434,8 @@ func TestCollectionConfigParity(t *testing.T) {
 		sort.Strings(out)
 		return out
 	}
-	runs, defs := idx("autopilot_runs"), idx("autopilots")
+	runs := idx("autopilot_runs")
 	require.Contains(t, runs, "sidx_run_id.json")
-	require.Contains(t, defs, "sidx_id.json")
-	require.NotContains(t, defs, "sidx_run_id.json")
 	require.NotContains(t, runs, "sidx_id.json")
 }
 
@@ -572,15 +581,15 @@ func TestUnifiedAuditAlsoAppendsToAuditJSONL(t *testing.T) {
 	require.Equal(t, "spawn", file[0].Action)
 }
 
-// A fresh install starts directly on schema 2: boot stamps the ledger at 2,
+// A fresh install starts directly on schema 3: boot stamps the ledger at 3,
 // Open creates only warden-db (no schema-1 store directories), and a restart
 // keeps working without any migration.
-func TestFreshInstallStartsOnSchema2(t *testing.T) {
+func TestFreshInstallStartsOnSchema3(t *testing.T) {
 	d := filepath.Join(t.TempDir(), "data")
 	res, err := schema.Boot(d, "11.0.0")
 	require.NoError(t, err)
 	require.True(t, res.Stamped)
-	require.Equal(t, schema.Schema2, res.Ledger.SchemaVersion)
+	require.Equal(t, schema.SchemaVersion, res.Ledger.SchemaVersion)
 	require.Equal(t, schema.MigrationBaselineFresh, res.Ledger.History[0].Migration)
 
 	for round := 0; round < 2; round++ { // second round = restart
@@ -588,7 +597,7 @@ func TestFreshInstallStartsOnSchema2(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, s.DB)
 		if round == 0 {
-			require.NoError(t, s.Agents.Create(context.Background(), &agentstore.Agent{ID: "a1", Name: "n", Status: store.StatusWorking}))
+			require.NoError(t, s.Agents.Create(context.Background(), &agentstore.Agent{ID: "a1", Name: "n", Scope: "system", Status: store.StatusWorking}))
 		} else {
 			_, err := s.Agents.Get(context.Background(), "a1")
 			require.NoError(t, err)

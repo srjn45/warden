@@ -29,7 +29,7 @@ func (c *Controller) TeardownLive(ctx context.Context, id string) error {
 		}
 		delete(c.runs, id)
 	}
-	if c.store != nil {
+	if c.store != nil && !c.store.IsSchema3() {
 		_ = c.store.Delete(id) // best-effort; plan-bound runs may lack a RunRecord
 	}
 	if c.live != nil {

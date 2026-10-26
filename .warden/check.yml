@@ -6,5 +6,5 @@ check:
   lint:  go vet ./...
   fmt:   test -z "$(gofmt -l $(git ls-files '*.go'))" || { gofmt -l $(git ls-files '*.go'); false; }
   build: go build ./...
-  schema3: go test ./internal/migrate/schema3 ./internal/updater
-  schema3-binary-boundary: WARDEN_SCHEMA3_BINARY_ACCEPTANCE=1 go test ./internal/updater -run '^TestSchema3ActualBinaryBoundary$' -count=1
+  schema3: go test ./internal/migrate/schema3 ./internal/updater ./internal/agentstore ./internal/planstore ./internal/pipeline ./internal/projectstore ./internal/wardendb
+  schema3-binary-boundary: WARDEN_SCHEMA3_BINARY_ACCEPTANCE=1 go test ./internal/updater -run '^(TestSchema3ActualBinaryBoundary|TestSchema3ReleasedWaypointUpdaterAcceptance)$' -count=1

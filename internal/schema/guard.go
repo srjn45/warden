@@ -140,11 +140,11 @@ func (e *GuardError) Error() string {
 			"finish it with `warden migrate --resume`, or go back to the pre-migration snapshot with `warden migrate --restore`",
 			what, e.DataDir)
 	case VerdictSchema2Residue:
-		return fmt.Sprintf("refusing to start: data dir %s holds %s/ but its schema ledger is at schema %d, not %d\n"+
-			"this looks like a schema-2 migration that did not finish, or a ledger restored over migrated data. "+
+		return fmt.Sprintf("refusing to start: data dir %s holds %s/ but its schema ledger is at schema %d, while this warden requires schema %d\n"+
+			"this looks like a migration that did not finish, or a ledger restored over migrated data. "+
 			"Nothing was opened or changed. Run `warden migrate --plan` to inspect; do not delete %s/ or the "+
 			"legacy stores by hand — the pre-migration backup under %s is the rollback source",
-			e.DataDir, WardenDBDir, e.Ledger.SchemaVersion, Schema2, WardenDBDir, filepath.Join(e.DataDir, "backups"))
+			e.DataDir, WardenDBDir, e.Ledger.SchemaVersion, e.Binary, WardenDBDir, filepath.Join(e.DataDir, "backups"))
 	}
 	return head
 }
@@ -202,7 +202,11 @@ func Boot(dataDir, binaryVersion string) (BootResult, error) {
 		}
 		res.StampErr = err
 	}
-	if err := Check(dataDir, l); err != nil {
+	if l != nil && l.MigrationInterrupted() {
+		if err := PendingSchema3TargetAuthorized(dataDir, l); err != nil {
+			return BootResult{}, Check(dataDir, l)
+		}
+	} else if err := Check(dataDir, l); err != nil {
 		return BootResult{}, err
 	}
 	if l != nil && l.SchemaVersion >= Schema2 {

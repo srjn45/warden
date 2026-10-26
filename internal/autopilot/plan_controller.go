@@ -129,6 +129,9 @@ func (c *Controller) StartFromPlan(ctx context.Context, req PlanStartRequest) (P
 	if strings.TrimSpace(req.PlanID) == "" {
 		return PlanStartResult{}, ErrPlanIDRequired
 	}
+	if c.store != nil && c.store.IsSchema3() {
+		return c.startOwnedFromPlanLocked(ctx, req)
+	}
 	if c.live == nil {
 		return PlanStartResult{}, errors.New("autopilot: live Autopilot store not configured")
 	}
@@ -362,6 +365,10 @@ func (c *Controller) adoptLiveLocked(ctx context.Context, a *autopilotstore.Auto
 // Used by the project-tree projection. Nil/empty when the live store is unset.
 func (c *Controller) LiveAutopilots(ctx context.Context) ([]*autopilotstore.Autopilot, error) {
 	c.mu.Lock()
+	if c.store != nil && c.store.IsSchema3() {
+		defer c.mu.Unlock()
+		return c.ownedRunViews(ctx)
+	}
 	live := c.live
 	c.mu.Unlock()
 	if live == nil {
@@ -375,6 +382,18 @@ func (c *Controller) LiveAutopilots(ctx context.Context) ([]*autopilotstore.Auto
 // across a daemon restart without re-Registering plan files.
 func (c *Controller) RecoverLiveAutopilots(ctx context.Context) error {
 	c.mu.Lock()
+	if c.store != nil && c.store.IsSchema3() {
+		defer c.mu.Unlock()
+		for _, r := range c.runs {
+			if r.planID == "" {
+				continue
+			}
+			if err := c.hydratePlanFromSource(ctx, r); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	live := c.live
 	if live == nil || c.liveBootInFlight {
 		c.mu.Unlock()
@@ -485,13 +504,14 @@ func (c *Controller) SpawnOnDemandBrain(ctx context.Context, spec ConsultBrainSp
 		return BrainHandle{}, ErrRunNotFound
 	}
 	handle, err := cbr.SpawnConsultBrain(ctx, ConsultBrainRuntimeSpec{
-		RunID:    r.runID,
-		PlanID:   r.planID,
-		Repo:     r.repo,
-		Prompt:   spec.Prompt,
-		Backend:  spec.Backend,
-		Tags:     []string{autopilotTag, runTag(r.runID), "system:true"},
-		Headless: true,
+		RunID:     r.runID,
+		PlanID:    r.planID,
+		ProjectID: r.projectID,
+		Repo:      r.repo,
+		Prompt:    spec.Prompt,
+		Backend:   spec.Backend,
+		Tags:      []string{autopilotTag, runTag(r.runID), "system:true"},
+		Headless:  true,
 	})
 	if err != nil {
 		return BrainHandle{}, err
@@ -589,13 +609,14 @@ func managerIDOf(r *run) string {
 
 // ConsultBrainRuntimeSpec is the runtime request for an on-demand brain Agent.
 type ConsultBrainRuntimeSpec struct {
-	RunID    string
-	PlanID   string
-	Repo     string
-	Prompt   string
-	Backend  string
-	Tags     []string
-	Headless bool
+	RunID     string
+	PlanID    string
+	ProjectID string
+	Repo      string
+	Prompt    string
+	Backend   string
+	Tags      []string
+	Headless  bool
 }
 
 // ConsultBrainRuntime is the optional Runtime seam for on-demand brain Agents.

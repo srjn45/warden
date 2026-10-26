@@ -76,6 +76,7 @@ type EventPayload struct {
 // the "plan-events" ScrivaDB collection. Appending the same dedup key twice is
 // silently idempotent.
 type PlanExecutionEvent struct {
+	ProjectID   string        `json:"project_id,omitempty"`
 	ID          string        `json:"id"`                  // stable event ID
 	DedupKey    string        `json:"dedup_key,omitempty"` // alternative stable dedup key
 	PlanID      string        `json:"plan_id"`             // parent plan
@@ -89,6 +90,7 @@ type PlanExecutionEvent struct {
 // ExecutionNote is an attributed prose note written by an agent. Notes are
 // separate from typed PlanExecutionEvents and NEVER overwrite factual fields.
 type ExecutionNote struct {
+	ProjectID   string    `json:"project_id,omitempty"`
 	ID          string    `json:"id"`
 	PlanID      string    `json:"plan_id"`
 	ExecutionID string    `json:"execution_id"`

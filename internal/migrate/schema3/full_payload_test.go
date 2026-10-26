@@ -123,6 +123,10 @@ func TestActualSchema2FullAgentTerminalAndJobPayloads(t *testing.T) {
 	a.AutopilotRunID = ""
 	a.AutopilotTaskID = ""
 	a.AutopilotSlot = ""
+	a.Scope = ""
+	a.Lifecycle = ""
+	a.ArchivedAt = nil
+	a.ClosedAt = nil
 	a.ChildAgents = nil
 	a.ChildPipelines = nil
 	a.ChildAutopilots = nil

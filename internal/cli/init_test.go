@@ -2,14 +2,12 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/srjn45/warden/internal/migrate"
 	"github.com/srjn45/warden/internal/schema"
 )
 
@@ -30,7 +28,6 @@ func TestInitCmd_FreshDataDir(t *testing.T) {
 	l, err := schema.Load(dataDir)
 	require.NoError(t, err)
 	require.Equal(t, schema.SchemaVersion, l.SchemaVersion)
-	require.Equal(t, schema.Schema2, l.SchemaVersion)
 	for _, legacy := range []string{"agents-db", "context", "inbox", "plans", "projects"} {
 		require.NoDirExists(t, filepath.Join(dataDir, legacy), "fresh schema-2 init must not create legacy store dir %s", legacy)
 	}
@@ -59,23 +56,15 @@ func TestInitCmd_LegacyDataDir(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetArgs([]string{"--data-dir=" + dataDir, "--json"})
 
-	require.NoError(t, cmd.Execute())
-
-	var res initOutput
-	require.NoError(t, json.Unmarshal(out.Bytes(), &res))
-	require.Equal(t, "ok", res.Status)
-	require.Equal(t, dataDir, res.DataDir)
-	require.True(t, res.Stamped)
-	require.True(t, res.Migrated, "a stamped schema-1 install is cut over to warden-db by init")
-	require.Equal(t, schema.Schema2, res.SchemaVersion)
-
-	// Ledger recorded baseline-legacy, then the verified cutover
+	err := cmd.Execute()
+	require.ErrorContains(t, err, "requires the matching warden update transaction")
+	// Init may stamp an unambiguous legacy baseline, but it must not attempt a
+	// standalone schema-3 write. The paired updater owns that transition.
 	l, err := schema.Load(dataDir)
 	require.NoError(t, err)
-	require.Equal(t, schema.Schema2, l.SchemaVersion)
+	require.Equal(t, schema.LegacyBaseline, l.SchemaVersion)
 	require.Nil(t, l.InProgress)
 	require.Equal(t, schema.MigrationBaselineLegacy, l.History[0].Migration)
-	require.Equal(t, migrate.Migration0002ID, l.History[len(l.History)-1].Migration)
-	require.DirExists(t, filepath.Join(dataDir, schema.WardenDBDir))
-	require.DirExists(t, filepath.Join(dataDir, "backups"), "the immutable pre-schema-2 backup must exist")
+	require.NoDirExists(t, filepath.Join(dataDir, schema.WardenDBDir))
+	require.NoDirExists(t, filepath.Join(dataDir, "backups"))
 }

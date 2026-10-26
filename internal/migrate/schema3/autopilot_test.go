@@ -1,6 +1,8 @@
 package schema3
 
 import (
+	"encoding/json"
+	"github.com/srjn45/warden/internal/autopilot"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
@@ -131,4 +133,55 @@ func TestMappingHistoricalDispatchBecomesPlanEvidence(t *testing.T) {
 	require.Equal(t, "landed", object(object(history["task_dispatch"])["old-task"])["state"])
 	require.NotContains(t, out["plan_tasks"], Tuple("plan", "old-task"))
 	require.Equal(t, object(list(p["execution_history"])[0])["snapshot"], history["snapshot"])
+}
+
+const realSurfacePayload = `{"last_diagnosis":{"action":"nudge","confidence":0.82,"rationale":"idle manager","source":"heuristic","outcome":"applied","at":"2026-01-03T10:00:00Z"},` +
+	`"resolver":{"attempts":2,"last_class":"red_gate","last_task":"a","last_branch":"work","last_outcome":"started","last_at":"2026-01-03T11:00:00Z"},` +
+	`"final_pr":{"number":42,"url":"https://github.com/o/r/pull/42","head_sha":"abc123","gate":"green","fix_attempts":1,"state":"open"},` +
+	`"awaiting_merge":{"since":"2026-01-03T12:00:00Z","green_sha":"abc123","notified":true,"pr":42},` +
+	`"verified":true,"final_notified":true}`
+
+func TestMappingSurfaceFoldedLosslesslyIntoRunRecord(t *testing.T) {
+	g := autopilotFixture()
+	g["context_entries"]["autopilot.run.surface"] = Object{"key": "autopilot.run.surface", "value": realSurfacePayload, "updated_by": "daemon-surface"}
+	out, r, err := Map(g)
+	require.NoError(t, err, string(encode(r.Findings)))
+	require.NotContains(t, out["context_entries"], "autopilot.run.surface")
+	run := out["autopilot_runs"]["run"]
+	var want Object
+	require.NoError(t, json.Unmarshal([]byte(realSurfacePayload), &want))
+	for _, f := range keys(want) {
+		require.Equal(t, want[f], run[f], f)
+	}
+	// Round trip: the migrated record decodes into the typed RunRecord and
+	// re-encodes to the identical surface payload.
+	var rec autopilot.RunRecord
+	require.NoError(t, json.Unmarshal(encode(run), &rec))
+	require.Equal(t, 42, rec.FinalPR.Number)
+	require.Equal(t, "nudge", rec.LastDiagnosis.Action)
+	require.Equal(t, 2, rec.Resolver.Attempts)
+	require.True(t, rec.AwaitingMerge.Notified)
+	require.True(t, rec.Verified && rec.FinalNotified)
+	again, err := json.Marshal(rec)
+	require.NoError(t, err)
+	var back Object
+	require.NoError(t, json.Unmarshal(again, &back))
+	for _, f := range keys(want) {
+		require.Equal(t, want[f], back[f], f)
+	}
+}
+
+func TestMappingSurfaceFailsClosed(t *testing.T) {
+	for name, payload := range map[string]string{
+		"unknown top-level": `{"verified":true,"mystery":1}`,
+		"unknown nested":    `{"final_pr":{"number":1,"gate":"green","extra":"x"}}`,
+		"wrong type":        `{"awaiting_merge":"yes"}`,
+		"not json":          `nope`,
+	} {
+		g := autopilotFixture()
+		g["context_entries"]["autopilot.run.surface"] = Object{"key": "autopilot.run.surface", "value": payload}
+		_, r, err := Map(g)
+		require.Error(t, err, name)
+		require.True(t, r.Blocked(), name)
+	}
 }

@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -48,6 +50,62 @@ import (
 	"github.com/srjn45/warden/internal/storage"
 	"github.com/srjn45/warden/internal/store"
 )
+
+// finalizedSchema3Readiness verifies that the same sealed transaction which
+// authorized this process has been finalized by the paired updater.  Merely
+// observing an arbitrary ledger with no InProgress marker would let a replaced
+// or partially restored generation release writers.
+func finalizedSchema3Readiness(l *schema.Ledger, pending schema.InProgress, targetVersion string) error {
+	if l == nil || l.SchemaVersion != schema.SchemaVersion || l.BinaryVersion != targetVersion || l.InProgress != nil {
+		return fmt.Errorf("schema3 readiness ledger has not been finalized")
+	}
+	journal := pending.Journal
+	if journal == "" || filepath.Base(journal) != ".schema3-transaction-"+pending.TransactionID+".jsonl" {
+		return fmt.Errorf("schema3 readiness journal identity changed")
+	}
+	f, err := os.Open(journal)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+		return fmt.Errorf("schema3 readiness journal is unsafe")
+	}
+	lastByte := []byte{0}
+	if _, err := f.ReadAt(lastByte, info.Size()-1); err != nil || lastByte[0] != '\n' {
+		return fmt.Errorf("schema3 readiness journal is unterminated")
+	}
+	var last struct {
+		Transaction string `json:"transaction"`
+		Manifest    string `json:"manifest_hash"`
+		Target      string `json:"target_binary_sha256"`
+		Step        string `json:"step"`
+		Complete    bool   `json:"complete"`
+	}
+	s := bufio.NewScanner(f)
+	found := false
+	for s.Scan() {
+		var r struct {
+			Transaction string `json:"transaction"`
+			Manifest    string `json:"manifest_hash"`
+			Target      string `json:"target_binary_sha256"`
+			Step        string `json:"step"`
+			Complete    bool   `json:"complete"`
+		}
+		if err := json.Unmarshal(s.Bytes(), &r); err != nil {
+			return fmt.Errorf("schema3 readiness journal is invalid: %w", err)
+		}
+		last, found = r, true
+	}
+	if err := s.Err(); err != nil {
+		return err
+	}
+	if !found || last.Transaction != pending.TransactionID || last.Manifest != pending.ManifestSHA256 || last.Target != pending.TargetBinarySHA256 || last.Step != "readiness_verified" || !last.Complete {
+		return fmt.Errorf("schema3 readiness finalization record missing")
+	}
+	return nil
+}
 
 // requireTokenForNonLoopback rejects a non-loopback bind that has no bearer
 // token. A token is mandatory for any non-loopback address (audit #7): serving
@@ -172,6 +230,18 @@ func newDaemonRunCmd() *cobra.Command {
 				slog.Info("schema: stamped data-format ledger", "path", schema.Path(cfg.DataDir),
 					"schema_version", schemaBoot.Ledger.SchemaVersion, "baseline", schemaBoot.Ledger.History[0].Migration)
 			}
+			// A schema-3 target launched by the paired updater may serve only its
+			// readiness proof until the released waypoint finalizes the transaction.
+			// That finalizer verifies the exact promoted tree, so startup repair or
+			// reconciliation writes would make a valid target look tampered with.
+			sealedReadiness := schemaBoot.Ledger.MigrationInterrupted()
+			var readinessGate chan struct{}
+			var pendingReadiness schema.InProgress
+			if sealedReadiness {
+				readinessGate = make(chan struct{})
+				pendingReadiness = *schemaBoot.Ledger.InProgress
+				slog.Info("schema3: sealed readiness boot; deferred writers until updater finalization")
+			}
 
 			stores, err := storage.Open(cfg.DataDir)
 			if err != nil {
@@ -287,13 +357,18 @@ func newDaemonRunCmd() *cobra.Command {
 			pl.SetRecognizePrompts(cfg.RecognizePrompts)
 			knownStore := stores.KnownPrompts
 			knownStore.SetLimits(cfg.KnownPromptsMax, time.Duration(cfg.KnownPromptsPruneDays)*24*time.Hour)
-			knownStore.Prune()
+			if !sealedReadiness {
+				knownStore.Prune()
+			}
 			pl.Known = knownStore
 			pstore := stores.Pipelines
 			if err := daemon.HardenDataDir(cfg.DataDir); err != nil {
 				return err
 			}
 			srv := daemon.NewServer(st, life, pl, 10*time.Second, cfg.ApprovalsEnabled, cstore, mbox, nil)
+			if readinessGate != nil {
+				srv.SetReadinessGate(readinessGate)
+			}
 			srv.SetVersion(version)
 			srv.SetSchemaVersion(schemaBoot.Ledger.SchemaVersion)
 			srv.SetTerminals(termStore)
@@ -366,8 +441,10 @@ func newDaemonRunCmd() *cobra.Command {
 			// history (backup-first, audited); ambiguous history fails startup with
 			// a typed *backendstore.RecoveryRequiredError naming the repair command.
 			backendStore := stores.Backends
-			if rerr := backendstore.Reconcile(backendStore, agentbackend.Detect(), time.Now()); rerr != nil {
-				return rerr
+			if !sealedReadiness {
+				if rerr := backendstore.Reconcile(backendStore, agentbackend.Detect(), time.Now()); rerr != nil {
+					return rerr
+				}
 			}
 			srv.SetBackends(backendStore)
 			if fbCandidates != nil {
@@ -482,7 +559,9 @@ func newDaemonRunCmd() *cobra.Command {
 			apCtrl := autopilot.NewController(apCfg, nil)
 			defer apCtrl.Close()
 			apCtrl.SetFastBrain(lc.FastBrain)
-			srv.SetAutopilotController(apCtrl)
+			if !sealedReadiness {
+				srv.SetAutopilotController(apCtrl)
+			}
 			// Plugin system (#47): only wired when the operator opts in (plugins
 			// execute external code). On a config error we log and continue with
 			// plugins off rather than refusing to start the daemon. Once loaded,
@@ -602,8 +681,10 @@ func newDaemonRunCmd() *cobra.Command {
 				}
 				recoveryCoordinator.ArmEvidence(sess.ID, ev)
 			}
-			if err := recoveryCoordinator.Reconstruct(context.Background()); err != nil {
-				slog.Warn("backend recovery reconstruction failed", "err", err)
+			if !sealedReadiness {
+				if err := recoveryCoordinator.Reconstruct(context.Background()); err != nil {
+					slog.Warn("backend recovery reconstruction failed", "err", err)
+				}
 			}
 			// Rate-limit transitions from the poller are handled via
 			// OnRateLimitObservation (wired below) so the scheduler receives the fresh
@@ -632,8 +713,10 @@ func newDaemonRunCmd() *cobra.Command {
 			pl.OnAnomaly = daemon.NotifyOnAnomaly(notifSwitch)
 
 			// Reconstruct rate limit timers from persisted state
-			if err := rateLimitSched.ReconstructTimers(ctx); err != nil {
-				slog.Warn("daemon: failed to reconstruct rate limit timers", "err", err)
+			if !sealedReadiness {
+				if err := rateLimitSched.ReconstructTimers(ctx); err != nil {
+					slog.Warn("daemon: failed to reconstruct rate limit timers", "err", err)
+				}
 			}
 
 			// Config hot-reload (feature 3): re-apply ~/.warden/config.yaml live on
@@ -680,18 +763,26 @@ func newDaemonRunCmd() *cobra.Command {
 			// inferred — only stamped at live run-create. Idempotent one-shot; best-effort,
 			// so a failure logs and never blocks boot. Runs in-process here so there is
 			// no writer contention.
-			if rep, rerr := daemon.ReconcileProjectMembership(ctx, st, pstore, planStore, projectStore); rerr != nil {
-				slog.Warn("daemon: project membership reconcile failed", "err", rerr)
+			reconcileMembership := func() {
+				if rep, rerr := daemon.ReconcileProjectMembership(ctx, st, pstore, planStore, projectStore); rerr != nil {
+					slog.Warn("daemon: project membership reconcile failed", "err", rerr)
+					return
+				} else {
+					for _, c := range rep.Conflicts {
+						slog.Warn("daemon: membership identity conflict left untouched", "kind", c.Kind, "id", c.ID, "detail", c.Detail)
+					}
+					if rep.Changed() {
+						slog.Info("daemon: project membership reconciled",
+							"sessions_stamped", rep.SessionsStamped,
+							"pipelines_stamped", rep.PipelinesStamped,
+							"projects_rebuilt", rep.ProjectsRebuilt)
+					}
+				}
+			}
+			if sealedReadiness {
+				slog.Info("schema3: deferred project membership reconcile until updater finalization")
 			} else {
-				for _, c := range rep.Conflicts {
-					slog.Warn("daemon: membership identity conflict left untouched", "kind", c.Kind, "id", c.ID, "detail", c.Detail)
-				}
-				if rep.Changed() {
-					slog.Info("daemon: project membership reconciled",
-						"sessions_stamped", rep.SessionsStamped,
-						"pipelines_stamped", rep.PipelinesStamped,
-						"projects_rebuilt", rep.ProjectsRebuilt)
-				}
+				reconcileMembership()
 			}
 
 			// Live Autopilot entity store (plan-execution-entity-redesign): migrate
@@ -702,8 +793,47 @@ func newDaemonRunCmd() *cobra.Command {
 			if planStore != nil {
 				apCtrl.SetPlanSource(planStore)
 			}
-			if rerr := apCtrl.RecoverLiveAutopilots(ctx); rerr != nil {
-				slog.Warn("daemon: live Autopilot recovery failed", "err", rerr)
+			if !sealedReadiness {
+				if rerr := apCtrl.RecoverLiveAutopilots(ctx); rerr != nil {
+					slog.Warn("daemon: live Autopilot recovery failed", "err", rerr)
+				}
+			}
+			if sealedReadiness {
+				go func() {
+					ticker := time.NewTicker(100 * time.Millisecond)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-ctx.Done():
+							return
+						case <-ticker.C:
+							ledger, err := schema.Load(cfg.DataDir)
+							if err != nil || finalizedSchema3Readiness(ledger, pendingReadiness, schemaBoot.Ledger.BinaryVersion) != nil {
+								continue
+							}
+							// The released updater has cleared its exact-generation proof.
+							// Run every deferred writer before releasing API/background work.
+							knownStore.Prune()
+							if err := backendstore.Reconcile(backendStore, agentbackend.Detect(), time.Now()); err != nil {
+								slog.Warn("daemon: deferred backend reconcile failed", "err", err)
+								continue
+							}
+							if err := recoveryCoordinator.Reconstruct(context.Background()); err != nil {
+								slog.Warn("backend recovery reconstruction failed", "err", err)
+							}
+							if err := rateLimitSched.ReconstructTimers(ctx); err != nil {
+								slog.Warn("daemon: failed to reconstruct rate limit timers", "err", err)
+							}
+							reconcileMembership()
+							srv.SetAutopilotController(apCtrl)
+							if err := apCtrl.RecoverLiveAutopilots(ctx); err != nil {
+								slog.Warn("daemon: live Autopilot recovery failed", "err", err)
+							}
+							close(readinessGate)
+							return
+						}
+					}
+				}()
 			}
 
 			slog.Info("warden daemon listening", "addr", cfg.Addr)
