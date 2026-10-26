@@ -44,8 +44,8 @@ func claudeResume(sessionID, name, model, mode string) string {
 	})
 	return cmd
 }
+
 func pipelineHint() string       { return defaultLC().pipelineHint(agentbackend.Default()) }
-func collabHint() string         { return defaultLC().collabHint(agentbackend.Default()) }
 func gitConventionsHint() string { return defaultLC().gitConventionsHint(agentbackend.Default()) }
 
 func TestClaudeLaunchPermissionMode(t *testing.T) {
@@ -135,7 +135,7 @@ func TestSpawnDevelopmentCreatesWorktreeTmuxAndDoc(t *testing.T) {
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", "PROJ-350", "-e", "WARDEN_SESSION_ID=PROJ-350", "-e", "AGENTCTL_SESSION_ID=PROJ-350", "-c", "/repo/.worktrees/PROJ-350"})
 	// Launch claude UNATTENDED, with a pinned session id and display name.
 	require.NotEmpty(t, s.AICLISessionID)
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.AICLISessionID, "PROJ-350", "", "auto") + pipelineHint() + collabHint() + gitConventionsHint(), "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", claudeLaunch(s.AICLISessionID, "PROJ-350", "", "auto") + pipelineHint() + gitConventionsHint(), "Enter"})
 }
 
 // TestSpawnLaunchStringByteIdentical is the Phase-0 exit gate: the claude command
@@ -157,7 +157,7 @@ func TestSpawnLaunchStringByteIdentical(t *testing.T) {
 	// claude --model <default> --permission-mode <default> --session-id '<uuid>' --name <id>
 	prefix := "claude --model 'claude-sonnet-4-6' --permission-mode 'auto' --session-id '" +
 		s.AICLISessionID + "' --name 'PROJ-350'"
-	want := prefix + pipelineHint() + collabHint() + gitConventionsHint()
+	want := prefix + pipelineHint() + gitConventionsHint()
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", "PROJ-350", want, "Enter"})
 }
 
@@ -180,7 +180,7 @@ func TestSpawnTypedSeedsPromptArg(t *testing.T) {
 	promptFile := "/state/prompts/" + s.ID
 	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `umask 077; printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
 	// …and passed to claude as the positional "$(cat …)" argument on launch.
-	launch := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + gitConventionsHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	launch := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + gitConventionsHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 }
 
@@ -260,7 +260,7 @@ func TestSpawnFileBacksSystemPromptHints(t *testing.T) {
 	// The three enabled hints are joined (blank line between) and written to the
 	// per-agent hints file, 0600 via umask 077, through the runner.
 	hintFile := "/state/hints/" + s.ID
-	wantText := pipelineHintGuidance + "\n\n" + collabHintGuidance + "\n\n" + gitConventionsGuidance
+	wantText := pipelineHintGuidance + "\n\n" + gitConventionsGuidance
 	require.Contains(t, fr.calledArgs(),
 		[]string{"sh", "-c", `umask 077; printf '%s' "$1" > "$2"`, "sh", wantText, hintFile})
 
@@ -272,7 +272,6 @@ func TestSpawnFileBacksSystemPromptHints(t *testing.T) {
 	// Regression guard: the typed launch line must stay well under the 1024-byte
 	// macOS/BSD canonical-mode limit (the inline form was ~1126 B and truncated).
 	require.Less(t, len(launch), 1024, "file-backed launch line must fit the tty line limit")
-	require.NotContains(t, launch, collabHintGuidance, "guidance text must not be inlined on the command line")
 }
 
 func TestSpawnRemovesCreatedWorktreeWhenTmuxFails(t *testing.T) {
@@ -428,7 +427,7 @@ func TestSpawnInRepoOptOutRunsInRepoWithAutoID(t *testing.T) {
 	}
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "new-session", "-d", "-s", s.ID, "-e", "WARDEN_SESSION_ID=" + s.ID, "-e", "AGENTCTL_SESSION_ID=" + s.ID, "-c", "/repo"})
 	require.NotEmpty(t, s.AICLISessionID)
-	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + gitConventionsHint(), "Enter"})
+	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + gitConventionsHint(), "Enter"})
 }
 
 func TestSpawnWriteTypeIsolatesByDefault(t *testing.T) {
@@ -926,7 +925,7 @@ func TestSpawnPromptModeLaunchesFromCwd(t *testing.T) {
 	promptFile := "/state/prompts/" + s.ID
 	require.Contains(t, fr.calledArgs(), []string{"mkdir", "-m", "700", "-p", "/state/prompts"})
 	require.Contains(t, fr.calledArgs(), []string{"sh", "-c", `umask 077; printf '%s' "$1" > "$2"`, "sh", prompt, promptFile})
-	launch := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	launch := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 }
 
@@ -974,7 +973,7 @@ func TestSpawnPromptModeMultilinePromptIsFileBacked(t *testing.T) {
 
 	// The launch line is a single physical line; the multi-line prompt is read
 	// back via $(cat …) so no embedded newline is ever typed into the pane.
-	launch := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	launch := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})
 	require.NotContains(t, launch, "\n", "the typed launch command must never contain a raw newline")
 }
@@ -1867,7 +1866,7 @@ func TestSpawnInjectsPipelineHint(t *testing.T) {
 	require.NoError(t, err)
 
 	promptFile := "/state/prompts/" + s.ID
-	want := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
+	want := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + ` "$(cat ` + shellQuoteArg(promptFile) + `)"`
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, want, "Enter"})
 	require.Contains(t, want, "--append-system-prompt")
 }
@@ -1909,7 +1908,7 @@ func TestSpawnJobOmitsPipelineHintKeepsCollabHint(t *testing.T) {
 		}
 	}
 	require.NotContains(t, launch, "warden pipeline", "pipeline jobs are already decomposed")
-	require.Contains(t, launch, "who_is_editing_file", "pipeline jobs still get the collab hint")
+	require.NotContains(t, launch, "who_is_editing_file", "retired detector guidance is never injected")
 }
 
 func TestPipelineHint(t *testing.T) {
@@ -1923,21 +1922,6 @@ func TestPipelineHint(t *testing.T) {
 	})
 	t.Run("opt-out via config", func(t *testing.T) {
 		got := New(&FakeRunner{}, &FakeConfig{PipelineHintOff: true}).pipelineHint(agentbackend.Default())
-		require.Equal(t, "", got)
-	})
-}
-
-func TestCollabHint(t *testing.T) {
-	t.Run("on by default", func(t *testing.T) {
-		got := New(&FakeRunner{}, &FakeConfig{}).collabHint(agentbackend.Default())
-		require.Contains(t, got, "--append-system-prompt")
-		require.Contains(t, got, "who_is_editing_file")
-		require.True(t, strings.HasPrefix(got, " "), "leading space so it concatenates onto claudeLaunch output")
-		require.NotContains(t, got, "\n", "must stay a single typed line")
-		require.NotContains(t, collabHintGuidance, "'", "guidance must stay apostrophe-free (comment invariant; keeps the single-quoted shell form clean)")
-	})
-	t.Run("opt-out via config", func(t *testing.T) {
-		got := New(&FakeRunner{}, &FakeConfig{CollabHintOff: true}).collabHint(agentbackend.Default())
 		require.Equal(t, "", got)
 	})
 }
@@ -1963,7 +1947,7 @@ func TestSpawnInteractiveNoPromptLaunchesBareClaude(t *testing.T) {
 	}
 
 	// The launch carries session-id, name, and the hints, but NO cat fragment.
-	expectedLaunch := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + collabHint()
+	expectedLaunch := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint()
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, expectedLaunch, "Enter"})
 
 	// Subject reads cleanly in the agent list instead of being blank.
@@ -2010,7 +1994,7 @@ func TestSpawnAppendsExitSuffix(t *testing.T) {
 	require.NoError(t, err)
 
 	promptFile := "/state/prompts/" + s.ID
-	launch := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + collabHint() +
+	launch := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() +
 		` "$(cat ` + shellQuoteArg(promptFile) + `)"` +
 		" ; printf '%s' \"$?\" > " + shellQuoteArg(filepath.Join(l.ExitsDir, s.ID))
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, launch, "Enter"})

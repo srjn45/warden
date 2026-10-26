@@ -185,7 +185,7 @@ func TestSpawnRolePersistsAndInjectsPersona(t *testing.T) {
 	// The persona is written into the per-agent hints file FIRST (before the
 	// collab/git/pipeline guidance).
 	hintFile := "/state/hints/" + s.ID
-	wantText := persona + "\n\n" + pipelineHintGuidance + "\n\n" + collabHintGuidance + "\n\n" + gitConventionsGuidance
+	wantText := persona + "\n\n" + pipelineHintGuidance + "\n\n" + gitConventionsGuidance
 	require.Contains(t, fr.calledArgs(),
 		[]string{"sh", "-c", `umask 077; printf '%s' "$1" > "$2"`, "sh", wantText, hintFile})
 
@@ -210,7 +210,7 @@ func TestSpawnGeneralRoleInjectsNoPersona(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "", s.Role)
 
-	want := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + collabHint() + gitConventionsHint()
+	want := claudeLaunch(s.AICLISessionID, s.ID, "", "auto") + pipelineHint() + gitConventionsHint()
 	require.Contains(t, fr.calledArgs(), []string{"tmux", "send-keys", "-t", s.ID, want, "Enter"})
 	for _, a := range fr.calledArgs() {
 		if len(a) >= 2 && a[0] == "tmux" && a[1] == "send-keys" {

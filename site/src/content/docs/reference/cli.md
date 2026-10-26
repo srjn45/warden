@@ -36,7 +36,7 @@ Work with a project:
   project              Manage repo-local warden configuration: memory, presets, templates, and plugins
   projects             Inspect and manage daemon-registered projects
   project-groups       Inspect and manage project groups and membership
-  workspace            Inspect and manage warden git worktrees, snapshots, branches, and file collisions
+  workspace            Inspect and manage warden git worktrees, snapshots, and branches
   git                  Commit, push, sync, and review an agent worktree on warden rails
   check                Run project checks and install hook guards
 
@@ -3097,9 +3097,6 @@ One umbrella over warden's workspace operations:
   • CLEAN merged branches and stale worktrees (`wd workspace clean`)
   • SNAPSHOT an agent's worktree + transcript (`wd workspace snapshot`)
   • BRANCHES — per-agent CI and branch-vs-main status (`wd workspace branches`)
-  • CONFLICTS — files edited by more than one agent (`wd workspace conflicts`)
-  • WHO-IS-EDITING — which agents are editing a file (`wd workspace who-is-editing`)
-
 `wd workspace` with no subcommand prints the worktree list (the same view as `wd workspace list`).
 
 Usage:
@@ -3111,8 +3108,6 @@ Commands:
   clean                Delete merged local/origin branches and prune stale worktrees (previews, then asks)
   snapshot             Checkpoint an agent's worktree + transcript, list checkpoints, and restore one
   branches             Per-agent CI + branch-vs-main status
-  conflicts            List files currently being edited by more than one agent
-  who-is-editing       Show which agents are editing a specific file
 
 Flags:
   -h, --help          help for workspace
@@ -3304,38 +3299,6 @@ Usage:
 Flags:
   -h, --help   help for branches
       --json   output the branch statuses as JSON
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden workspace conflicts
-
-```text
-List files currently being edited by more than one agent
-
-Usage:
-  warden workspace conflicts [flags]
-
-Flags:
-  -h, --help   help for conflicts
-
-Inherited flags:
-      --addr string     daemon address (overrides the addr config setting)
-      --config string   config file path (default ~/.warden/config.yaml)
-```
-
-## warden workspace who-is-editing
-
-```text
-Show which agents are editing a specific file
-
-Usage:
-  warden workspace who-is-editing <file> [flags]
-
-Flags:
-  -h, --help   help for who-is-editing
 
 Inherited flags:
       --addr string     daemon address (overrides the addr config setting)
@@ -6314,9 +6277,6 @@ is scheduled for removal — prefer the canonical path in new scripts and docs.
 | `warden branches` | `warden workspace branches` |
 | `warden check ls` | `warden check list` |
 | `warden clean` | `warden workspace clean` |
-| `warden collab` | `warden workspace` |
-| `warden collab conflicts` | `warden workspace conflicts` |
-| `warden collab who-is-editing` | `warden workspace who-is-editing` |
 | `warden cost` | _retained; no canonical equivalent_ |
 | `warden cost savings` | `warden usage savings` |
 | `warden cost spend` | `warden usage spend` |

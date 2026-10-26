@@ -659,14 +659,13 @@ Warden reads all settings from a single YAML file (default `~/.warden/config.yam
 | `auto_approve` | `false` | Auto-answer recognized permission prompts. Bare on/off, or an allow/deny **rule policy** (by tool / glob / regex / paths, with per-agent overrides) — see `warden approval auto set` |
 | `router.use_fast_brain` | `false` | Opt-in prompt-complexity tier routing: for a spawn that pins no tier, task, role, model or ai_cli, Fast-Brain rates the prompt (`tier-1` trivial tweaks / `tier-2` standard / `tier-3` deep refactors) and the router uses it only at confidence ≥ 0.8. Lowest-precedence input; recorded as a `tier-route` event on the agent. Hot-reloaded |
 | `notify.webhook_enabled` / `notify.webhook_url` | `false` / _(empty)_ | POST a JSON payload to `webhook_url` on attention + context-size alerts (a Slack incoming-webhook URL works out of the box); runs alongside `notify.enabled` |
-| `collab.enabled` / `collab.interval` / `collab.git_reconcile_interval` / `collab.hint` | `true` / `10s` / `2m` / `true` | File-conflict detection: fsnotify-first dirty tracking, watch-reconcile interval, git-diff backstop, and the spawn-time coordination hint |
 | `rails.isolation_guard` / `rails.git_redirect` / `rails.check_redirect` / `rails.git_conventions` | `true` | Boundary-enforcement hooks (see [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement)) |
 | `log.level` / `log.format` | `info` / `text` | Daemon log verbosity (`debug`/`info`/`warn`/`error`) and format (`text`/`json`); `warden daemon --log-level`/`--log-format` override |
 | `local_llm.*` | — | **Retired.** Legacy `local_llm` keys still parse but are ignored; Fast-Brain replaced the local Ollama provider (no config needed) |
 
 `warden config` lists every setting, including `worktree.spawn_gate` / `worktree.spawn_gate_max_agents`, `tokens.budget_gate` / `tokens.budget_daily_usd` / `tokens.budget_weekly_usd`, `metrics`, `allow_nonloopback`, `pipeline.keep_done` / `pipeline.hint`, `worktree.keep_done` / `worktree.auto_prune`, the `auto_restart.*` and `rate_limit.*` knobs.
 
-> Related settings are grouped into namespaced blocks (`pipeline.*`, `auto_restart.*`, `collab.*`, `memory.*`, `branch_track.*`, `rate_limit.*`, `http.*`, `log.*`, `plugins.*`, alongside the existing `rails.*` / `tokens.*` / `notify.*` / `worktree.*` / `local_llm.*`). The old flat keys (`collab_enabled`, `log_level`, `memory_inject`, …) still load as **deprecated aliases** — they work but emit a one-time deprecation warning; `warden config` rewrites them into the nested form.
+> Related settings are grouped into namespaced blocks (`pipeline.*`, `auto_restart.*`, `memory.*`, `branch_track.*`, `rate_limit.*`, `http.*`, `log.*`, `plugins.*`, alongside the existing `rails.*` / `tokens.*` / `notify.*` / `worktree.*` / `local_llm.*`). Retired collaboration keys are ignored and removed when the configuration is reconciled; other supported flat keys (such as `log_level` and `memory_inject`) remain deprecated aliases and are rewritten into their nested form.
 
 > **Config namespacing:** Settings are grouped into five YAML blocks — `rails`, `tokens`, `notify`, `worktree` (plus the retired, ignored `local_llm`). Old flat keys (e.g. `token_guard`, `local_llm_url`, `notify`) are still accepted as deprecated aliases and migrate to the namespaced form automatically when `warden config init` is re-run.
 
@@ -1133,17 +1132,6 @@ warden message inbox --as agent-9c1d
 warden message wait --as agent-9c1d --timeout 120   # block in the daemon until a message arrives
 ```
 
-### File-conflict detection — `warden workspace`
-
-The daemon watches each active agent's worktree (fsnotify, with a `git diff` poll as a safety net) and warns — via the inbox, deduplicated — when two agents edit the same file. Spawned agents also get a system-prompt hint to check before editing shared files, so they coordinate rather than overwrite.
-
-```sh
-warden workspace conflicts                 # current cross-agent file conflicts
-warden workspace who-is-editing <file>     # which agents (if any) are touching a file
-```
-
-Tunable via the `collab.enabled` / `collab.interval` / `collab.git_reconcile_interval` / `collab.hint` config settings; also exposed as the `get_collaboration_status` / `who_is_editing_file` MCP tools and a **File conflicts** card on the dashboard.
-
 ### Git & check lifecycle — `warden commit` / `push` / `sync` / `check`
 
 First-class, deterministic commands that move git and test/lint/build work off the agent and return compact results instead of raw tool-spam. PreToolUse hooks (config-gated, fail-open) steer agents toward these and deny-redirect the raw escapes — see [Lifecycle commands & boundary enforcement](#lifecycle-commands--boundary-enforcement).
@@ -1194,7 +1182,7 @@ warden project memory --edit           # open it in $EDITOR (auto-creates it fir
 warden project memory --path           # just the resolved path (scriptable; no auto-create)
 ```
 
-At **every spawn** warden projects the budgeted, navigational render into the agent's system prompt through the same seam the collab/pipeline/git hints ride: **Claude** via `--append-system-prompt` (file-backed, so it never bloats the launch line), **codex / cursor / opencode / antigravity** via their `AGENTS.md` warden block, **crush** via `CRUSH.md`, **goose** via `.goosehints`; **aider** degrade-skips. **7 of 8 backends project with zero new adapter code.** It is config-gated by `memory.inject` (default on) — off, or an empty/absent file, makes the launch **byte-identical** to no injection. warden **reads but never rewrites** your CLAUDE.md/AGENTS.md/CONVENTIONS.md; `.warden/memory.md` is warden's own. `warden project memory` is CLI-local like `warden check`/`warden git review` (no daemon round-trip, no MCP twin).
+At **every spawn** warden projects the budgeted, navigational render into the agent's system prompt through the same Git/pipeline hint seam: **Claude** via `--append-system-prompt` (file-backed, so it never bloats the launch line), **codex / cursor / opencode / antigravity** via their `AGENTS.md` warden block, **crush** via `CRUSH.md`, **goose** via `.goosehints`; **aider** degrade-skips. **7 of 8 backends project with zero new adapter code.** It is config-gated by `memory.inject` (default on) — off, or an empty/absent file, makes the launch **byte-identical** to no injection. warden **reads but never rewrites** your CLAUDE.md/AGENTS.md/CONVENTIONS.md; `.warden/memory.md` is warden's own. `warden project memory` is CLI-local like `warden check`/`warden git review` (no daemon round-trip, no MCP twin).
 
 **Auto-curation (`memory.curate`, default OFF).** warden can also *propose* memory for you: on the existing completion-digest hook, a debounced extraction pass reads finished agents' digests + the current memory and writes **durable, reusable facts** back as `- [unverified · <date> · <provenance>] <fact>`. It is deliberately never authoritative — proposals land in the **working tree only** (warden **never commits and never pushes** them, so the committed diff is the human review gate), promote to `trusted` only when corroborated by a second agent or a human, **supersede** older contradicting facts (struck with a tombstone), **age out** past a TTL, and get **flagged stale** when a named path vanishes. It runs on Fast-Brain (latency-bounded, fail-open) and never sits on a paid critical path. This is the core defence against memory *poisoning*: one agent's wrong belief can never silently mislead the fleet.
 
@@ -1442,7 +1430,7 @@ worker → brain topology. **Legacy aliases:** `reviewer`, `implementer`, and
 but the three names still resolve to the `worker` role for back-compat.
 
 The persona is injected through the same system-prompt seam warden already uses
-for its collab/git/pipeline hints (Claude via `--append-system-prompt`, the
+for its Git/pipeline hints (Claude via `--append-system-prompt`, the
 injecting backends via their rules file); only the role **name** is persisted,
 so the persona re-resolves from the registry at every (re)launch — nothing
 persona-shaped is stored on disk. Role default flags fill only the fields you
@@ -1607,7 +1595,7 @@ warden daemon mcp
 warden daemon mcp --addr 127.0.0.1:8765
 ```
 
-Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `adopt_agent`, `send_to_agent`, `get_agent_output`, `stop_agent`, `terminate_agent`, `restore_agent`, `delete_agent`, `remove_worktree`, `ctx_set`, `ctx_get`, `ctx_list`, `ctx_cas`, `ctx_append`, `send_message`, `read_inbox`, `wait_for_message`, `list_approvals`, `approve`, `commit`, `push`, `sync`, `check`, `get_collaboration_status`, `who_is_editing_file`, `get_branch_status`, `create_pipeline`, `start_pipeline`, `show_pipeline`, `list_pipelines`, `cancel_pipeline`, `list_schedules`, `snapshot_create`, `snapshot_list`, `snapshot_restore`, `insights`, `savings`, `spend`.
+Tools exposed: `list_agents`, `get_agent`, `spawn_agent`, `adopt_agent`, `send_to_agent`, `get_agent_output`, `stop_agent`, `terminate_agent`, `restore_agent`, `delete_agent`, `remove_worktree`, `ctx_set`, `ctx_get`, `ctx_list`, `ctx_cas`, `ctx_append`, `send_message`, `read_inbox`, `wait_for_message`, `list_approvals`, `approve`, `commit`, `push`, `sync`, `check`, `get_branch_status`, `create_pipeline`, `start_pipeline`, `show_pipeline`, `list_pipelines`, `cancel_pipeline`, `list_schedules`, `snapshot_create`, `snapshot_list`, `snapshot_restore`, `insights`, `savings`, `spend`.
 
 ### `warden completion <shell>`
 
@@ -1663,7 +1651,6 @@ Once registered, the orchestrator session can call these tools directly:
 | `list_approvals` / `approve` | List recognized pending tool-permission prompts / answer one by option number |
 | `commit` / `push` / `sync` | Git lifecycle on the agent's pinned worktree (staged commit with auto-message, push — `force` uses `--force-with-lease`, rebase-sync) returning compact structs instead of raw git output |
 | `check` | Run the project's `.warden/check.yml` checks, returning pass/fail with output for only the failing ones |
-| `get_collaboration_status` / `who_is_editing_file` | File-conflict view across the fleet / who (if anyone) is editing a given file |
 | `create_pipeline` / `start_pipeline` / `show_pipeline` / `list_pipelines` / `cancel_pipeline` | Drive a DAG pipeline — create from a YAML spec, start entry jobs, inspect, list, cancel |
 
 > Pipeline MCP tools are thin wrappers over the same daemon routes the CLI uses,
@@ -1809,7 +1796,7 @@ The dashboard is a **routed mission-control shell**. Tabs are **real URLs** (His
 | Route | Tab | What's there |
 |---|---|---|
 | `/cockpit` | ⊞ **Cockpit** | **The home view** (`/` redirects here). A slim **Fleet** header (totals · busy · waiting · errored, pressure, dirs) above the full agent grid. |
-| `/others` | ▦ **Others** | The former *Overview*, now a **catch-all**: *Needs you* (attention queue), *File conflicts*, and *Recent activity*. |
+| `/others` | ▦ **Others** | The former *Overview*, now a **catch-all**: *Needs you* (attention queue) and *Recent activity*. |
 | `/pipelines` | ⛓ **Pipelines** | Pipeline list + live DAG / job drawer. |
 | `/metrics` | 📊 **Metrics** | Per-agent and fleet-wide charts — see below. |
 | `/archive` | 🗄 **Archive** | Ended sessions with since/type filters. |

@@ -232,16 +232,6 @@ func TestWaitForMessageToolDelivers(t *testing.T) {
 	require.Contains(t, textOf(res), "reply")
 }
 
-func TestCollaborationStatusTool(t *testing.T) {
-	ts := fakeDaemon(t, map[string]string{
-		"GET /api/v1/collab/conflicts": `{"conflicts":[{"file":"a.go","agents":[{"id":"A-1"},{"id":"B-2"}]}]}`,
-	}, nil)
-	s := connect(t, ts.URL)
-	res := call(t, s, "get_collaboration_status", map[string]any{})
-	require.False(t, res.IsError, textOf(res))
-	require.Contains(t, textOf(res), "a.go")
-}
-
 func TestBranchStatusTool(t *testing.T) {
 	ts := fakeDaemon(t, map[string]string{
 		"GET /api/v1/collab/branches": `{"branches":[{"agent_id":"A-1","branch":"feat","ci":{"state":"success"}}]}`,
@@ -250,23 +240,6 @@ func TestBranchStatusTool(t *testing.T) {
 	res := call(t, s, "get_branch_status", map[string]any{})
 	require.False(t, res.IsError, textOf(res))
 	require.Contains(t, textOf(res), "success")
-}
-
-func TestWhoIsEditingFileTool(t *testing.T) {
-	ts := fakeDaemon(t, map[string]string{
-		"GET /api/v1/collab/conflicts": `{"conflicts":[{"file":"a.go","agents":[{"id":"A-1"},{"id":"B-2"}]}]}`,
-	}, nil)
-	s := connect(t, ts.URL)
-
-	// File with a conflict => returns the editing agents.
-	res := call(t, s, "who_is_editing_file", map[string]any{"file": "a.go"})
-	require.False(t, res.IsError, textOf(res))
-	require.Contains(t, textOf(res), "A-1")
-
-	// File with no conflict => the "no other agent" note.
-	res = call(t, s, "who_is_editing_file", map[string]any{"file": "untouched.go"})
-	require.False(t, res.IsError, textOf(res))
-	require.Contains(t, textOf(res), "no other agent is editing untouched.go")
 }
 
 func TestListSchedulesTool(t *testing.T) {

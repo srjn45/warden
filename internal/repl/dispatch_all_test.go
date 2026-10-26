@@ -36,7 +36,6 @@ func TestDispatchEveryReadTool(t *testing.T) {
 		{"list_agents", nil, "A-1"},
 		{"get_agent", map[string]any{"ticket": "A-1"}, "A-1"},
 		{"get_agent_output", map[string]any{"ticket": "A-1"}, "output tail"},
-		{"get_collaboration_status", nil, "null"},
 		{"read_inbox", map[string]any{"agent": "A-1"}, "hi"},
 		{"list_approvals", nil, "A-1"},
 		{"ctx_get", map[string]any{"key": "global.k"}, "the-value"},

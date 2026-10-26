@@ -399,17 +399,6 @@ func TestCtxGetRejectsInvalidKeyBeforeCall(t *testing.T) {
 	require.False(t, called, "invalid keys must be rejected before any daemon call")
 }
 
-func TestCollabConflicts(t *testing.T) {
-	var c capture
-	ts := jsonServer(t, &c, 0, `{"conflicts":[{"file":"a.go","agents":[{"id":"A-1"},{"id":"B-2"}]}]}`)
-	got, err := New(ts.URL).CollabConflicts(context.Background())
-	require.NoError(t, err)
-	require.Equal(t, "/api/v1/collab/conflicts", c.path)
-	require.Len(t, got, 1)
-	require.Equal(t, "a.go", got[0].File)
-	require.Len(t, got[0].Agents, 2)
-}
-
 func TestBranchStatuses(t *testing.T) {
 	var c capture
 	ts := jsonServer(t, &c, 0, `{"branches":[{"agent_id":"A-1","branch":"feat","ci":{"state":"success"},"ahead":2,"behind":1,"merged":false}]}`)

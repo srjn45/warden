@@ -7,7 +7,7 @@ description: >-
   **git lifecycle** (commit / push / sync) and run its **project checks** with one
   call each instead of raw git/test Bash; **snapshot** an agent's worktree+transcript
   and roll back; **coordinate** agents (shared-context blackboard, directed messages,
-  file-conflict detection, branch/CI tracking); answer **approval** prompts without
+  branch/CI tracking); answer **approval** prompts without
   attaching; **schedule** recurring agent/pipeline runs; mine fleet **insights**;
   and drive **autopilot** (goal-directed autonomous runs: `run_plan`,
   `autopilot_status`, `land`).
@@ -100,7 +100,6 @@ auditable, and enforce this repo's safety rails. Concretely:
 | the built-in **Task / Agent** subagent tool to run a durable or parallel piece of work | `spawn_agent` / `warden start`, or a **pipeline** for dependent stages | warden agents persist across your session, are visible to the operator (TUI/web), survive your context compaction, and can be monitored/messaged/torn down later. A Task subagent dies with your turn. |
 | raw `git commit` / `push` / `pull` / `rebase` in **Bash** | `commit` / `push` / `sync` MCP tools (`wd commit`/`push`/`sync`) | One call instead of status→add→commit→push; protected-branch + dirty-tree rails; auto commit message from the diff; the work is attributed to the agent. The git-guard hook **denies** raw git mutations anyway. |
 | running `go test` / `npm test` / `make build` / lint in **Bash** | `check` MCP tool (`wd check [name]`) | Returns pass/fail with output for only the **failing** checks instead of hundreds of lines you must read. The check-guard hook redirects broad raw runs here. |
-| editing a file another agent may be touching | `who_is_editing_file` / `get_collaboration_status` first, then `send_message` to coordinate | warden watches every agent's worktree and flags conflicts; coordinate rather than overwrite a peer's work. |
 | your own `git stash`/manual checkpoint before a risky change | `snapshot_create` then `snapshot_restore` | Captures worktree **and** transcript non-destructively; rails refuse main and dirty-tree restores. |
 | an external cron / another scheduler skill | `wd schedule` (or `create_schedule` / `list_schedules` / `get_schedule` / `update_schedule` / `run_schedule` / `enable_schedule` / `disable_schedule` / `delete_schedule` over MCP) | Fires agent spawns or whole pipelines on the daemon's own timer, audited. Each fired run's session carries a `schedule_id` back-ref. From a shell, pass `--yes` to `schedule delete` (it prompts otherwise and fails without a terminal), and after creating a schedule verify it with `wd schedule run <id>` (fires once, does not move the next run). |
 | eyeballing "which tasks could've been parallel" | `insights` | Mines warden's own history deterministically. |
@@ -165,7 +164,7 @@ flags, fields, and rails.
 | spawn / triage / message / terminate agents; **handoff** work to another agent — new delegate, `--to` an existing one, or `--retire` yourself into a same-worktree successor (`rotate` is an alias); **fork** an agent's session into a new one (`fork_agent`, Codex-only); restore/adopt; model, permission-mode, **roles** (`--role`/`set_role`/`list_roles`), **tiered model routing** (`--task`/`--tier`, CLI + pipeline only), presets, prompt templates, tags, search, history | [references/agents.md](references/agents.md) |
 | build & run a **pipeline** — authoring the YAML, worktree modes, templates, `run_if`, pause/resume, retry, MCP vs CLI | [references/pipelines.md](references/pipelines.md) |
 | do an agent's **git** (commit/push/sync) and **checks**; **snapshot**/restore; understand the **boundary-enforcement hooks** (isolation/root/git/check guards) | [references/git-and-checks.md](references/git-and-checks.md) |
-| **coordinate** agents — shared context (incl. append/CAS), directed messages (incl. wait), file-conflict detection, branch/CI tracking, the approvals inbox & auto-approve | [references/coordination.md](references/coordination.md) |
+| **coordinate** agents — shared context (incl. append/CAS), directed messages (incl. wait), branch/CI tracking, the approvals inbox & auto-approve | [references/coordination.md](references/coordination.md) |
 | **operate the fleet** — token-savings ledger, insights, audit log, scheduler, config, remote access & auth, notifications/token-guard, web GUI & cockpit TUI, export/import, Fast-Brain REPL, plugins, the **backend registry** (detected CLIs, tiers, default) | [references/operations.md](references/operations.md) |
 | **autopilot** — start/pause the autonomous run mode, check run state, land a worker branch | See below (§ Autopilot) |
 

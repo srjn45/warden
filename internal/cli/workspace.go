@@ -7,13 +7,13 @@ import (
 )
 
 // newWorkspaceCmd builds the canonical workspace namespace for git worktrees,
-// snapshots, branch tracking, and file-collision inspection. Each child is
+// snapshots, and branch tracking. Each child is
 // allocated by the same fresh factory as its legacy root wrapper.
 func newWorkspaceCmd() *cobra.Command {
 	legacy := newWorktreeCmd()
 	cmd := &cobra.Command{
 		Use:   "workspace",
-		Short: "Inspect and manage warden git worktrees, snapshots, branches, and file collisions",
+		Short: "Inspect and manage warden git worktrees, snapshots, and branches",
 		Long: rewriteWorkspaceHelpPaths(
 			"One umbrella over warden's workspace operations:\n"+
 				"  • LIST worktrees — the warden-owned worktrees under .worktrees (`wd workspace list`)\n"+
@@ -21,8 +21,6 @@ func newWorkspaceCmd() *cobra.Command {
 				"  • CLEAN merged branches and stale worktrees (`wd workspace clean`)\n"+
 				"  • SNAPSHOT an agent's worktree + transcript (`wd workspace snapshot`)\n"+
 				"  • BRANCHES — per-agent CI and branch-vs-main status (`wd workspace branches`)\n"+
-				"  • CONFLICTS — files edited by more than one agent (`wd workspace conflicts`)\n"+
-				"  • WHO-IS-EDITING — which agents are editing a file (`wd workspace who-is-editing`)\n\n"+
 				"`wd workspace` with no subcommand prints the worktree list (the same view as `wd workspace list`).",
 			"worktree", "workspace"),
 		Args: cobra.NoArgs,
@@ -37,8 +35,6 @@ func newWorkspaceCmd() *cobra.Command {
 		newCleanCmd(),
 		newWorkspaceSnapshotCmd(),
 		canonicalWorkspaceCommand(newBranchesCmd(), "branches"),
-		canonicalWorkspaceCommand(newCollabConflictsCmd(), "conflicts"),
-		canonicalWorkspaceCommand(newCollabWhoIsEditingCmd(), "who-is-editing"),
 	}
 	for i, child := range children {
 		SetCommandHelpMetadata(child, "project", (i+1)*10, "warden workspace "+child.Name(), "", nodeKind(child))
@@ -106,12 +102,4 @@ func rewriteWorkspaceHelpPaths(text, oldPrefix, newPrefix string) string {
 		"wd "+oldPrefix, "wd "+newPrefix,
 	)
 	return replacer.Replace(text)
-}
-
-func markWorkspaceCollabCompatibility(cmd *cobra.Command) {
-	cmd.Hidden = true
-	SetCommandHelpMetadata(cmd, "project", 900, "warden workspace", AliasCompatibility, nodeKind(cmd))
-	for _, child := range cmd.Commands() {
-		markCompatibilityChild(child, "warden workspace "+child.Name())
-	}
 }

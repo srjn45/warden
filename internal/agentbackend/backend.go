@@ -517,7 +517,7 @@ type ForkOpts struct {
 // rules file (AGENTS.md) from their working directory on startup — Codex is the
 // pilot. It is the file-drop counterpart to SystemPromptFlag's
 // `--append-system-prompt` fragment: lifecycle assembles warden's
-// collab/git/pipeline addendum once and, for a backend that injects, writes that
+// Git/pipeline addendum once and, for a backend that injects, writes that
 // SAME text into the worktree post-creation / pre-launch so the agent reads
 // warden's coordination hints when it starts. A backend that implements neither
 // SystemPromptFlag (returns ok=false) nor this interface contributes nothing — the
@@ -552,7 +552,7 @@ type WorkspacePreparer interface {
 // counterpart to SystemPromptFlag: same flag, but the value is a shell command
 // substitution that reads the file when the launch command runs.
 //
-// Why this exists: warden's collab/git/pipeline addendum is ~1.6 KB. Typed inline
+// Why this exists: warden's Git/pipeline addendum is ~1.6 KB. Typed inline
 // after the other launch flags, the whole command exceeds the tty canonical-mode
 // line limit (MAX_CANON / MAX_INPUT = 1024 bytes on macOS/BSD; larger on Linux),
 // so the kernel silently DROPS every byte past 1024 — the command is truncated

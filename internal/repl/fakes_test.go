@@ -81,7 +81,6 @@ func (f *fakeDaemon) PipelineGet(_ context.Context, id string) (*pipeline.Pipeli
 	}
 	return nil, errNotFound(id)
 }
-func (f *fakeDaemon) CollabConflicts(context.Context) ([]client.Conflict, error) { return nil, nil }
 
 // mutations
 func (f *fakeDaemon) Spawn(_ context.Context, p client.SpawnParams) (*store.Session, error) {

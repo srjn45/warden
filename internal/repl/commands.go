@@ -73,8 +73,6 @@ var commandList = []command{
 			}
 			return one("get_agent_output", args)
 		}},
-	{name: "/collab", usage: "/collab", summary: "files edited by more than one agent",
-		build: func([]string) ([]ToolCall, error) { return one("get_collaboration_status", map[string]any{}) }},
 	{name: "/inbox", usage: "/inbox <id> [--unread]", summary: "read an agent's directed messages", takesAgentID: true,
 		build: func(a []string) ([]ToolCall, error) {
 			id, err := needID(a, "/inbox <id> [--unread]")

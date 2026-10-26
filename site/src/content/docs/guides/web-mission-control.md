@@ -23,7 +23,7 @@ The dashboard is a **URL-routed mission-control shell**. Tabs are **real URLs** 
 | `/metrics` | 📊 **Metrics** | Per-agent and fleet-wide charts — [see below](#metrics-view). |
 | `/terminals` | ▷ **Terminals** | First-class terminal sessions (`kind=terminal`): a live PTY viewport plus a **New terminal** action. Terminals are **excluded** from the agent grid and all agent counts. |
 | `/archive` | 🗄 **Archive** | Ended sessions with since/type filters. |
-| `/others` | ▦ **Others** | The former *Overview*, renamed to a **catch-all** (sits last): *Needs you* (attention queue), *File conflicts*, and *Recent activity*. New/not-yet-homed widgets land here first. |
+| `/others` | ▦ **Others** | The former *Overview*, renamed to a **catch-all** (sits last): *Needs you* (attention queue) and *Recent activity*. New/not-yet-homed widgets land here first. |
 | `/agent/<id>` | `<id>` | A pinned agent's live terminal (one closeable tab per pinned agent). |
 | `/tui` | *(top-bar ▢ TUI button)* | The **full `warden tui`, streamed full-screen** — not a tab; launched from the highlighted top-bar button and exited with **Ctrl+Q**. See [Full-screen TUI](#full-screen-tui). |
 

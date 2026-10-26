@@ -4,9 +4,6 @@ One umbrella over warden's workspace operations:
   • CLEAN merged branches and stale worktrees (`wd workspace clean`)
   • SNAPSHOT an agent's worktree + transcript (`wd workspace snapshot`)
   • BRANCHES — per-agent CI and branch-vs-main status (`wd workspace branches`)
-  • CONFLICTS — files edited by more than one agent (`wd workspace conflicts`)
-  • WHO-IS-EDITING — which agents are editing a file (`wd workspace who-is-editing`)
-
 `wd workspace` with no subcommand prints the worktree list (the same view as `wd workspace list`).
 
 Usage:
@@ -18,8 +15,6 @@ Commands:
   clean                Delete merged local/origin branches and prune stale worktrees (previews, then asks)
   snapshot             Checkpoint an agent's worktree + transcript, list checkpoints, and restore one
   branches             Per-agent CI + branch-vs-main status
-  conflicts            List files currently being edited by more than one agent
-  who-is-editing       Show which agents are editing a specific file
 
 Flags:
   -h, --help          help for workspace

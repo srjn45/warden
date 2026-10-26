@@ -386,7 +386,7 @@ func (OpenCode) ParseApproval(string) (*agentbackend.Approval, bool) { return ni
 // --append-system-prompt equivalent on its launch command (its customization is
 // config/agent-file based; Caps.SystemPromptInject stays false — that flag means
 // specifically a launch-time flag). warden instead delivers the same
-// pipeline/collab/git addendum out-of-band via the AGENTS.md rules file OpenCode
+// pipeline/Git addendum out-of-band via the AGENTS.md rules file OpenCode
 // reads on startup — see InjectContext (agentbackend.ContextInjector).
 func (OpenCode) SystemPromptFlag(string) (string, bool) { return "", false }
 
@@ -399,7 +399,7 @@ const opencodeAgentsFile = "AGENTS.md"
 // InjectContext implements agentbackend.ContextInjector. OpenCode has no
 // --append-system-prompt flag (Caps.SystemPromptInject=false) but reads an AGENTS.md
 // rules file from its working directory on startup, so warden delivers its
-// collab/git/pipeline addendum by writing that text into <workdir>/AGENTS.md.
+// Git/pipeline addendum by writing that text into <workdir>/AGENTS.md.
 // Lifecycle calls this post-worktree-creation / pre-launch so the file is present
 // when OpenCode starts. The no-clobber/idempotent/git-exclude write is the shared
 // writeRulesFile helper (the AGENTS.md counterpart to Claude's launch-time flag; see

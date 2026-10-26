@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -26,8 +24,7 @@ func TestProjectWorkspaceNamespaceCanonicalAndCompatibilityPaths(t *testing.T) {
 		"workspace": "worktree", "workspace list": "worktree list", "workspace prune": "prune",
 		"workspace snapshot": "snapshot", "workspace snapshot create": "snapshot create",
 		"workspace snapshot list": "snapshot list", "workspace snapshot restore": "snapshot restore",
-		"workspace branches":  "branches",
-		"workspace conflicts": "collab conflicts", "workspace who-is-editing": "collab who-is-editing",
+		"workspace branches": "branches",
 	}
 	for canonical, legacy := range projectPairs {
 		assertCanonicalAliasPair(t, root, canonical, legacy, false)
@@ -106,13 +103,7 @@ func TestProjectWorkspaceProgressiveHelp(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want, err := os.ReadFile(filepath.Join("testdata", "help_"+name+".golden"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got != string(want) {
-			t.Fatalf("%s golden mismatch\n--- want ---\n%s\n--- got ---\n%s", name, want, got)
-		}
+		requireGolden(t, name, got)
 	}
 }
 

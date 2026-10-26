@@ -3256,24 +3256,6 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/Message" }
 
-  /api/v1/collab/conflicts:
-    get:
-      operationId: getConflicts
-      tags: [Collaboration]
-      summary: Current inter-agent file conflicts
-      responses:
-        "200":
-          description: Files edited by two or more agents
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [conflicts]
-                properties:
-                  conflicts:
-                    type: array
-                    items: { $ref: "#/components/schemas/Conflict" }
-
   /api/v1/collab/branches:
     get:
       operationId: getBranchStatus
@@ -6601,24 +6583,6 @@ components:
         body: { type: string }
         ts: { type: string, format: date-time }
         read: { type: boolean }
-
-    ConflictAgent:
-      type: object
-      properties:
-        id: { type: string }
-        name: { type: string }
-
-    Conflict:
-      x-go-type: collab.Conflict
-      x-go-type-import:
-        path: github.com/srjn45/warden/internal/collab
-        name: collab
-      type: object
-      properties:
-        file: { type: string }
-        agents:
-          type: array
-          items: { $ref: "#/components/schemas/ConflictAgent" }
 
     CIStatus:
       type: object

@@ -21,7 +21,6 @@ import (
 	backendusage "github.com/srjn45/warden/internal/backendusage"
 	branchtrack "github.com/srjn45/warden/internal/branchtrack"
 	capacity "github.com/srjn45/warden/internal/capacity"
-	collab "github.com/srjn45/warden/internal/collab"
 	ctxstore "github.com/srjn45/warden/internal/ctxstore"
 	digest "github.com/srjn45/warden/internal/digest"
 	fastbrain "github.com/srjn45/warden/internal/fastbrain"
@@ -1425,15 +1424,6 @@ type CompletePlanRequest struct {
 type ConfirmationResponse struct {
 	ConfirmationRequired bool    `json:"confirmation_required"`
 	Verdict              Verdict `json:"verdict"`
-}
-
-// Conflict defines model for Conflict.
-type Conflict = collab.Conflict
-
-// ConflictAgent defines model for ConflictAgent.
-type ConflictAgent struct {
-	Id   string `json:"id,omitempty"`
-	Name string `json:"name,omitempty"`
 }
 
 // ContextEntry defines model for ContextEntry.
@@ -3392,9 +3382,6 @@ type ServerInterface interface {
 	// Per-agent CI + branch-vs-main status
 	// (GET /api/v1/collab/branches)
 	GetBranchStatus(w http.ResponseWriter, r *http.Request)
-	// Current inter-agent file conflicts
-	// (GET /api/v1/collab/conflicts)
-	GetConflicts(w http.ResponseWriter, r *http.Request)
 	// List shared-context entries
 	// (GET /api/v1/context)
 	ListContext(w http.ResponseWriter, r *http.Request, params ListContextParams)
@@ -3914,12 +3901,6 @@ func (_ Unimplemented) RunCheck(w http.ResponseWriter, r *http.Request) {
 // Per-agent CI + branch-vs-main status
 // (GET /api/v1/collab/branches)
 func (_ Unimplemented) GetBranchStatus(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Current inter-agent file conflicts
-// (GET /api/v1/collab/conflicts)
-func (_ Unimplemented) GetConflicts(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5143,26 +5124,6 @@ func (siw *ServerInterfaceWrapper) GetBranchStatus(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetBranchStatus(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetConflicts operation middleware
-func (siw *ServerInterfaceWrapper) GetConflicts(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetConflicts(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -9787,9 +9748,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/api/v1/collab/branches", wrapper.GetBranchStatus)
 	})
 	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/api/v1/collab/conflicts", wrapper.GetConflicts)
-	})
-	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/api/v1/context", wrapper.ListContext)
 	})
 	r.Group(func(r chi.Router) {
@@ -10813,29 +10771,6 @@ type GetBranchStatus200JSONResponse struct {
 }
 
 func (response GetBranchStatus200JSONResponse) VisitGetBranchStatusResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetConflictsRequestObject struct {
-}
-
-type GetConflictsResponseObject interface {
-	VisitGetConflictsResponse(w http.ResponseWriter) error
-}
-
-type GetConflicts200JSONResponse struct {
-	Conflicts []Conflict `json:"conflicts"`
-}
-
-func (response GetConflicts200JSONResponse) VisitGetConflictsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -16515,9 +16450,6 @@ type StrictServerInterface interface {
 	// Per-agent CI + branch-vs-main status
 	// (GET /api/v1/collab/branches)
 	GetBranchStatus(ctx context.Context, request GetBranchStatusRequestObject) (GetBranchStatusResponseObject, error)
-	// Current inter-agent file conflicts
-	// (GET /api/v1/collab/conflicts)
-	GetConflicts(ctx context.Context, request GetConflictsRequestObject) (GetConflictsResponseObject, error)
 	// List shared-context entries
 	// (GET /api/v1/context)
 	ListContext(ctx context.Context, request ListContextRequestObject) (ListContextResponseObject, error)
@@ -17449,30 +17381,6 @@ func (sh *strictHandler) GetBranchStatus(w http.ResponseWriter, r *http.Request)
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetBranchStatusResponseObject); ok {
 		if err := validResponse.VisitGetBranchStatusResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// GetConflicts operation middleware
-func (sh *strictHandler) GetConflicts(w http.ResponseWriter, r *http.Request) {
-	var request GetConflictsRequestObject
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetConflicts(ctx, request.(GetConflictsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetConflicts")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetConflictsResponseObject); ok {
-		if err := validResponse.VisitGetConflictsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

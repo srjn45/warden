@@ -142,11 +142,7 @@ func printConfig(out io.Writer, cfg config.Config) {
 			{"rate_limit.spend_retry_interval", cfg.RateLimit.SpendRetryInterval},
 			{"rate_limit.buffer", cfg.RateLimit.Buffer},
 		}},
-		{"collaboration (collab.*, branch_track.*)", [][2]string{
-			{"collab.enabled", fmt.Sprintf("%t", cfg.Collab.Enabled)},
-			{"collab.interval", cfg.Collab.Interval},
-			{"collab.git_reconcile_interval", cfg.Collab.GitReconcileInterval},
-			{"collab.hint", fmt.Sprintf("%t", cfg.Collab.Hint)},
+		{"branch tracking (branch_track.*)", [][2]string{
 			{"branch_track.enabled", fmt.Sprintf("%t", cfg.BranchTrack.Enabled)},
 			{"branch_track.interval", cfg.BranchTrack.Interval},
 		}},

@@ -370,7 +370,7 @@ func (Goose) ParseApproval(string) (*agentbackend.Approval, bool) { return nil, 
 // SystemPromptFlag reports no launch-time system-prompt injection for the interactive
 // launch: `goose session` has no system-prompt flag (only headless `goose run
 // --system` does; Caps.SystemPromptInject stays false — that flag means specifically a
-// launch-time flag). warden instead delivers the same pipeline/collab/git addendum
+// launch-time flag). warden instead delivers the same pipeline/Git addendum
 // out-of-band via the .goosehints file Goose reads on startup — see InjectContext
 // (agentbackend.ContextInjector). Goose's other first-class customization (recipes,
 // the "Top Of Mind" extension) is worth wiring later (docs/agent-backends/goose.md).
@@ -385,7 +385,7 @@ const gooseHintsFile = ".goosehints"
 // InjectContext implements agentbackend.ContextInjector. The interactive `goose
 // session` has no system-prompt flag (Caps.SystemPromptInject=false) but Goose reads
 // a .goosehints file from its working directory on startup, so warden delivers its
-// collab/git/pipeline addendum by writing that text into <workdir>/.goosehints.
+// Git/pipeline addendum by writing that text into <workdir>/.goosehints.
 // Lifecycle calls this post-worktree-creation / pre-launch so the file is present
 // when Goose starts. The no-clobber/idempotent/git-exclude write is the shared
 // writeRulesFile helper (see inject.go and docs/agent-backends/goose.md).

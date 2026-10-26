@@ -13,7 +13,7 @@ import (
 // agentbackend.ContextInjector implementation. An injecting backend has no
 // launch-time --append-system-prompt flag (Caps.SystemPromptInject=false) but
 // reads a rules file from its working directory on startup, so warden delivers its
-// collab/git/pipeline addendum by writing that text into the file the agent reads.
+// Git/pipeline addendum by writing that text into the file the agent reads.
 // The only thing that differs per backend is the *filename* (AGENTS.md for
 // Codex/OpenCode/Cursor/Antigravity, CRUSH.md for Crush, .goosehints for Goose),
 // so the no-clobber/idempotent/git-exclude logic lives here once and each adapter

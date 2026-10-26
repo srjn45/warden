@@ -198,25 +198,6 @@ describe('auth', () => {
   });
 });
 
-describe('collab api', () => {
-  it('listConflicts GETs /collab/conflicts and unwraps the array', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
-      conflicts: [{ file: 'internal/auth.go', agents: [{ id: 'A-1', name: 'alpha' }, { id: 'B-2' }] }],
-    }));
-    vi.stubGlobal('fetch', fetchMock);
-    const out = await listConflicts();
-    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/collab/conflicts');
-    expect(out).toHaveLength(1);
-    expect(out[0].file).toBe('internal/auth.go');
-    expect(out[0].agents).toHaveLength(2);
-  });
-
-  it('listConflicts returns [] when the body is null', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ conflicts: null })));
-    expect(await listConflicts()).toEqual([]);
-  });
-});
-
 describe('pipelines api', () => {
   it('listPipelines GETs /pipelines and unwraps the array', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ pipelines: [{ id: 'demo', jobs: [] }] }));

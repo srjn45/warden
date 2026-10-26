@@ -10,7 +10,7 @@ import (
 func TestRegistry_SplitMatchesSpec(t *testing.T) {
 	reg := NewRegistry()
 	readOnly := map[string]bool{"list_agents": true, "get_agent": true, "get_agent_output": true,
-		"get_collaboration_status": true, "read_inbox": true, "list_approvals": true,
+		"read_inbox": true, "list_approvals": true,
 		"ctx_get": true, "ctx_list": true, "pipeline_list": true, "pipeline_get": true}
 	for _, tl := range reg.Tools() {
 		require.NotEmpty(t, tl.Schema.Name)

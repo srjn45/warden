@@ -610,7 +610,7 @@ func cursorNegativeOption(low string) bool {
 // no --append-system-prompt equivalent on its launch command (its customization is
 // rules / AGENTS.md based; Caps.SystemPromptInject stays false — that flag means
 // specifically a launch-time flag). warden instead delivers the same
-// pipeline/collab/git addendum out-of-band via the AGENTS.md rules file cursor-agent
+// pipeline/Git addendum out-of-band via the AGENTS.md rules file cursor-agent
 // reads on startup — see InjectContext (agentbackend.ContextInjector) and the gap doc.
 func (Cursor) SystemPromptFlag(string) (string, bool) { return "", false }
 
@@ -624,7 +624,7 @@ const cursorRulesFile = "AGENTS.md"
 // InjectContext implements agentbackend.ContextInjector. cursor-agent has no
 // --append-system-prompt flag (Caps.SystemPromptInject=false) but reads an AGENTS.md
 // rules file from its working directory on startup, so warden delivers its
-// collab/git/pipeline addendum by writing that text into <workdir>/AGENTS.md.
+// Git/pipeline addendum by writing that text into <workdir>/AGENTS.md.
 // Lifecycle calls this post-worktree-creation / pre-launch so the file is present
 // when cursor-agent starts. The no-clobber/idempotent/git-exclude write is the shared
 // writeRulesFile helper (see inject.go and docs/agent-backends/cursor.md).

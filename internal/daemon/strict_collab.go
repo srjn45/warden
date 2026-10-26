@@ -232,21 +232,6 @@ func (s *Server) WaitForMessage(ctx context.Context, req oapi.WaitForMessageRequ
 	}
 }
 
-// GetConflicts implements GET /api/v1/collab/conflicts.
-func (s *Server) GetConflicts(ctx context.Context, _ oapi.GetConflictsRequestObject) (oapi.GetConflictsResponseObject, error) {
-	if s.collab == nil {
-		return oapi.GetConflicts200JSONResponse{Conflicts: []oapi.Conflict{}}, nil
-	}
-	conflicts, err := s.collab.Conflicts(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if conflicts == nil {
-		conflicts = []oapi.Conflict{}
-	}
-	return oapi.GetConflicts200JSONResponse{Conflicts: conflicts}, nil
-}
-
 // GetBranchStatus implements GET /api/v1/collab/branches.
 func (s *Server) GetBranchStatus(ctx context.Context, _ oapi.GetBranchStatusRequestObject) (oapi.GetBranchStatusResponseObject, error) {
 	if s.branchTracker == nil {

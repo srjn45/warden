@@ -384,7 +384,7 @@ func (Crush) ParseApproval(string) (*agentbackend.Approval, bool) { return nil, 
 // --append-system-prompt equivalent on its launch command (its customization is
 // config / CRUSH.md context-file based; Caps.SystemPromptInject stays false — that
 // flag means specifically a launch-time flag). warden instead delivers the same
-// pipeline/collab/git addendum out-of-band via the CRUSH.md context file Crush reads
+// pipeline/Git addendum out-of-band via the CRUSH.md context file Crush reads
 // on startup — see InjectContext (agentbackend.ContextInjector).
 func (Crush) SystemPromptFlag(string) (string, bool) { return "", false }
 
@@ -399,7 +399,7 @@ const crushContextFile = "CRUSH.md"
 // InjectContext implements agentbackend.ContextInjector. Crush has no
 // --append-system-prompt flag (Caps.SystemPromptInject=false) but reads a CRUSH.md
 // context file from its working directory on startup, so warden delivers its
-// collab/git/pipeline addendum by writing that text into <workdir>/CRUSH.md.
+// Git/pipeline addendum by writing that text into <workdir>/CRUSH.md.
 // Lifecycle calls this post-worktree-creation / pre-launch so the file is present
 // when Crush starts. The no-clobber/idempotent/git-exclude write is the shared
 // writeRulesFile helper (see inject.go and docs/agent-backends/crush.md).

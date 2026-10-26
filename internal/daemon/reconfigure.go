@@ -59,8 +59,8 @@ func (s *Server) AddReloadHook(fn func(config.Config)) {
 //   - autopilot plan/brain/merge template + per-repo reconcile → the controller
 //     (reload hook → Controller.Reconfigure), preserving the persisted enable set.
 //
-// Everything else (bind address, data dir, plugins, local_llm, the collab/
-// branch-track/rate-limit loop intervals, HTTP write budgets, metrics recorder,
+// Everything else (bind address, data dir, plugins, local_llm, the branch-track/
+// rate-limit loop intervals, HTTP write budgets, metrics recorder,
 // auto-restart, logging) is structural or wired into a loop started once at boot;
 // those are reported as changed-but-need-restart rather than silently ignored.
 func (s *Server) ApplyConfig(cfg config.Config) {
@@ -135,9 +135,6 @@ func (s *Server) logRestartOnly(old, cur config.Config) {
 	add("plugins.enabled", old.Plugins.Enabled != cur.Plugins.Enabled)
 	add("plugins.registry", len(old.Plugins.Registry) != len(cur.Plugins.Registry))
 	add("local_llm.*", old.LocalLLM != cur.LocalLLM)
-	add("collab.enabled", old.Collab.Enabled != cur.Collab.Enabled)
-	add("collab.interval", old.Collab.Interval != cur.Collab.Interval)
-	add("collab.git_reconcile_interval", old.Collab.GitReconcileInterval != cur.Collab.GitReconcileInterval)
 	add("branch_track.enabled", old.BranchTrack.Enabled != cur.BranchTrack.Enabled)
 	add("branch_track.interval", old.BranchTrack.Interval != cur.BranchTrack.Interval)
 	add("rate_limit.*", old.RateLimit != cur.RateLimit)

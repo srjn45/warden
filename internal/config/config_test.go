@@ -322,6 +322,21 @@ func TestLoad_Pipeline_Namespaced(t *testing.T) {
 	require.False(t, c.Pipeline.Hint)
 }
 
+func TestRetiredCollabConfigIsIgnoredAndReconciled(t *testing.T) {
+	path := tmpConfig(t, "collab:\n  interval: not-a-duration\n  enabled: false\ncollab_enabled: false\ncollab_interval: -1s\nkeep: value\n")
+	_, err := LoadStrict(path)
+	require.NoError(t, err, "retired values are discarded before validation")
+	require.NoError(t, Reconcile(path))
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NotContains(t, string(got), "collab")
+	require.Contains(t, string(got), "keep: value")
+	require.NoError(t, Reconcile(path))
+	second, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, string(got), string(second), "retired-key cleanup is idempotent")
+}
+
 func TestLoad_Pipeline_FlatDeprecated(t *testing.T) {
 	c := Load(tmpConfig(t, "pipeline_keep_done: true\npipeline_hint: false\n"))
 	require.True(t, c.Pipeline.KeepDone)
@@ -338,20 +353,6 @@ func TestLoad_AutoRestart_FlatDeprecated(t *testing.T) {
 	c := Load(tmpConfig(t, "auto_restart_max: 9\nauto_restart_reset: 3m\n"))
 	require.Equal(t, 9, c.AutoRestart.Max)
 	require.Equal(t, "3m", c.AutoRestart.Reset)
-}
-
-func TestLoad_Collab_Namespaced(t *testing.T) {
-	c := Load(tmpConfig(t, "collab:\n  enabled: false\n  interval: 30s\n  hint: false\n"))
-	require.False(t, c.Collab.Enabled)
-	require.Equal(t, "30s", c.Collab.Interval)
-	require.False(t, c.Collab.Hint)
-}
-
-func TestLoad_Collab_FlatDeprecated(t *testing.T) {
-	c := Load(tmpConfig(t, "collab_enabled: false\ncollab_interval: 30s\ncollab_hint: false\n"))
-	require.False(t, c.Collab.Enabled)
-	require.Equal(t, "30s", c.Collab.Interval)
-	require.False(t, c.Collab.Hint)
 }
 
 func TestLoad_Memory_Namespaced(t *testing.T) {
@@ -601,7 +602,7 @@ func TestReconcileCreatesFullFile(t *testing.T) {
 	// Namespaced blocks are present with sub-keys.
 	for _, block := range []string{
 		"rails:", "tokens:", "notify:", "worktree:", "local_llm:",
-		"pipeline:", "auto_restart:", "collab:", "memory:", "branch_track:",
+		"pipeline:", "auto_restart:", "memory:", "branch_track:",
 		"rate_limit:", "http:", "log:", "plugins:",
 	} {
 		require.Contains(t, text, block)
@@ -618,7 +619,6 @@ func TestReconcileCreatesFullFile(t *testing.T) {
 	require.False(t, c.LocalLLM.Enabled)
 	require.True(t, c.Pipeline.Hint)
 	require.Equal(t, 3, c.AutoRestart.Max)
-	require.True(t, c.Collab.Enabled)
 	require.True(t, c.Memory.Inject)
 	require.False(t, c.BranchTrack.Enabled)
 	require.True(t, c.RateLimit.AutoResume)

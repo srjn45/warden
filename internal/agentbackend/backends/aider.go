@@ -298,7 +298,7 @@ func aiderApprovalLine(pane string) string {
 // --- System prompt / pricing ------------------------------------------------
 
 // SystemPromptFlag reports no system-prompt injection: Aider has no
-// --append-system-prompt equivalent, so warden's pipeline/collab/git hints are
+// --append-system-prompt equivalent, so warden's pipeline/Git hints are
 // skipped for Aider agents (Caps.SystemPromptInject=false).
 //
 // Aider also does NOT implement agentbackend.ContextInjector (the rules-file drop the
