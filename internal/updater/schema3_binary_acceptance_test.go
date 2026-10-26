@@ -19,7 +19,7 @@ import (
 )
 
 // This test verifies the release boundary against the approved schema-2
-// waypoint: that exact binary refuses a schema-3 generation before opening it,
+// v12.1.0 waypoint: that exact released binary refuses a schema-3 generation before opening it,
 // while the cutover target advertises schema 3.
 // Run through `wd check schema3-binary-boundary` so expensive isolated builds are
 // explicit and ordinary package unit tests do not recursively build themselves.
@@ -36,10 +36,10 @@ func TestSchema3ActualBinaryBoundary(t *testing.T) {
 	require.NoError(t, err)
 	oldSource := t.TempDir()
 	archive := filepath.Join(t.TempDir(), "release.tar")
-	cmd := exec.CommandContext(ctx, "git", "archive", "--format=tar", "--output="+archive, "c9d02e53")
+	cmd := exec.CommandContext(ctx, "git", "archive", "--format=tar", "--output="+archive, "5fceb280")
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, "approved waypoint c9d02e53 is required; %s", out)
+	require.NoError(t, err, "released v12.1.0 waypoint 5fceb280 is required; %s", out)
 	out, err = exec.CommandContext(ctx, "tar", "-xf", archive, "-C", oldSource).CombinedOutput()
 	require.NoError(t, err, "%s", out)
 	// The old release built UI assets before compiling; an empty isolated embed
@@ -113,7 +113,7 @@ func testSchema3WaypointUpdateStartAndRollback(t *testing.T) {
 	require.NoError(t, err)
 	waypointSource := t.TempDir()
 	archive := filepath.Join(t.TempDir(), "waypoint.tar")
-	cmd := exec.CommandContext(ctx, "git", "archive", "--format=tar", "--output="+archive, "c9d02e53")
+	cmd := exec.CommandContext(ctx, "git", "archive", "--format=tar", "--output="+archive, "5fceb280")
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "%s", out)
@@ -133,7 +133,6 @@ func testSchema3WaypointUpdateStartAndRollback(t *testing.T) {
 	target := build(root, "13.0.0")
 
 	tr, installed, staged := schema3Fixture(t)
-	require.NoError(t, tr.close())
 	for _, copy := range [][2]string{{waypoint, installed}, {target, staged}} {
 		body, err := os.ReadFile(copy[0])
 		require.NoError(t, err)
