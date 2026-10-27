@@ -328,13 +328,21 @@ func (t *txn) preflight(ctx context.Context) error {
 	return nil
 }
 
+// crossesIntoSchema3 reports whether moving to a binary that writes target
+// takes the data across the one-time schema-2 → schema-3 transaction. An
+// update between two schema-3 releases does not: it is an ordinary binary
+// swap on data that is already schema 3.
+func (t *txn) crossesIntoSchema3(target int) bool {
+	return target >= 3 && t.opts.CurrentSchema < 3
+}
+
 func (t *txn) targetPreflight(ctx context.Context, targetBin string) error {
 	if t.opts.TargetSchema != nil {
 		v, err := t.opts.TargetSchema(ctx, targetBin)
 		if err != nil {
 			return err
 		}
-		if v >= 3 {
+		if t.crossesIntoSchema3(v) {
 			if err := t.schema3TargetGate(ctx, targetBin); err != nil {
 				return err
 			}
@@ -463,7 +471,7 @@ func (t *txn) apply(ctx context.Context, staged string) (rolledBack bool, err er
 	if t.opts.TargetSchema != nil {
 		// An unreadable target schema falls through: the ordinary path below
 		// re-reads it after the swap and rolls back with its established wording.
-		if v, err := t.opts.TargetSchema(ctx, staged); err == nil && v >= 3 {
+		if v, err := t.opts.TargetSchema(ctx, staged); err == nil && t.crossesIntoSchema3(v) {
 			return t.applySchema3(ctx, staged)
 		}
 	}

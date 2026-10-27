@@ -435,3 +435,24 @@ func TestHTTPProberDecodesSchemaVersion(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, Health{Status: "ok", Version: "9.29.0", SchemaVersion: 3}, h)
 }
+
+// An update between two schema-3 releases is an ordinary binary swap: it must
+// not enter the schema-2 → schema-3 transaction, whose gate refuses data that
+// is already schema 3.
+func TestTxnSameSchema3UpdateIsOrdinarySwap(t *testing.T) {
+	e := newTxEnv(t, schemaProbe(3, 3))
+	e.txn.opts.TargetSchema, e.txn.opts.CurrentSchema = targetSchema(3), 3
+	rb, err := e.run()
+	require.NoError(t, err)
+	require.False(t, rb)
+	require.Equal(t, "new", e.binary())
+	require.NotContains(t, e.out.String(), "schema-3 update transaction")
+}
+
+func TestTxnCrossingIntoSchema3StillRequiresTransaction(t *testing.T) {
+	e := newTxEnv(t, schemaProbe(2, 3))
+	e.txn.opts.TargetSchema, e.txn.opts.CurrentSchema = targetSchema(3), 2
+	_, err := e.run()
+	require.ErrorContains(t, err, "schema3:", "routed into the schema-3 transaction")
+	require.Equal(t, "old", e.binary(), "nothing swapped")
+}
