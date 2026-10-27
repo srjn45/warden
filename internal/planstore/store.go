@@ -335,14 +335,24 @@ func (s *Store) Get(ctx context.Context, id string) (*Plan, error) {
 	return s.get(id)
 }
 
+// allPlans selects every plan through the unique id index: every plan has a
+// non-empty id, so id > "" matches all of them. A MatchAll scan instead streams
+// and decodes every segment line, superseded revisions included, so its cost
+// grows with the collection's write history rather than its live size.
+var allPlans query.Filter = &query.FieldFilter{Field: "id", Op: query.OpGt, Value: `""`}
+
 // List returns all plans, newest-updated first.
 func (s *Store) List(ctx context.Context) ([]*Plan, error) {
+	return s.list(ctx, allPlans)
+}
+
+func (s *Store) list(ctx context.Context, filter query.Filter) ([]*Plan, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rows, err := s.col.Scan(query.MatchAll)
+	rows, err := s.col.Scan(filter)
 	if err != nil {
 		return nil, err
 	}
@@ -359,8 +369,14 @@ func (s *Store) List(ctx context.Context) ([]*Plan, error) {
 }
 
 // ListByProject returns all plans for the given project, newest-updated first.
+// It reads through the project_id index, so only that project's live plans are
+// decoded.
 func (s *Store) ListByProject(ctx context.Context, projectID string) ([]*Plan, error) {
-	all, err := s.List(ctx)
+	value, err := json.Marshal(projectID)
+	if err != nil {
+		return nil, err
+	}
+	all, err := s.list(ctx, &query.FieldFilter{Field: "project_id", Op: query.OpEq, Value: string(value)})
 	if err != nil {
 		return nil, err
 	}
