@@ -216,9 +216,6 @@ func runUpdateMigrations(ctx context.Context, cfgPath, dataDir, installBin strin
 	if err != nil {
 		return fmt.Errorf("read the new binary's data schema: %w", err)
 	}
-	if target >= 3 {
-		return migrate.ErrUpdaterTransactionRequired
-	}
 	current := 0
 	switch l, err := schema.Load(dataDir); {
 	case err == nil:
@@ -235,6 +232,11 @@ func runUpdateMigrations(ctx context.Context, cfgPath, dataDir, installBin strin
 	}
 	if target == 0 || current >= target {
 		return nil
+	}
+	// Crossing into schema 3 is owned by the paired updater transaction, never
+	// by this in-place migrate step. Data already at the target needs neither.
+	if target >= 3 {
+		return migrate.ErrUpdaterTransactionRequired
 	}
 	fmt.Fprintf(out, "migrating data schema %d → %d with the new binary…\n", current, target)
 	if err := runTargetMigrate(ctx, installBin, dataDir, out); err != nil {
