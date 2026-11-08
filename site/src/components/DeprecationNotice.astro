@@ -1,0 +1,45 @@
+---
+// Site-wide notice: warden is deprecated in favour of wdx.
+// Rendered at the top of the landing page and, via the Starlight Banner
+// override, on every docs and blog page.
+const wdxSite = 'https://srjn45.github.io/wdx/';
+const wdxInstall = 'https://srjn45.github.io/wdx/docs/start/install/';
+const wdxRepo = 'https://github.com/srjn45/wdx';
+---
+<aside class="wdx-deprecation" role="note" aria-label="warden is deprecated">
+  <p>
+    <strong>warden is deprecated.</strong>
+    It is no longer developed; new work happens in
+    <a href={wdxSite}>wdx</a>, the next generation of warden.
+    <a href={wdxInstall}>Install wdx</a> ·
+    <a href={wdxRepo}>wdx on GitHub</a>.
+    The warden docs below stay up for anyone still using it.
+  </p>
+</aside>
+
+<style>
+  .wdx-deprecation {
+    background: #3d2e00;
+    color: #f8e3a1;
+    border-bottom: 1px solid #9e6a03;
+    padding: 10px 16px;
+    font-size: 0.92rem;
+    line-height: 1.5;
+    text-align: center;
+  }
+  .wdx-deprecation p { margin: 0 auto; max-width: 960px; }
+  .wdx-deprecation strong { color: #ffd866; }
+  .wdx-deprecation a { color: #ffd866; text-decoration: underline; font-weight: 600; }
+  .wdx-deprecation a:hover { color: #fff; }
+  @media (prefers-color-scheme: light) {
+    .wdx-deprecation { background: #fff8c5; color: #3b2300; border-bottom-color: #d4a72c; }
+    .wdx-deprecation strong, .wdx-deprecation a { color: #7d4e00; }
+    .wdx-deprecation a:hover { color: #3b2300; }
+  }
+  :root[data-theme='light'] .wdx-deprecation { background: #fff8c5; color: #3b2300; border-bottom-color: #d4a72c; }
+  :root[data-theme='light'] .wdx-deprecation strong,
+  :root[data-theme='light'] .wdx-deprecation a { color: #7d4e00; }
+  :root[data-theme='dark'] .wdx-deprecation { background: #3d2e00; color: #f8e3a1; border-bottom-color: #9e6a03; }
+  :root[data-theme='dark'] .wdx-deprecation strong,
+  :root[data-theme='dark'] .wdx-deprecation a { color: #ffd866; }
+</style>

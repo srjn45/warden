@@ -3,6 +3,12 @@ title: Install & setup
 description: Prerequisites, installing the binary, running the daemon as a service (launchd on macOS, systemd on Linux), and wiring in the Claude Code hooks.
 ---
 
+:::caution[warden is deprecated]
+warden is no longer developed. New work happens in [wdx](https://srjn45.github.io/wdx/),
+the next generation of warden: see the [wdx install page](https://srjn45.github.io/wdx/docs/start/install/)
+for a fresh setup. The steps below still install warden for anyone who needs it.
+:::
+
 ## Prerequisites
 
 - **Go 1.26+** — to build the binary (only needed for `go install` or building from source)
