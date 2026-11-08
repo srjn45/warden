@@ -32,6 +32,10 @@ export default defineConfig({
         replacesTitle: true,
       },
       favicon: '/favicon.svg',
+      // warden is deprecated in favour of wdx: show the notice on every docs page.
+      components: {
+        Banner: './src/components/overrides/Banner.astro',
+      },
       head: [
         { tag: 'meta', attrs: { property: 'og:image', content: 'https://srjn45.github.io/warden/og-image.png' } },
         { tag: 'meta', attrs: { name: 'twitter:card', content: 'summary_large_image' } },

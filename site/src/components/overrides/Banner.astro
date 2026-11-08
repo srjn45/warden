@@ -1,0 +1,8 @@
+---
+// Starlight Banner override: always show the wdx deprecation notice, then any
+// per-page `banner` frontmatter the default component would have rendered.
+import Default from '@astrojs/starlight/components/Banner.astro';
+import DeprecationNotice from '../DeprecationNotice.astro';
+---
+<DeprecationNotice />
+<Default><slot /></Default>

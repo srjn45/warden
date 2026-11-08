@@ -9,6 +9,13 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/srjn45/warden.svg)](https://pkg.go.dev/github.com/srjn45/warden)
 [![Release](https://img.shields.io/github/v/release/srjn45/warden?sort=semver)](https://github.com/srjn45/warden/releases)
 
+> [!WARNING]
+> **warden is deprecated.** It is no longer developed, and new work happens in
+> **[wdx](https://srjn45.github.io/wdx/)**, the next generation of warden.
+> [Install wdx](https://srjn45.github.io/wdx/docs/start/install/) ·
+> [wdx on GitHub](https://github.com/srjn45/wdx).
+> The rest of this README stays as it was, for anyone still running warden.
+
 > 📖 **Docs & guide:** https://srjn45.github.io/warden/
 
 **Run a fleet of coding agents without losing your mind.** warden is a single Go
